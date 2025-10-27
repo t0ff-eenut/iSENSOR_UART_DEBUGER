@@ -12,7 +12,7 @@
 # ******************************************************************************
 # * first update : 2025/08/21
 # ******************************************************************************
-# * final update : 2025/10/21
+# * final update : 2025/10/27
 # ******************************************************************************
 # */
 
@@ -33,8 +33,8 @@ if __name__ == '__main__':
     print("UART 초기화",end="\n\n")
     if MODE == UART:
         serial_comport_handle = uart_init()
-        print("UART Receive Thread 시작",end="\n\n")
         print("BAUD_RATE_SEL : ", BAUD_RATE_SEL, end="\n\n")
+        print("UART Receive Thread 시작",end="\n\n")
         uart_receive_thread = Thread(name="UART RECEIVE THREAD", target=uart_receive, daemon=1)
         uart_receive_thread.start()
     
@@ -42,7 +42,6 @@ if __name__ == '__main__':
     uart_receive_data_process_thread = Thread(name="UART RECEIVE DATA PROCESS THREAD", target=uart_receive_data_process_thread, daemon=1)
     uart_receive_data_process_thread.start()
 ################## GRAPH SETTING ##############################
-    # gs = graph_init()
     app = graph_init()
 
 

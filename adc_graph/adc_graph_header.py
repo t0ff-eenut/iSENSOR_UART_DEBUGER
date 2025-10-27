@@ -42,39 +42,47 @@ A_GRAPH_TITLE_DEFINE = ["ADC"
                         ,"ADC_DELTA_ZOOM"
                         ]
 
+# class C_CURVE_DEFINE(IntEnum):
+#     GRAPH_START             = 0
+#     DATA_CURVE              = GRAPH_START
+#     MIN_CURVE               = DATA_CURVE            + 1
+#     MAX_CURVE               = MIN_CURVE             + 1
+#     MID_CURVE               = MAX_CURVE             + 1
+#     MEAN_CURVE              = MID_CURVE             + 1
+#     MIN_MAX_CENTER_CURVE    = MEAN_CURVE            + 1
+#     OTSU_CURVE              = MIN_MAX_CENTER_CURVE  + 1
+#     MOVING_AVG_STD_HIGH     = OTSU_CURVE            + 1
+#     MOVING_AVG_STD_LOW      = MOVING_AVG_STD_HIGH   + 1
+#     NOMAL_GRAPH_SIZE        = MOVING_AVG_STD_LOW    + 1
+
+#     OCCU_GRAPH_START        = NOMAL_GRAPH_SIZE
+#     OTSU_OCCU_CURVE         = OCCU_GRAPH_START
+#     MOVING_STD_OCCU_CURVE   = OTSU_OCCU_CURVE + 1
+#     OCCU_GRAPH_SIZE         = MOVING_STD_OCCU_CURVE + 1
+
+#     DATA_GRAPH_START        = OCCU_GRAPH_SIZE
+#     OTSU_COUNT_CURVE        = DATA_GRAPH_START
+#     DATA_GRAPH_SIZE         = OTSU_COUNT_CURVE + 1
+
+#     CURVE_DEFINE_ARRAY_SIZE = DATA_GRAPH_SIZE
+
+
 class C_CURVE_DEFINE(IntEnum):
     GRAPH_START             = 0
     DATA_CURVE              = GRAPH_START
-    MIN_CURVE               = DATA_CURVE            + 1
-    MAX_CURVE               = MIN_CURVE             + 1
-    MID_CURVE               = MAX_CURVE             + 1
-    MEAN_CURVE              = MID_CURVE             + 1
-    MIN_MAX_CENTER_CURVE    = MEAN_CURVE            + 1
-    OTSU_CURVE              = MIN_MAX_CENTER_CURVE  + 1
-    MOVING_AVG_STD_HIGH     = OTSU_CURVE            + 1
-    MOVING_AVG_STD_LOW      = MOVING_AVG_STD_HIGH   + 1
-    NOMAL_GRAPH_SIZE        = MOVING_AVG_STD_LOW    + 1
-
-    OCCU_GRAPH_START        = NOMAL_GRAPH_SIZE
-    OTSU_OCCU_CURVE         = OCCU_GRAPH_START
-    MOVING_STD_OCCU_CURVE   = OTSU_OCCU_CURVE + 1
-    OCCU_GRAPH_SIZE         = MOVING_STD_OCCU_CURVE + 1
-
-    DATA_GRAPH_START        = OCCU_GRAPH_SIZE
-    OTSU_COUNT_CURVE        = DATA_GRAPH_START
-    DATA_GRAPH_SIZE         = OTSU_COUNT_CURVE + 1
-
+    DATA_GRAPH_SIZE         = DATA_CURVE + 1
     CURVE_DEFINE_ARRAY_SIZE = DATA_GRAPH_SIZE
 
+
 A_GRAPH_COLOR_DEFINE = ['white'         # DATA_CURVE
-                        ,'gray'         # MIN_CURVE
-                        ,'gray'         # MAX_CURVE
-                        ,'blue'         # MID_CURVE             // 배열 중앙값
-                        ,'green'        # MEAN_CURVE            // 배열 평균값
-                        ,'light green'  # MIN_MAX_CENTER_CURVE  // 배열 MIN MAX 중앙값
-                        ,'red'          # OTSU_CURVE            // 배열 OTSU
-                        ,'yellow'       # MOVING_AVG_STD_HIGH
-                        ,'yellow'       # MOVING_AVG_STD_LOW 
+                        # ,'gray'         # MIN_CURVE
+                        # ,'gray'         # MAX_CURVE
+                        # ,'blue'         # MID_CURVE             // 배열 중앙값
+                        # ,'green'        # MEAN_CURVE            // 배열 평균값
+                        # ,'light green'  # MIN_MAX_CENTER_CURVE  // 배열 MIN MAX 중앙값
+                        # ,'red'          # OTSU_CURVE            // 배열 OTSU
+                        # ,'yellow'       # MOVING_AVG_STD_HIGH
+                        # ,'yellow'       # MOVING_AVG_STD_LOW 
                         ]
 
 class C_GRAPH_OCCUPANCY_DEFINE(IntEnum):

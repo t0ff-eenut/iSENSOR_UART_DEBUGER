@@ -3,6 +3,7 @@ from .adc_graph_header import *
 class C_RECEIVE_QUEUE_DEFINE(IntEnum):
     RAW_ADC     = 0
     RAW_VOLTAGE = 1
+    TP1         = 2
 
 class C_OTSU_RETURN_DEFINE(IntEnum):
     MAX_TH      = 0
