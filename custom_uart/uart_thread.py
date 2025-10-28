@@ -422,15 +422,18 @@ def uart_receive_data_process_thread():
                                 # print("rus.ui8_adc : ", rus.ui8_adc)
                                 # print("rus.ui8_voltage : ", rus.ui8_voltage)
                                 # print("rus.ui8_tp1 : ", rus.ui8_tp1)
+
                                 # print("rus.ui8_group_2_length : ", rus.ui8_group_2_length)
                                 # print("rus.ui8_group_2_8bit_length : ", rus.ui8_group_2_8bit_length)
                                 # print("rus.ui8_tp2 : ", rus.ui8_tp2)
                                 # print("rus.ui8_switch_status : ", rus.ui8_switch_status)
                                 # print("rus.ui8_occu_triger : ", rus.ui8_occu_triger)
+
                                 # print("rus.ui8_group_3_length : ", rus.ui8_group_3_length)
                                 # print("rus.ui8_group_3_8bit_length : ", rus.ui8_group_3_8bit_length)
                                 # print("rus.ui8_adc_buf : ", rus.ui8_adc_buf)
                                 # print("rus.ui8_adc_delta_buf : ", rus.ui8_adc_delta_buf)
+
                                 # print("rus.ui8_group_4_length : ", rus.ui8_group_4_length)
                                 # print("rus.ui8_group_4_8bit_length : ", rus.ui8_group_4_8bit_length)
                                 # print("rus.ui8_occu_buf : ", rus.ui8_occu_buf)
@@ -442,13 +445,59 @@ def uart_receive_data_process_thread():
                                 i_voltage = 0
                                 i_tp1 = 0
                                 for i in range(rus.ui8_group_1_8bit_length):
-                                    i_adc       = i_adc     | (rus.ui8_adc[i]       << (8 * i))
-                                    i_voltage   = i_voltage | (rus.ui8_voltage[i]   << (8 * i))
-                                    i_tp1       = i_tp1     | (rus.ui8_tp1[i]       << (8 * i))
+                                    i_adc           = i_adc             | (rus.ui8_adc[i]           << (8 * i))
+                                    i_voltage       = i_voltage         | (rus.ui8_voltage[i]       << (8 * i))
+                                    i_tp1           = i_tp1             | (rus.ui8_tp1[i]           << (8 * i))
+
+                                i_tp2 = 0
+                                i_switch_status = 0
+                                i_occu_triger = 0
+                                for i in range(rus.ui8_group_2_8bit_length):
+                                    i_tp2           = i_tp2             | (rus.ui8_tp2[i]           << (8 * i))
+                                    i_switch_status = i_switch_status   | (rus.ui8_switch_status[i] << (8 * i))
+                                    i_occu_triger   = i_occu_triger     | (rus.ui8_occu_triger[i]   << (8 * i))
+
+                                i_A_adc_buf = []
+                                i_adc_buf = 0
+                                i_A_adc_delta_buf = []
+                                i_adc_delta_buf = 0
+                                for i in range(rus.ui8_group_3_8bit_length):
+                                    i_adc_buf       = i_adc_buf         | (rus.ui8_adc_buf[i]       << (8 * (i % 2)))
+                                    i_adc_delta_buf = i_adc_delta_buf   | (rus.ui8_adc_delta_buf[i] << (8 * (i % 2)))
+                                    if i % 2 == 1:
+                                        i_A_adc_buf.append(i_adc_buf)
+                                        i_A_adc_delta_buf.append(i_adc_delta_buf)
+                                        i_adc_buf = 0
+                                        i_adc_delta_buf = 0
+
+                                i_A_occu_buf = []
+                                for i in range(rus.ui8_group_4_8bit_length):
+                                    i_A_occu_buf.append(rus.ui8_occu_buf[i])
+
+
+                                # i_A_occu_buf = []
+                                # i_occu_buf = 0
+                                # for i in range(rus.ui8_group_4_8bit_length):
+                                #     i_occu_buf       = i_occu_buf         | (rus.ui8_occu_buf[i]       << (8 * i))
+                                #     i_A_occu_buf.append(i_occu_buf)
+                                #     i_occu_buf = 0
+
+
+                                # print("i_A_adc_buf : ", i_A_adc_buf)
+                                # print("i_A_adc_delta_buf : ", i_A_adc_delta_buf)
+                                # print("i_A_occu_buf : ", i_A_occu_buf)
+                                # print("rus.ui8_occu_buf : ", rus.ui8_occu_buf)
+
                                 A_receive_data.append(i_adc)
                                 A_receive_data.append(i_voltage)
                                 A_receive_data.append(i_tp1)
-                                # A_receive_data.append(b_refresh)
+                                A_receive_data.append(i_tp2)
+                                A_receive_data.append(i_switch_status)
+                                A_receive_data.append(i_occu_triger)
+                                A_receive_data.append(i_A_adc_buf)
+                                A_receive_data.append(i_A_adc_delta_buf)
+                                A_receive_data.append(i_A_occu_buf)
+                                
                                 Q_data_buffer.put(A_receive_data)
                             # else:
                                 # print("CHKSUM Level Error -> Go SIGNAL")
@@ -465,6 +514,7 @@ def uart_receive_data_process_thread():
                             rus.ui8_adc_buf         = []
                             rus.ui8_adc_delta_buf   = []
                             rus.ui8_occu_buf        = []
+
                         case _:
                             # # print("Unknown signal received")
                             pass

@@ -70,12 +70,13 @@ A_GRAPH_TITLE_DEFINE = ["ADC"
 class C_CURVE_DEFINE(IntEnum):
     GRAPH_START             = 0
     DATA_CURVE              = GRAPH_START
-    DATA_GRAPH_SIZE         = DATA_CURVE + 1
+    OCCU_CURVE              = DATA_CURVE + 1
+    DATA_GRAPH_SIZE         = OCCU_CURVE + 1
     CURVE_DEFINE_ARRAY_SIZE = DATA_GRAPH_SIZE
 
 
 A_GRAPH_COLOR_DEFINE = ['white'         # DATA_CURVE
-                        # ,'gray'         # MIN_CURVE
+                        ,'green'         # MIN_CURVE
                         # ,'gray'         # MAX_CURVE
                         # ,'blue'         # MID_CURVE             // 배열 중앙값
                         # ,'green'        # MEAN_CURVE            // 배열 평균값

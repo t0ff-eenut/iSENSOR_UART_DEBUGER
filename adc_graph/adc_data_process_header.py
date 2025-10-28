@@ -1,9 +1,15 @@
 from .adc_graph_header import *
 
 class C_RECEIVE_QUEUE_DEFINE(IntEnum):
-    RAW_ADC     = 0
-    RAW_VOLTAGE = 1
-    TP1         = 2
+    RAW_ADC         = 0
+    RAW_VOLTAGE     = 1
+    TP1             = 2
+    TP2             = 3
+    SWITCH_STATUS   = 4
+    OCCU_TRIGER     = 5
+    A_ADC_BUF       = 6
+    A_ADC_DELTA_BUF = 7
+    A_OCCU_BUF      = 8
 
 class C_OTSU_RETURN_DEFINE(IntEnum):
     MAX_TH      = 0
