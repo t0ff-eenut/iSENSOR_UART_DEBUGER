@@ -231,16 +231,7 @@ def graph_refresh():
         for sel_graph_handle_num, sel_graph_handle in builtins.enumerate(list(A_graph_handle)):
             for sel_curve_num, sel_curve in builtins.enumerate(list(sel_graph_handle.curve)):
                 sel_curve.setData(sel_graph_handle.A_data_windows[sel_curve_num])   # [][..., ..., ....]
-
-            sel_graph_handle.last_data_text.setText(
-                # f"RAW/Delta(White): {sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE][len(sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE])-1]}\n"
-                # f"전체 배열: {sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE]}\n"
-                f" ".join([str(x) for x in sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE]])+"\n"
-                +f"RAW/Delta(White): {sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE][0]}\n"
-                +f"MIN MAX 중앙값(Blue): {((int(min(sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE])) + int(max(sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE]))) / 2)}\n"
-                +f"중앙값(Yellow): {int(median(sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE]))}\n"
-                +f"평균값(Orange): {int(mean(sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE]))}\n"
-                )
+                
             if sel_graph_handle_num > 0:
                 sel_graph_handle.last_data_text.setText(
                     # f"RAW/Delta(White): {sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE][len(sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE])-1]}\n"
@@ -254,6 +245,17 @@ def graph_refresh():
                     +f"TP1(Red): {i_tp1}\n"
                     +f"TP2: {i_tp2}\n"
                     )
+            else:
+                sel_graph_handle.last_data_text.setText(
+                    # f"RAW/Delta(White): {sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE][len(sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE])-1]}\n"
+                    # f"전체 배열: {sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE]}\n"
+                    f" ".join([str(x) for x in sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE]])+"\n"
+                    +f"RAW/Delta(White): {sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE][0]}\n"
+                    +f"MIN MAX 중앙값(Blue): {((int(min(sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE])) + int(max(sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE]))) / 2)}\n"
+                    +f"중앙값(Yellow): {int(median(sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE]))}\n"
+                    +f"평균값(Orange): {int(mean(sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE]))}\n"
+                    )
+                
             sel_graph_handle.last_data_text.setPos(A_GRAPH_X_RANGE_DEFINE[sel_graph_handle_num] - 5, A_GRAPH_Y_RANGE_DEFINE[sel_graph_handle_num] * 0.65)
 
             i_last_min_data = int(min(sel_graph_handle.A_data_windows[C_CURVE_DEFINE.DATA_CURVE]))
