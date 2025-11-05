@@ -30,6 +30,7 @@ def data_process():
 
     while True:
         if not Q_data_buffer.empty():
+            # print("Q_data_buffer.qsize() : ", Q_data_buffer.qsize())
             # if len(A_adc_graph_object[C_CURVE_DEFINE.DATA_CURVE]) > d_WINDOW_SIZE:
             #     # 1~100 개만 유지
             #     for i_curve_index in range(C_CURVE_DEFINE.DATA_CURVE, C_CURVE_DEFINE.CURVE_DEFINE_ARRAY_SIZE, 1):

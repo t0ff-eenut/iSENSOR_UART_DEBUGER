@@ -59,11 +59,13 @@ def graph_data_setting():
     try:
         while True:
             if not Q_adc_graph_data_buffer.empty():
+                # print("Q_adc_graph_data_buffer.qsize() : ", Q_adc_graph_data_buffer.qsize())
                 A_receive_data = Q_adc_graph_data_buffer.get()
                 for i_curve_data_index in range(C_CURVE_DEFINE.GRAPH_START, C_CURVE_DEFINE.CURVE_DEFINE_ARRAY_SIZE, 1):
                     A_graph_handle[C_GRAPH_DEFINE.ADC_GRAPH].A_data_windows[i_curve_data_index] = A_receive_data[i_curve_data_index]
 
             if not Q_adc_delta_graph_data_buffer.empty():
+                # print("Q_adc_delta_graph_data_buffer.qsize() : ", Q_adc_delta_graph_data_buffer.qsize())
                 A_receive_data = Q_adc_delta_graph_data_buffer.get()
                 for i_curve_data_index in range(C_CURVE_DEFINE.GRAPH_START, C_CURVE_DEFINE.CURVE_DEFINE_ARRAY_SIZE, 1):
                     # print("i_curve_data_index : ", i_curve_data_index)
