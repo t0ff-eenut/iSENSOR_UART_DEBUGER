@@ -28,18 +28,22 @@ class C_GRAPH_DEFINE(IntEnum):
     ADC_GRAPH               = 0
     ADC_DELTA_GRAPH         = 1
     ADC_DELTA_GRAPH_ZOOM    = 2
+    BANDFILTER_GRAPH        = 3
 
 A_GRAPH_X_RANGE_DEFINE = [d_GRAPH_X_RANGE      # ADC
                           ,d_GRAPH_X_RANGE     # ADC_DELTA
-                          ,d_GRAPH_X_RANGE     # ADC_DELTA
+                          ,d_GRAPH_X_RANGE     # ADC_DELTA_ZOOM
+                          ,d_GRAPH_X_RANGE     # BANDFILTER
                           ]   
 A_GRAPH_Y_RANGE_DEFINE = [d_ADC_MAX_RANGE      # ADC
                           ,d_ADC_MAX_RANGE     # ADC_DELTA
-                          ,300                 # ADC_DELTA
+                          ,300                 # ADC_DELTA_ZOOM
+                          ,200                # BANDFILTER
                           ]    
 A_GRAPH_TITLE_DEFINE = ["ADC" 
                         ,"ADC_DELTA"
                         ,"ADC_DELTA_ZOOM"
+                        ,"BANDFILTER"
                         ]
 
 # class C_CURVE_DEFINE(IntEnum):
@@ -67,16 +71,22 @@ A_GRAPH_TITLE_DEFINE = ["ADC"
 #     CURVE_DEFINE_ARRAY_SIZE = DATA_GRAPH_SIZE
 
 
+# class C_CURVE_DEFINE(IntEnum):
+#     GRAPH_START             = 0
+#     DATA_CURVE              = GRAPH_START
+#     OCCU_CURVE              = DATA_CURVE + 1
+#     DATA_GRAPH_SIZE         = OCCU_CURVE + 1
+#     CURVE_DEFINE_ARRAY_SIZE = DATA_GRAPH_SIZE
 class C_CURVE_DEFINE(IntEnum):
     GRAPH_START             = 0
     DATA_CURVE              = GRAPH_START
     OCCU_CURVE              = DATA_CURVE + 1
-    DATA_GRAPH_SIZE         = OCCU_CURVE + 1
-    CURVE_DEFINE_ARRAY_SIZE = DATA_GRAPH_SIZE
-
+    TP1_CURVE               = OCCU_CURVE + 1
+    CURVE_DEFINE_ARRAY_SIZE = TP1_CURVE + 1
 
 A_GRAPH_COLOR_DEFINE = ['white'         # DATA_CURVE
-                        ,'green'         # MIN_CURVE
+                        ,'green'        # MIN_CURVE
+                        ,'read'         # TP1
                         # ,'gray'         # MAX_CURVE
                         # ,'blue'         # MID_CURVE             // 배열 중앙값
                         # ,'green'        # MEAN_CURVE            // 배열 평균값

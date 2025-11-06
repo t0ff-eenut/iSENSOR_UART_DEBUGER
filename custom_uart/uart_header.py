@@ -36,6 +36,9 @@ class receive_uart_adc_structer:
                  , ui8_group_2_length, ui8_group_2_8bit_length, ui8_tp2, ui8_switch_status, ui8_occu_triger
                  , ui8_group_3_length, ui8_group_3_8bit_length, ui8_adc_buf, ui8_adc_delta_buf
                  , ui8_group_4_length, ui8_group_4_8bit_length, ui8_occu_buf
+#####################################################################################################
+                 , ui8_group_5_length, ui8_group_5_8bit_length, ui8_bandfilter_buf
+#####################################################################################################
                  , ui8_chksum, ui8_dummy):
         self.ui8_signal                 = ui8_signal
 
@@ -59,7 +62,11 @@ class receive_uart_adc_structer:
         self.ui8_group_4_length         = ui8_group_4_length
         self.ui8_group_4_8bit_length    = ui8_group_4_8bit_length
         self.ui8_occu_buf               = ui8_occu_buf
-
+#####################################################################################################
+        self.ui8_group_5_length         = ui8_group_5_length
+        self.ui8_group_5_8bit_length    = ui8_group_5_8bit_length
+        self.ui8_bandfilter_buf         = ui8_bandfilter_buf
+#####################################################################################################
         self.ui8_chksum                 = ui8_chksum
         self.ui8_dummy                  = ui8_dummy
 
@@ -87,9 +94,13 @@ class C_UART_RECEIVE_DATA_PROCESS_LEVEL(IntEnum):
     GROUP_4_LENGTH      = 15
     GROUP_4_BIT_LENGTH  = 16
     OCCU_BUF            = 17
-
-    CHECKSUM            = 18
-    DUMMY               = 19
+#####################################################################################################
+    GROUP_5_LENGTH      = 18
+    GROUP_5_BIT_LENGTH  = 19
+    BANDFILTER_BUF      = 20
+#####################################################################################################
+    CHECKSUM            = 21
+    DUMMY               = 22
 
 class C_UART_SIGNAL(IntEnum):
     ADC_SIGNAL = 0xCC

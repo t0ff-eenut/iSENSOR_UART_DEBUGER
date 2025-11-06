@@ -111,6 +111,11 @@ def receive_uart_adc_structer_checksum(receive_uart_adc_structer_value):
     # bytes.fromhex("00"),    # ui8_group_4_length
     # bytes.fromhex("00"),    # ui8_group_4_8bit_length
     # [],                     # ui8_occu_buf
+    #####################################################################################################
+    # bytes.fromhex("00"),    # ui8_group_5_length
+    # bytes.fromhex("00"),    # ui8_group_5_8bit_length
+    # [],                     # ui8_bandfilter_buf
+    #####################################################################################################
     # bytes.fromhex("00"),    # ui8_chksum
     # bytes.fromhex("00"),    # ui8_dummy
 
@@ -203,6 +208,22 @@ def receive_uart_adc_structer_checksum(receive_uart_adc_structer_value):
         else:
             checksum ^= ui8_occu_buf_8byte
 
+#####################################################################################################
+    if isinstance(receive_uart_adc_structer_value.ui8_group_5_length, bytes):
+        checksum ^= receive_uart_adc_structer_value.ui8_group_5_length[0]
+    else:
+        checksum ^= receive_uart_adc_structer_value.ui8_group_5_length
+    if isinstance(receive_uart_adc_structer_value.ui8_group_5_8bit_length, bytes):
+        checksum ^= receive_uart_adc_structer_value.ui8_group_5_8bit_length[0]
+    else:
+        checksum ^= receive_uart_adc_structer_value.ui8_group_5_8bit_length
+    for ui8_bandfilter_buf_8byte in receive_uart_adc_structer_value.ui8_bandfilter_buf:
+        if isinstance(ui8_bandfilter_buf_8byte, bytes):
+            checksum ^= ui8_bandfilter_buf_8byte[0]
+        else:
+            checksum ^= ui8_bandfilter_buf_8byte
+#####################################################################################################
+
     return checksum
 ################## UART Checksum Process ##############################
 
@@ -228,6 +249,11 @@ def uart_receive_data_process_thread():
                                     bytes.fromhex("00"),    # ui8_group_4_length
                                     bytes.fromhex("00"),    # ui8_group_4_8bit_length
                                     [],                     # ui8_occu_buf
+#####################################################################################################
+                                    bytes.fromhex("00"),    # ui8_group_5_length
+                                    bytes.fromhex("00"),    # ui8_group_5_8bit_length
+                                    [],                     # ui8_bandfilter_buf
+#####################################################################################################
                                     bytes.fromhex("00"),    # ui8_chksum
                                     bytes.fromhex("00"),    # ui8_dummy
                                     )
@@ -244,282 +270,318 @@ def uart_receive_data_process_thread():
     while True:
         try:
             if MODE == UART:
-                if not Q_uart_buffer.empty():
-                    byte_uart_read_8bit = Q_uart_buffer.get()   ## read CMD Signal(Byte단위[8bit])
-                    ##############################
-                    # 들어오는 Bit
-                    # print("RAW DATA : ", byte_uart_read_8bit)
-                    # print("UART DATA : ", byte_uart_read_8bit[0], " ", hex(byte_uart_read_8bit[0]))
-                    print("UART DATA : ", byte_uart_read_8bit[0], " ", hex(byte_uart_read_8bit[0]),end="\n")
-                    ##############################
+                try:
+                    # Block for 1 second then timeout
+                    byte_uart_read_8bit = Q_uart_buffer.get(timeout=1)
+                except Empty:
+                    # If the queue is empty, just continue to the next iteration
+                    continue
 
-                    ########## Process Level ##########
-                    match i_switch_level:
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.SIGNAL:
-                            ########## Signal 판단 ##########
-                            match byte_uart_read_8bit[0]:
-                                case C_UART_SIGNAL.ADC_SIGNAL:
-                                    # # print("ADC signal received")
-                                    # print("<- SIGNAL")
-                                    ruas.ui8_signal = byte_uart_read_8bit[0]
-                                    i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_1_LENGTH
-                                case _:
-                                    # # print("Unknown signal received")
-                                    pass
+                # print("Q_uart_buffer.qsize() : ", Q_uart_buffer.qsize())
+                ##############################
+                # 들어오는 Bit
+                # print("RAW DATA : ", byte_uart_read_8bit)
+                # print("UART DATA : ", byte_uart_read_8bit[0], " ", hex(byte_uart_read_8bit[0]))
+                # print("UART DATA : ", byte_uart_read_8bit[0], " ", hex(byte_uart_read_8bit[0]),end="\n")
+                ##############################
 
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_1_LENGTH:
-                            ########## Bit Length 판단 ##########
-                            # print("<- GROUP_1_LENGTH")
-                            ruas.ui8_group_1_length = byte_uart_read_8bit[0]
-                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_1_BIT_LENGTH
+                ########## Process Level ##########
+                match i_switch_level:
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.SIGNAL:
+                        ########## Signal 판단 ##########
+                        match byte_uart_read_8bit[0]:
+                            case C_UART_SIGNAL.ADC_SIGNAL:
+                                # # print("ADC signal received")
+                                # print("<- SIGNAL")
+                                ruas.ui8_signal = byte_uart_read_8bit[0]
+                                i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_1_LENGTH
+                            case _:
+                                # # print("Unknown signal received")
+                                pass
 
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_1_BIT_LENGTH:
-                            # print("<- GROUP_1_BIT_LENGTH")
-                            ########## Bit Length 판단 ##########
-                            ruas.ui8_group_1_8bit_length = byte_uart_read_8bit[0]
-                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.ADC
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_1_LENGTH:
+                        ########## Bit Length 판단 ##########
+                        # print("<- GROUP_1_LENGTH")
+                        ruas.ui8_group_1_length = byte_uart_read_8bit[0]
+                        i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_1_BIT_LENGTH
 
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.ADC:
-                            # print("<- ADC")
-                            ########## ADC 판단 ##########
-                            ruas.ui8_adc.append(byte_uart_read_8bit[0])
-                            if len(ruas.ui8_adc) == ruas.ui8_group_1_8bit_length:
-                                i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.VOLTAGE
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_1_BIT_LENGTH:
+                        # print("<- GROUP_1_BIT_LENGTH")
+                        ########## Bit Length 판단 ##########
+                        ruas.ui8_group_1_8bit_length = byte_uart_read_8bit[0]
+                        i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.ADC
 
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.VOLTAGE:
-                            # print("<- VOLTAGE")
-                            ########## Voltage 판단 ##########
-                            ruas.ui8_voltage.append(byte_uart_read_8bit[0])
-                            if len(ruas.ui8_voltage) == ruas.ui8_group_1_8bit_length:
-                                i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.TP1
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.ADC:
+                        # print("<- ADC")
+                        ########## ADC 판단 ##########
+                        ruas.ui8_adc.append(byte_uart_read_8bit[0])
+                        if len(ruas.ui8_adc) == ruas.ui8_group_1_8bit_length:
+                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.VOLTAGE
 
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.TP1:
-                            # print("<- TP1")
-                            ########## Voltage 판단 ##########
-                            ruas.ui8_tp1.append(byte_uart_read_8bit[0])
-                            if len(ruas.ui8_tp1) == ruas.ui8_group_1_8bit_length:
-                                i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_2_LENGTH
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.VOLTAGE:
+                        # print("<- VOLTAGE")
+                        ########## Voltage 판단 ##########
+                        ruas.ui8_voltage.append(byte_uart_read_8bit[0])
+                        if len(ruas.ui8_voltage) == ruas.ui8_group_1_8bit_length:
+                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.TP1
 
-
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_2_LENGTH:
-                            # print("<- GROUP_2_LENGTH")
-                            ########## Bit Length 판단 ##########
-                            ruas.ui8_group_2_length = byte_uart_read_8bit[0]
-                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_2_BIT_LENGTH
-
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_2_BIT_LENGTH:
-                            # print("<- GROUP_2_BIT_LENGTH")
-                            ########## Bit Length 판단 ##########
-                            ruas.ui8_group_2_8bit_length = byte_uart_read_8bit[0]
-                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.TP2
-
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.TP2:
-                            # print("<- TP2")
-                            ########## ADC 판단 ##########
-                            ruas.ui8_tp2.append(byte_uart_read_8bit[0])
-                            if len(ruas.ui8_tp2) == ruas.ui8_group_2_8bit_length:
-                                i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.SWITCH_STATUS
-
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.SWITCH_STATUS:
-                            # print("<- SWITCH_STATUS")
-                            ########## Voltage 판단 ##########
-                            ruas.ui8_switch_status.append(byte_uart_read_8bit[0])
-                            if len(ruas.ui8_switch_status) == ruas.ui8_group_2_8bit_length:
-                                i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.OCCU_TRIGER
-
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.OCCU_TRIGER:
-                            # print("<- OCCU_TRIGER")
-                            ########## Voltage 판단 ##########
-                            ruas.ui8_occu_triger.append(byte_uart_read_8bit[0])
-                            if len(ruas.ui8_occu_triger) == ruas.ui8_group_2_8bit_length:
-                                i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_3_LENGTH
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.TP1:
+                        # print("<- TP1")
+                        ########## Voltage 판단 ##########
+                        ruas.ui8_tp1.append(byte_uart_read_8bit[0])
+                        if len(ruas.ui8_tp1) == ruas.ui8_group_1_8bit_length:
+                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_2_LENGTH
 
 
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_3_LENGTH:
-                            # print("<- GROUP_3_LENGTH")
-                            ########## Bit Length 판단 ##########
-                            ruas.ui8_group_3_length = byte_uart_read_8bit[0]
-                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_3_BIT_LENGTH
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_2_LENGTH:
+                        # print("<- GROUP_2_LENGTH")
+                        ########## Bit Length 판단 ##########
+                        ruas.ui8_group_2_length = byte_uart_read_8bit[0]
+                        i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_2_BIT_LENGTH
 
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_3_BIT_LENGTH:
-                            # print("<- GROUP_3_BIT_LENGTH")
-                            ########## Bit Length 판단 ##########
-                            ruas.ui8_group_3_8bit_length = byte_uart_read_8bit[0]
-                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.ADC_BUF
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_2_BIT_LENGTH:
+                        # print("<- GROUP_2_BIT_LENGTH")
+                        ########## Bit Length 판단 ##########
+                        ruas.ui8_group_2_8bit_length = byte_uart_read_8bit[0]
+                        i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.TP2
 
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.ADC_BUF:
-                            # print("<- ADC_BUF")
-                            ########## ADC 판단 ##########
-                            ruas.ui8_adc_buf.append(byte_uart_read_8bit[0])
-                            if len(ruas.ui8_adc_buf) == ruas.ui8_group_3_8bit_length:
-                                i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.ADC_DELTA_BUF
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.TP2:
+                        # print("<- TP2")
+                        ########## ADC 판단 ##########
+                        ruas.ui8_tp2.append(byte_uart_read_8bit[0])
+                        if len(ruas.ui8_tp2) == ruas.ui8_group_2_8bit_length:
+                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.SWITCH_STATUS
 
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.ADC_DELTA_BUF:
-                            # print("<- ADC_DELTA_BUF")
-                            ########## Voltage 판단 ##########
-                            ruas.ui8_adc_delta_buf.append(byte_uart_read_8bit[0])
-                            if len(ruas.ui8_adc_delta_buf) == ruas.ui8_group_3_8bit_length:
-                                i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_4_LENGTH
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.SWITCH_STATUS:
+                        # print("<- SWITCH_STATUS")
+                        ########## Voltage 판단 ##########
+                        ruas.ui8_switch_status.append(byte_uart_read_8bit[0])
+                        if len(ruas.ui8_switch_status) == ruas.ui8_group_2_8bit_length:
+                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.OCCU_TRIGER
 
-
-
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_4_LENGTH:
-                            # print("<- GROUP_4_LENGTH")
-                            ########## Bit Length 판단 ##########
-                            ruas.ui8_group_4_length = byte_uart_read_8bit[0]
-                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_4_BIT_LENGTH
-
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_4_BIT_LENGTH:
-                            # print("<- GROUP_4_BIT_LENGTH")
-                            ########## Bit Length 판단 ##########
-                            ruas.ui8_group_4_8bit_length = byte_uart_read_8bit[0]
-                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.OCCU_BUF
-
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.OCCU_BUF:
-                            # print("<- OCCU_BUF")
-                            ########## Voltage 판단 ##########
-                            ruas.ui8_occu_buf.append(byte_uart_read_8bit[0])
-                            if len(ruas.ui8_occu_buf) == ruas.ui8_group_4_8bit_length:
-                                i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.CHECKSUM
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.OCCU_TRIGER:
+                        # print("<- OCCU_TRIGER")
+                        ########## Voltage 판단 ##########
+                        ruas.ui8_occu_triger.append(byte_uart_read_8bit[0])
+                        if len(ruas.ui8_occu_triger) == ruas.ui8_group_2_8bit_length:
+                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_3_LENGTH
 
 
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.CHECKSUM:
-                            # print("<- CHECKSUM")
-                            ########## Voltage 판단 ##########
-                            ruas.ui8_chksum = byte_uart_read_8bit[0]
-                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.DUMMY
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_3_LENGTH:
+                        # print("<- GROUP_3_LENGTH")
+                        ########## Bit Length 판단 ##########
+                        ruas.ui8_group_3_length = byte_uart_read_8bit[0]
+                        i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_3_BIT_LENGTH
 
-                        case C_UART_RECEIVE_DATA_PROCESS_LEVEL.DUMMY:
-                            # print("<- DUMMY")
-                            ########## Dummy 판단 ##########
-                            ruas.ui8_dummy = byte_uart_read_8bit[0]
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_3_BIT_LENGTH:
+                        # print("<- GROUP_3_BIT_LENGTH")
+                        ########## Bit Length 판단 ##########
+                        ruas.ui8_group_3_8bit_length = byte_uart_read_8bit[0]
+                        i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.ADC_BUF
 
-                            if receive_uart_adc_structer_checksum(ruas) == ruas.ui8_chksum:
-                                # bytes.fromhex("00"),    # ui8_signal
-                                # bytes.fromhex("00"),    # ui8_group_1_length
-                                # bytes.fromhex("00"),    # ui8_group_1_8bit_length
-                                # [],                     # ui8_adc
-                                # [],                     # ui8_voltage
-                                # [],                     # ui8_tp1
-                                # bytes.fromhex("00"),    # ui8_group_2_length
-                                # bytes.fromhex("00"),    # ui8_group_2_8bit_length
-                                # [],                     # ui8_tp2
-                                # [],                     # ui8_switch_status
-                                # [],                     # ui8_occu_triger
-                                # bytes.fromhex("00"),    # ui8_group_3_length
-                                # bytes.fromhex("00"),    # ui8_group_3_8bit_length
-                                # [],                     # ui8_adc_buf
-                                # [],                     # ui8_adc_delta_buf
-                                # bytes.fromhex("00"),    # ui8_group_4_length
-                                # bytes.fromhex("00"),    # ui8_group_4_8bit_length
-                                # [],                     # ui8_occu_buf
-                                # bytes.fromhex("00"),    # ui8_chksum
-                                # bytes.fromhex("00"),    # ui8_dummy
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.ADC_BUF:
+                        # print("<- ADC_BUF")
+                        ########## ADC 판단 ##########
+                        ruas.ui8_adc_buf.append(byte_uart_read_8bit[0])
+                        if len(ruas.ui8_adc_buf) == ruas.ui8_group_3_8bit_length:
+                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.ADC_DELTA_BUF
 
-                                # print("CHKSUM OK")
-                                # print("ruas.ui8_signal : ", ruas.ui8_signal)
-                                # print("ruas.ui8_group_1_length : ", ruas.ui8_group_1_length)
-                                # print("ruas.ui8_group_1_8bit_length : ", ruas.ui8_group_1_8bit_length)
-                                # print("ruas.ui8_adc : ", ruas.ui8_adc)
-                                # print("ruas.ui8_voltage : ", ruas.ui8_voltage)
-                                # print("ruas.ui8_tp1 : ", ruas.ui8_tp1)
-
-                                # print("ruas.ui8_group_2_length : ", ruas.ui8_group_2_length)
-                                # print("ruas.ui8_group_2_8bit_length : ", ruas.ui8_group_2_8bit_length)
-                                # print("ruas.ui8_tp2 : ", ruas.ui8_tp2)
-                                # print("ruas.ui8_switch_status : ", ruas.ui8_switch_status)
-                                # print("ruas.ui8_occu_triger : ", ruas.ui8_occu_triger)
-
-                                # print("ruas.ui8_group_3_length : ", ruas.ui8_group_3_length)
-                                # print("ruas.ui8_group_3_8bit_length : ", ruas.ui8_group_3_8bit_length)
-                                # print("ruas.ui8_adc_buf : ", ruas.ui8_adc_buf)
-                                # print("ruas.ui8_adc_delta_buf : ", ruas.ui8_adc_delta_buf)
-
-                                # print("ruas.ui8_group_4_length : ", ruas.ui8_group_4_length)
-                                # print("ruas.ui8_group_4_8bit_length : ", ruas.ui8_group_4_8bit_length)
-                                # print("ruas.ui8_occu_buf : ", ruas.ui8_occu_buf)
-                                # print("ruas.ui8_chksum : ", ruas.ui8_chksum)
-                                # print("ruas.ui8_dummy : ", ruas.ui8_dummy)
-
-                                A_receive_data = []
-                                i_adc = 0
-                                i_voltage = 0
-                                i_tp1 = 0
-                                for i in range(ruas.ui8_group_1_8bit_length):
-                                    i_adc           = i_adc             | (ruas.ui8_adc[i]           << (8 * i))
-                                    i_voltage       = i_voltage         | (ruas.ui8_voltage[i]       << (8 * i))
-                                    i_tp1           = i_tp1             | (ruas.ui8_tp1[i]           << (8 * i))
-
-                                i_tp2 = 0
-                                i_switch_status = 0
-                                i_occu_triger = 0
-                                for i in range(ruas.ui8_group_2_8bit_length):
-                                    i_tp2           = i_tp2             | (ruas.ui8_tp2[i]           << (8 * i))
-                                    i_switch_status = i_switch_status   | (ruas.ui8_switch_status[i] << (8 * i))
-                                    i_occu_triger   = i_occu_triger     | (ruas.ui8_occu_triger[i]   << (8 * i))
-
-                                i_A_adc_buf = []
-                                i_adc_buf = 0
-                                i_A_adc_delta_buf = []
-                                i_adc_delta_buf = 0
-                                for i in range(ruas.ui8_group_3_8bit_length):
-                                    i_adc_buf       = i_adc_buf         | (ruas.ui8_adc_buf[i]       << (8 * (i % 2)))
-                                    i_adc_delta_buf = i_adc_delta_buf   | (ruas.ui8_adc_delta_buf[i] << (8 * (i % 2)))
-                                    if i % 2 == 1:
-                                        i_A_adc_buf.append(i_adc_buf)
-                                        i_A_adc_delta_buf.append(i_adc_delta_buf)
-                                        i_adc_buf = 0
-                                        i_adc_delta_buf = 0
-
-                                i_A_occu_buf = []
-                                for i in range(ruas.ui8_group_4_8bit_length):
-                                    i_A_occu_buf.append(ruas.ui8_occu_buf[i])
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.ADC_DELTA_BUF:
+                        # print("<- ADC_DELTA_BUF")
+                        ########## Voltage 판단 ##########
+                        ruas.ui8_adc_delta_buf.append(byte_uart_read_8bit[0])
+                        if len(ruas.ui8_adc_delta_buf) == ruas.ui8_group_3_8bit_length:
+                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_4_LENGTH
 
 
-                                # i_A_occu_buf = []
-                                # i_occu_buf = 0
-                                # for i in range(ruas.ui8_group_4_8bit_length):
-                                #     i_occu_buf       = i_occu_buf         | (ruas.ui8_occu_buf[i]       << (8 * i))
-                                #     i_A_occu_buf.append(i_occu_buf)
-                                #     i_occu_buf = 0
+
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_4_LENGTH:
+                        # print("<- GROUP_4_LENGTH")
+                        ########## Bit Length 판단 ##########
+                        ruas.ui8_group_4_length = byte_uart_read_8bit[0]
+                        i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_4_BIT_LENGTH
+
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_4_BIT_LENGTH:
+                        # print("<- GROUP_4_BIT_LENGTH")
+                        ########## Bit Length 판단 ##########
+                        ruas.ui8_group_4_8bit_length = byte_uart_read_8bit[0]
+                        i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.OCCU_BUF
+
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.OCCU_BUF:
+                        # print("<- OCCU_BUF")
+                        ########## Voltage 판단 ##########
+                        ruas.ui8_occu_buf.append(byte_uart_read_8bit[0])
+                        if len(ruas.ui8_occu_buf) == ruas.ui8_group_4_8bit_length:
+#####################################################################################################
+                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_5_LENGTH
 
 
-                                # print("i_A_adc_buf : ", i_A_adc_buf)
-                                # print("i_A_adc_delta_buf : ", i_A_adc_delta_buf)
-                                # print("i_A_occu_buf : ", i_A_occu_buf)
-                                # print("ruas.ui8_occu_buf : ", ruas.ui8_occu_buf)
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_5_LENGTH:
+                        # print("<- GROUP_5_LENGTH")
+                        ########## Bit Length 판단 ##########
+                        ruas.ui8_group_5_length = byte_uart_read_8bit[0]
+                        i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_5_BIT_LENGTH
 
-                                A_receive_data.append(i_adc)
-                                A_receive_data.append(i_voltage)
-                                A_receive_data.append(i_tp1)
-                                A_receive_data.append(i_tp2)
-                                A_receive_data.append(i_switch_status)
-                                A_receive_data.append(i_occu_triger)
-                                A_receive_data.append(i_A_adc_buf)
-                                A_receive_data.append(i_A_adc_delta_buf)
-                                A_receive_data.append(i_A_occu_buf)
-                                
-                                Q_data_buffer.put(A_receive_data)
-                            # else:
-                                # print("CHKSUM Level Error -> Go SIGNAL")
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.GROUP_5_BIT_LENGTH:
+                        # print("<- GROUP_5_BIT_LENGTH")
+                        ########## Bit Length 판단 ##########
+                        ruas.ui8_group_5_8bit_length = byte_uart_read_8bit[0]
+                        i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.BANDFILTER_BUF
 
-                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.SIGNAL
-        
-                            # 배열 초기화
-                            ruas.ui8_adc             = []
-                            ruas.ui8_voltage         = []
-                            ruas.ui8_tp1             = []
-                            ruas.ui8_tp2             = []
-                            ruas.ui8_switch_status   = []
-                            ruas.ui8_occu_triger     = []
-                            ruas.ui8_adc_buf         = []
-                            ruas.ui8_adc_delta_buf   = []
-                            ruas.ui8_occu_buf        = []
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.BANDFILTER_BUF:
+                        # print("<- BANDFILTER_BUF")
+                        ########## Voltage 판단 ##########
+                        ruas.ui8_bandfilter_buf.append(byte_uart_read_8bit[0])
+                        if len(ruas.ui8_bandfilter_buf) == ruas.ui8_group_5_8bit_length:
+                            i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.CHECKSUM
+#####################################################################################################
 
-                        case _:
-                            # # print("Unknown signal received")
-                            pass
-                    # print("")
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.CHECKSUM:
+                        # print("<- CHECKSUM")
+                        ########## Voltage 판단 ##########
+                        ruas.ui8_chksum = byte_uart_read_8bit[0]
+                        i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.DUMMY
+
+                    case C_UART_RECEIVE_DATA_PROCESS_LEVEL.DUMMY:
+                        # print("<- DUMMY")
+                        ########## Dummy 판단 ##########
+                        ruas.ui8_dummy = byte_uart_read_8bit[0]
+
+                        if receive_uart_adc_structer_checksum(ruas) == ruas.ui8_chksum:
+                            # bytes.fromhex("00"),    # ui8_signal
+                            # bytes.fromhex("00"),    # ui8_group_1_length
+                            # bytes.fromhex("00"),    # ui8_group_1_8bit_length
+                            # [],                     # ui8_adc
+                            # [],                     # ui8_voltage
+                            # [],                     # ui8_tp1
+                            # bytes.fromhex("00"),    # ui8_group_2_length
+                            # bytes.fromhex("00"),    # ui8_group_2_8bit_length
+                            # [],                     # ui8_tp2
+                            # [],                     # ui8_switch_status
+                            # [],                     # ui8_occu_triger
+                            # bytes.fromhex("00"),    # ui8_group_3_length
+                            # bytes.fromhex("00"),    # ui8_group_3_8bit_length
+                            # [],                     # ui8_adc_buf
+                            # [],                     # ui8_adc_delta_buf
+                            # bytes.fromhex("00"),    # ui8_group_4_length
+                            # bytes.fromhex("00"),    # ui8_group_4_8bit_length
+                            # [],                     # ui8_occu_buf
+                            #####################################################################################################
+                            # bytes.fromhex("00"),    # ui8_group_5_length
+                            # bytes.fromhex("00"),    # ui8_group_5_8bit_length
+                            # [],                     # ui8_bandfilter_buf
+                            #####################################################################################################
+                            # bytes.fromhex("00"),    # ui8_chksum
+                            # bytes.fromhex("00"),    # ui8_dummy
+
+                            # print("CHKSUM OK")
+                            # print("ruas.ui8_signal : ", ruas.ui8_signal)
+                            # print("ruas.ui8_group_1_length : ", ruas.ui8_group_1_length)
+                            # print("ruas.ui8_group_1_8bit_length : ", ruas.ui8_group_1_8bit_length)
+                            # print("ruas.ui8_adc : ", ruas.ui8_adc)
+                            # print("ruas.ui8_voltage : ", ruas.ui8_voltage)
+                            # print("ruas.ui8_tp1 : ", ruas.ui8_tp1)
+
+                            # print("ruas.ui8_group_2_length : ", ruas.ui8_group_2_length)
+                            # print("ruas.ui8_group_2_8bit_length : ", ruas.ui8_group_2_8bit_length)
+                            # print("ruas.ui8_tp2 : ", ruas.ui8_tp2)
+                            # print("ruas.ui8_switch_status : ", ruas.ui8_switch_status)
+                            # print("ruas.ui8_occu_triger : ", ruas.ui8_occu_triger)
+
+                            # print("ruas.ui8_group_3_length : ", ruas.ui8_group_3_length)
+                            # print("ruas.ui8_group_3_8bit_length : ", ruas.ui8_group_3_8bit_length)
+                            # print("ruas.ui8_adc_buf : ", ruas.ui8_adc_buf)
+                            # print("ruas.ui8_adc_delta_buf : ", ruas.ui8_adc_delta_buf)
+
+                            # print("ruas.ui8_group_4_length : ", ruas.ui8_group_4_length)
+                            # print("ruas.ui8_group_4_8bit_length : ", ruas.ui8_group_4_8bit_length)
+                            # print("ruas.ui8_occu_buf : ", ruas.ui8_occu_buf)
+                            # print("ruas.ui8_chksum : ", ruas.ui8_chksum)
+                            # print("ruas.ui8_dummy : ", ruas.ui8_dummy)
+
+                            A_receive_data = []
+                            i_adc = 0
+                            i_voltage = 0
+                            i_tp1 = 0
+                            for i in range(ruas.ui8_group_1_8bit_length):
+                                i_adc           = i_adc             | (ruas.ui8_adc[i]           << (8 * i))
+                                i_voltage       = i_voltage         | (ruas.ui8_voltage[i]       << (8 * i))
+                                i_tp1           = i_tp1             | (ruas.ui8_tp1[i]           << (8 * i))
+
+                            i_tp2 = 0
+                            i_switch_status = 0
+                            i_occu_triger = 0
+                            for i in range(ruas.ui8_group_2_8bit_length):
+                                i_tp2           = i_tp2             | (ruas.ui8_tp2[i]           << (8 * i))
+                                i_switch_status = i_switch_status   | (ruas.ui8_switch_status[i] << (8 * i))
+                                i_occu_triger   = i_occu_triger     | (ruas.ui8_occu_triger[i]   << (8 * i))
+
+                            i_A_adc_buf = []
+                            i_adc_buf = 0
+                            i_A_adc_delta_buf = []
+                            i_adc_delta_buf = 0
+                            for i in range(ruas.ui8_group_3_8bit_length):
+                                i_adc_buf       = i_adc_buf         | (ruas.ui8_adc_buf[i]       << (8 * (i % 2)))
+                                i_adc_delta_buf = i_adc_delta_buf   | (ruas.ui8_adc_delta_buf[i] << (8 * (i % 2)))
+                                if i % 2 == 1:
+                                    i_A_adc_buf.append(i_adc_buf)
+                                    i_A_adc_delta_buf.append(i_adc_delta_buf)
+                                    i_adc_buf = 0
+                                    i_adc_delta_buf = 0
+
+                            i_A_occu_buf = []
+                            for i in range(ruas.ui8_group_4_8bit_length):
+                                i_A_occu_buf.append(ruas.ui8_occu_buf[i])
+#####################################################################################################
+                            i_A_bandfilter_buf = []
+                            i_A_temp = []
+                            import struct
+                            for i in range(ruas.ui8_group_5_8bit_length):
+                                # print("ruas.ui8_bandfilter_buf[i] : ", ruas.ui8_bandfilter_buf[i])
+                                i_A_temp.append(ruas.ui8_bandfilter_buf[i])
+                                if (i % 4 == 3):
+                                    i_A_data = bytes(i_A_temp)
+                                    value = struct.unpack('<f', i_A_data)[0]  # '<f' : little-endian float
+                                    # print(value)
+                                    i_A_bandfilter_buf.append(value)
+                                    i_A_temp = []
+#####################################################################################################
+                            A_receive_data.append(i_adc)
+                            A_receive_data.append(i_voltage)
+                            A_receive_data.append(i_tp1)
+                            A_receive_data.append(i_tp2)
+                            A_receive_data.append(i_switch_status)
+                            A_receive_data.append(i_occu_triger)
+                            A_receive_data.append(i_A_adc_buf)
+                            A_receive_data.append(i_A_adc_delta_buf)
+                            A_receive_data.append(i_A_occu_buf)
+#####################################################################################################
+                            A_receive_data.append(i_A_bandfilter_buf)
+                            # print(i_A_bandfilter_buf)
+#####################################################################################################
+                            Q_data_buffer.put(A_receive_data)
+
+
+                        i_switch_level = C_UART_RECEIVE_DATA_PROCESS_LEVEL.SIGNAL
+    
+                        # 배열 초기화
+                        ruas.ui8_adc             = []
+                        ruas.ui8_voltage         = []
+                        ruas.ui8_tp1             = []
+                        ruas.ui8_tp2             = []
+                        ruas.ui8_switch_status   = []
+                        ruas.ui8_occu_triger     = []
+                        ruas.ui8_adc_buf         = []
+                        ruas.ui8_adc_delta_buf   = []
+                        ruas.ui8_occu_buf        = []
+#####################################################################################################
+                        ruas.ui8_bandfilter_buf  = []
+#####################################################################################################
+
+                    case _:
+                        # # print("Unknown signal received")
+                        pass
+                # print("")
 
             elif MODE == TEST:
                 A_receive_data = []
@@ -531,7 +593,7 @@ def uart_receive_data_process_thread():
                 A_receive_data.append(i_voltage)
                 Q_graph_buffer.put(A_receive_data)
 
-            sleep(1 / (1000 * 1000))
+                sleep(1 / (1000 * 1000))
 
         except KeyboardInterrupt:
             break
