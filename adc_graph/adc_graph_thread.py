@@ -74,7 +74,7 @@ def graph_data_setting():
         while True:
             if not Q_adc_graph_data_buffer.empty():
                 
-                print("graph_data_setting() - Q_adc_graph_data_buffer.qsize() : ", Q_adc_graph_data_buffer.qsize())
+                #print("graph_data_setting() - Q_adc_graph_data_buffer.qsize() : ", Q_adc_graph_data_buffer.qsize())
                 A_receive_data = Q_adc_graph_data_buffer.get()
                 # print("A_receive_data : ", A_receive_data)
                 for i_curve_data_index in range(C_CURVE_DEFINE.GRAPH_START, C_CURVE_DEFINE.DATA_CURVE+1, 1):
@@ -82,7 +82,7 @@ def graph_data_setting():
                     # print("graph_data_setting() - A_graph_handle[C_GRAPH_DEFINE.ADC_GRAPH].A_data_windows[",i_curve_data_index,"] : ", A_graph_handle[C_GRAPH_DEFINE.ADC_GRAPH].A_data_windows[i_curve_data_index])
 
             if not Q_adc_delta_graph_data_buffer.empty():
-                print("graph_data_setting() - Q_adc_delta_graph_data_buffer.qsize() : ", Q_adc_delta_graph_data_buffer.qsize())
+                # print("graph_data_setting() - Q_adc_delta_graph_data_buffer.qsize() : ", Q_adc_delta_graph_data_buffer.qsize())
                 A_receive_data = Q_adc_delta_graph_data_buffer.get()
                 # print("A_receive_data : ", A_receive_data)
 
