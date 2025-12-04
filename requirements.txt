@@ -1,18 +1,11 @@
-# python -m pip install --upgrade pip
-# python -m pip install -r requirements.txt
+# iSENSOR UART Debugger - Requirements
 
+# UART 통신
+pyserial>=3.5
+
+# 데이터 처리 (기존)
 numpy
-pyserial
-opencv-python
-Pillow
+# PyQt6  # 그래프 사용 시
 
-# # pip install matplotlib
-# # pip install --upgrade pandas matplotlib
-# matplotlib
-
-# pip install pyqtgraph
-pyqtgraph
-# # pip install pyqtgraph PyQt5
-# PyQt5
-# pip install pyqtgraph PyQt6
-PyQt6
+# YAML 설정 (선택)
+# pyyaml
