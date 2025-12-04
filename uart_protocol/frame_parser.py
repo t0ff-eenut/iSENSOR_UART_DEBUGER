@@ -16,7 +16,7 @@ from uart_protocol.checksum import calculate_checksum, verify_checksum
 from utils.byte_converter import bytes_to_uint16_le
 
 # 디버그 플래그
-DEBUG_PARSER = True
+DEBUG_PARSER = False
 
 
 class ParseState(IntEnum):
