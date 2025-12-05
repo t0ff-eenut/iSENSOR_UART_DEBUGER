@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSlot, QThread, pyqtSignal
 import pyqtgraph as pg
+from ble_worker import BleWorker
+from PyQt6.QtWidgets import QRadioButton, QButtonGroup
 
 # --- 기존 로직 import ---
 from uart_protocol.frame_parser import FrameParser
@@ -119,18 +121,56 @@ class MainWindow(QMainWindow):
         conn_layout = QGridLayout()
         conn_group.setLayout(conn_layout)
 
+        # 통신 모드 선택
+        self.mode_group = QButtonGroup()
+        self.radio_uart = QRadioButton("UART")
+        self.radio_ble = QRadioButton("BLE")
+        self.radio_uart.setChecked(True)
+        self.mode_group.addButton(self.radio_uart)
+        self.mode_group.addButton(self.radio_ble)
+        
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(self.radio_uart)
+        mode_layout.addWidget(self.radio_ble)
+        conn_layout.addLayout(mode_layout, 0, 0, 1, 2)
+
+        # UART UI
+        self.uart_widget = QWidget()
+        uart_layout = QGridLayout()
+        self.uart_widget.setLayout(uart_layout)
+        uart_layout.setContentsMargins(0, 0, 0, 0)
+
         self.port_combo = QComboBox()
         self.baud_combo = QComboBox()
-        self.connect_button = QPushButton("Connect")
+        uart_layout.addWidget(QLabel("Port:"), 0, 0)
+        uart_layout.addWidget(self.port_combo, 0, 1)
+        uart_layout.addWidget(QLabel("Baud:"), 1, 0)
+        uart_layout.addWidget(self.baud_combo, 1, 1)
+
+        # BLE UI
+        self.ble_widget = QWidget()
+        ble_layout = QGridLayout()
+        self.ble_widget.setLayout(ble_layout)
+        ble_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.ble_scan_btn = QPushButton("Scan")
+        self.ble_device_combo = QComboBox()
+        ble_layout.addWidget(self.ble_scan_btn, 0, 0)
+        ble_layout.addWidget(self.ble_device_combo, 0, 1)
         
-        conn_layout.addWidget(QLabel("Port:"), 0, 0)
-        conn_layout.addWidget(self.port_combo, 0, 1)
-        conn_layout.addWidget(QLabel("Baud Rate:"), 1, 0)
-        conn_layout.addWidget(self.baud_combo, 1, 1)
-        conn_layout.addWidget(self.connect_button, 2, 0, 1, 2)
+        conn_layout.addWidget(self.uart_widget, 1, 0, 1, 2)
+        conn_layout.addWidget(self.ble_widget, 2, 0, 1, 2)
+        self.ble_widget.hide() # 초기에는 숨김
+
+        self.connect_button = QPushButton("Connect")
+        conn_layout.addWidget(self.connect_button, 3, 0, 1, 2)
         
         self.populate_ports()
         self.populate_bauds()
+
+        # UI 이벤트 연결
+        self.radio_uart.toggled.connect(self.update_ui_mode)
+        self.ble_scan_btn.clicked.connect(self.start_ble_scan)
 
         # 2. 설정 표시 그룹
         settings_group = QGroupBox("Settings")
@@ -190,6 +230,140 @@ class MainWindow(QMainWindow):
         self.connect_button.clicked.connect(self.toggle_connection)
         
         self.uart_thread = None
+        self.ble_thread = None
+        self.ble_devices = [] # 스캔된 장치 리스트 저장용
+        self.frame_parser = FrameParser() # BLE용 파서 (UART는 스레드 내부에 있음)
+
+    def log_message(self, message):
+        """로그 메시지 출력"""
+        self.log_text.append(message)
+        self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+
+    def update_ui_mode(self):
+        """통신 모드에 따라 UI 업데이트"""
+        if self.radio_uart.isChecked():
+            self.uart_widget.show()
+            self.ble_widget.hide()
+        else:
+            self.uart_widget.hide()
+            self.ble_widget.show()
+
+    def start_ble_scan(self):
+        """BLE 스캔 시작"""
+        if self.ble_thread is None:
+            self.ble_thread = BleWorker()
+            self.ble_thread.sig_scan_result.connect(self.on_ble_scan_result)
+            self.ble_thread.sig_status_msg.connect(self.log_message)
+            self.ble_thread.sig_error.connect(self.log_message)
+            self.ble_thread.sig_connected.connect(self.on_ble_connected)
+            self.ble_thread.sig_disconnected.connect(self.on_ble_disconnected)
+            self.ble_thread.sig_data_received.connect(self.on_ble_data_received)
+            self.ble_thread.start()
+        
+        self.ble_thread.start_scan()
+        self.ble_scan_btn.setEnabled(False)
+        self.log_message("Scanning started...")
+
+    @pyqtSlot(list)
+    def on_ble_scan_result(self, devices):
+        """BLE 스캔 결과 처리"""
+        self.ble_scan_btn.setEnabled(True)
+        self.ble_device_combo.clear()
+        self.ble_devices = devices
+        for dev in devices:
+            # dev.name이 있으면 사용, 없으면 Unknown
+            name = dev.name if dev.name else "Unknown"
+            self.ble_device_combo.addItem(f"{name} ({dev.address})", dev)
+        
+        if not devices:
+            self.log_message("No devices found.")
+
+    @pyqtSlot(str)
+    def on_ble_connected(self, device_name):
+        """BLE 연결 성공 시"""
+        self.connect_button.setText("Disconnect")
+        self.connect_button.setEnabled(True)
+        self.log_message(f"Connected to {device_name}")
+        # UI 잠금 등 추가 처리 가능
+
+    @pyqtSlot()
+    def on_ble_disconnected(self):
+        """BLE 연결 해제 시"""
+        self.connect_button.setText("Connect")
+        self.connect_button.setEnabled(True)
+        self.log_message("Disconnected from BLE device")
+        # 스레드 정리? 재사용? -> 재사용 가능하도록 유지
+
+    @pyqtSlot(bytes)
+    def on_ble_data_received(self, data):
+        """BLE 데이터 수신 시"""
+        # self.log_message(f"RX: {len(data)} bytes") # 디버그용 (너무 많으면 주석)
+        for byte in data:
+            frame = self.frame_parser.feed_byte(byte)
+            if frame:
+                sensor_data = PayloadParser.parse(frame)
+                if sensor_data:
+                    self.update_plot(sensor_data)
+
+    def toggle_connection(self):
+        """연결/해제 토글"""
+        if self.radio_uart.isChecked():
+            self.toggle_uart_connection()
+        else:
+            self.toggle_ble_connection()
+
+    def toggle_ble_connection(self):
+        """BLE 연결 토글"""
+        if self.ble_thread and self.ble_thread.client and self.ble_thread.client.is_connected:
+            # Disconnect
+            self.ble_thread.disconnect()
+            self.connect_button.setEnabled(False)
+        else:
+            # Connect
+            idx = self.ble_device_combo.currentIndex()
+            if idx < 0:
+                self.log_message("No device selected.")
+                return
+            
+            device = self.ble_device_combo.itemData(idx)
+            if not device:
+                return
+
+            if self.ble_thread is None:
+                # 스레드가 없으면 생성 (스캔 안하고 바로 연결 시도 시)
+                self.ble_thread = BleWorker()
+                self.ble_thread.sig_scan_result.connect(self.on_ble_scan_result)
+                self.ble_thread.sig_status_msg.connect(self.log_message)
+                self.ble_thread.sig_error.connect(self.log_message)
+                self.ble_thread.sig_connected.connect(self.on_ble_connected)
+                self.ble_thread.sig_disconnected.connect(self.on_ble_disconnected)
+                self.ble_thread.sig_data_received.connect(self.on_ble_data_received)
+                self.ble_thread.start()
+
+            self.ble_thread.connect_to_device(device)
+            self.connect_button.setEnabled(False)
+
+    def toggle_uart_connection(self):
+        """기존 UART 연결 로직"""
+        if self.uart_thread and self.uart_thread.isRunning():
+            self.uart_thread.stop()
+            self.connect_button.setEnabled(False)
+            self.connect_button.setText("Disconnecting...")
+        else:
+            port = self.port_combo.currentText()
+            try:
+                baud = int(self.baud_combo.currentText())
+            except ValueError:
+                self.log_message("Invalid Baud Rate")
+                return
+
+            self.uart_thread = UartWorker(port, baud)
+            self.uart_thread.new_data.connect(self.update_plot)
+            self.uart_thread.log_message.connect(self.log_message)
+            self.uart_thread.connection_status.connect(self.on_connection_status_changed)
+            self.uart_thread.start()
+            self.connect_button.setEnabled(False)
+            self.connect_button.setText("Connecting...")
 
     @pyqtSlot(bool)
     def on_connection_status_changed(self, is_connected):
@@ -221,32 +395,8 @@ class MainWindow(QMainWindow):
             self.baud_combo.addItem(str(rate.value), rate.value)
         self.baud_combo.setCurrentText(str(BaudRate.BAUD_1152000.value))
 
-    def toggle_connection(self):
-        """연결/해제 토글"""
-        if self.uart_thread and self.uart_thread.isRunning():
-            # 연결 해제
-            self.uart_thread.stop()
-            self.connect_button.setText("Connect")
-            self.log_text.append("Disconnected.")
-        else:
-            # 연결
-            port = self.port_combo.currentData()
-            baud = self.baud_combo.currentData()
-            if not port or "No ports found" in port:
-                self.log_text.append("Error: No serial port selected.")
-                return
-
-            self.uart_thread = UartWorker(port, baud)
-            self.uart_thread.log_message.connect(self.log_text.append)
-            self.uart_thread.new_data.connect(self.update_ui)
-            self.uart_thread.connection_status.connect(self.on_connection_status_changed)
-            self.uart_thread.start()
-            
-            self.connect_button.setText("Connecting...")
-            self.connect_button.setEnabled(False) # Disable button while connecting
-
     @pyqtSlot(object)
-    def update_ui(self, data: SensorData):
+    def update_plot(self, data: SensorData):
         """UI 업데이트: 로그, 그래프, 설정 표시"""
         # 1. 로그 텍스트 업데이트
         log_str = self._format_sensor_data_for_log(data)

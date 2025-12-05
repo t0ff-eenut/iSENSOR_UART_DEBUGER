@@ -2,6 +2,7 @@
 
 # UART 통신
 pyserial>=3.5
+bleak>=0.21.0
 
 # GUI
 PyQt6>=6.6.1
