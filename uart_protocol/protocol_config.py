@@ -51,6 +51,19 @@ class UartDataType(IntEnum):
     ALL_DATA = 9                # 모든 데이터 (현재 미지원)
 
 
+class UartCommandType(IntEnum):
+    """PC → ESP32 명령 타입 (ESP32 펌웨어의 CommandType_t와 동일)
+    
+    기존 데이터 타입(0x00~0x09)과 충돌하지 않도록 0x10부터 시작
+    """
+    
+    CMD_SET_TP1         = 0x10  # TP1 임계값 설정 (payload: uint16_t, 2 bytes)
+    CMD_SET_TP2         = 0x11  # TP2 카운트 설정 (payload: uint64_t, 8 bytes)
+    CMD_GET_SETTINGS    = 0x20  # 현재 설정값 요청 (payload: 없음)
+    CMD_SAVE_NVS        = 0x30  # 현재 설정을 NVS에 저장 (payload: 없음)
+    CMD_RESET           = 0xF0  # ESP32 소프트 리셋 (payload: 없음)
+
+
 # ==================== 페이로드 크기 ====================
 
 # 각 데이터 타입별 예상 페이로드 크기 (bytes)

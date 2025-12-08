@@ -8,7 +8,8 @@ import sys
 import serial.tools.list_ports
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QComboBox, QPushButton, QGridLayout, QLabel, QTextEdit, QGroupBox, QTabWidget
+    QComboBox, QPushButton, QGridLayout, QLabel, QTextEdit, QGroupBox, QTabWidget,
+    QSpinBox, QMessageBox
 )
 from PyQt6.QtCore import pyqtSlot, QThread, pyqtSignal
 import pyqtgraph as pg
@@ -18,6 +19,7 @@ from uart_protocol.frame_parser import FrameParser
 from uart_protocol.payload_parser import PayloadParser
 from uart_protocol.data_models import UartFrame, SensorData
 from uart_protocol.protocol_config import BaudRate, get_data_type_name, UartDataType
+from uart_protocol.command_sender import CommandSender
 
 
 import serial
@@ -140,8 +142,30 @@ class MainWindow(QMainWindow):
         self.settings_label.setWordWrap(True)
         settings_layout.addWidget(self.settings_label)
 
+        # 3. TP1 제어 그룹
+        tp1_control_group = QGroupBox("TP1 Control")
+        tp1_control_layout = QGridLayout()
+        tp1_control_group.setLayout(tp1_control_layout)
+        
+        tp1_control_layout.addWidget(QLabel("TP1 Value:"), 0, 0)
+        self.tp1_spinbox = QSpinBox()
+        self.tp1_spinbox.setMinimum(0)
+        self.tp1_spinbox.setMaximum(4095)
+        self.tp1_spinbox.setValue(300)  # 기본값
+        tp1_control_layout.addWidget(self.tp1_spinbox, 0, 1)
+        
+        self.tp1_send_button = QPushButton("TP1 전송")
+        self.tp1_send_button.setEnabled(False)  # 연결 전에는 비활성화
+        tp1_control_layout.addWidget(self.tp1_send_button, 1, 0, 1, 2)
+        
+        # 설정 요청/저장 버튼
+        self.get_settings_button = QPushButton("설정값 요청")
+        self.get_settings_button.setEnabled(False)
+        tp1_control_layout.addWidget(self.get_settings_button, 2, 0, 1, 2)
+
         left_layout.addWidget(conn_group)
         left_layout.addWidget(settings_group)
+        left_layout.addWidget(tp1_control_group)
         left_layout.addStretch(1)
 
         # --- 우측 패널 구성 ---
@@ -188,8 +212,11 @@ class MainWindow(QMainWindow):
 
         # --- 시그널/슬롯 연결 ---
         self.connect_button.clicked.connect(self.toggle_connection)
+        self.tp1_send_button.clicked.connect(self.send_tp1_command)
+        self.get_settings_button.clicked.connect(self.send_get_settings_command)
         
         self.uart_thread = None
+        self.command_sender = CommandSender()  # 명령 송신 객체
 
     @pyqtSlot(bool)
     def on_connection_status_changed(self, is_connected):
@@ -197,8 +224,18 @@ class MainWindow(QMainWindow):
         self.connect_button.setEnabled(True)
         if is_connected:
             self.connect_button.setText("Disconnect")
+            # TP1 컨트롤 버튼 활성화
+            self.tp1_send_button.setEnabled(True)
+            self.get_settings_button.setEnabled(True)
+            # CommandSender에 시리얼 포트 설정
+            if self.uart_thread and self.uart_thread.serial_port:
+                self.command_sender.set_serial(self.uart_thread.serial_port)
         else:
             self.connect_button.setText("Connect")
+            # TP1 컨트롤 버튼 비활성화
+            self.tp1_send_button.setEnabled(False)
+            self.get_settings_button.setEnabled(False)
+            self.command_sender.set_serial(None)
             # Clean up the thread object
             if self.uart_thread:
                 self.uart_thread.deleteLater()
@@ -522,6 +559,26 @@ class MainWindow(QMainWindow):
         self.exceed_labels[plot_name].setText(f'TP1 초과 개수: {exceed_count}')
         # 우측 상단에 위치 (x=데이터길이-5, y=고정범위 상단)
         self.exceed_labels[plot_name].setPos(len(data) - 5, y_max)
+
+    def send_tp1_command(self):
+        """TP1 값을 ESP32에 전송"""
+        tp1_value = self.tp1_spinbox.value()
+        
+        if self.command_sender.send_set_tp1(tp1_value):
+            self.log_text.append(f"[TX] TP1 설정 명령 전송: {tp1_value}")
+            # 로컬 tp1_value 업데이트 및 그래프 임계선 업데이트
+            self.tp1_value = tp1_value
+            self._update_threshold_lines()
+        else:
+            self.log_text.append("[TX] TP1 전송 실패 - 연결 상태를 확인하세요")
+            QMessageBox.warning(self, "전송 실패", "TP1 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
+    
+    def send_get_settings_command(self):
+        """ESP32에 현재 설정값을 요청"""
+        if self.command_sender.send_get_settings():
+            self.log_text.append("[TX] 설정값 요청 명령 전송")
+        else:
+            self.log_text.append("[TX] 설정값 요청 실패 - 연결 상태를 확인하세요")
 
     def closeEvent(self, event):
         """윈도우 종료 이벤트"""
