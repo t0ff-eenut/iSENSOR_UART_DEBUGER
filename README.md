@@ -222,58 +222,7 @@ logging:
 
 ---
 
-## 📡 BLE 디버그 통신 구현
-
-> **Status**: ✅ 구현 완료 (2025-12-05)
-
-### 개요
-UART 통신 외에 **BLE (Bluetooth Low Energy)** 통신을 추가하여 무선으로 디버그 데이터를 수신할 수 있습니다.
-
-### 주요 기능
-- **런타임 통신 모드 선택**: GUI에서 UART와 BLE 모드를 실시간으로 전환할 수 있습니다.
-- **고속 데이터 전송**: MTU 247 바이트를 사용하여 대용량 센서 데이터를 효율적으로 전송합니다.
-- **완전한 데이터 호환성**: 기존 UART 프로토콜을 그대로 사용하여 모든 데이터 타입을 지원합니다.
-
-### 사용 방법
-1. **펌웨어 업데이트**: 최신 펌웨어를 ESP32에 플래싱합니다.
-2. **Python 디버거 실행**: `python gui_debugger.py`
-3. **BLE 모드 선택**: "Connection" 그룹에서 "BLE" 라디오 버튼 선택.
-4. **장치 스캔**: "Scan" 버튼 클릭 후 `iSENSOR_PIR_DEBUG` 장치 선택.
-5. **연결**: "Connect" 버튼 클릭.
-
-### 기술적 세부사항
-- **BLE 장치 이름**: `iSENSOR_PIR_DEBUG`
-- **서비스 UUID**: Nordic UART Service (NUS)
-- **MTU**: 247 bytes (Payload 244 bytes)
-- **라이브러리**:
-    - ESP32: NimBLE (가볍고 빠른 BLE 스택)
-    - Python: Bleak (비동기 BLE 클라이언트)
-
-### 아키텍처
-
-```
-┌─────────────────────┐         BLE          ┌─────────────────────┐
-│    ESP32-C3 FW      │ ◄─────────────────► │   Python Debugger   │
-│   (GATT Server)     │   무선 통신 (10m+)   │   (GATT Client)     │
-│   NimBLE Stack      │                      │   Bleak Library     │
-└─────────────────────┘                      └─────────────────────┘
-```
-
-### 구현된 파일
-
-**ESP32 펌웨어:**
-- `main/hal_level/custom_esp_ble/custom_esp_ble.h/c` - NimBLE 초기화, GATT 서버
-- `main/hal_level/custom_esp_ble/custom_esp_ble_thread.h/c` - BLE TX 스레드
-- `sdkconfig.defaults` - NimBLE 활성화
-
-**Python 디버거:**
-- `ble_worker.py` - Bleak 기반 BLE 클라이언트
-- `gui_debugger.py` - UART/BLE 선택 UI 및 연동
-- `requirements.txt` - `bleak` 라이브러리 추가
-
----
-
-## �📝 라이센스
+## 📝 라이센스
 
 이 프로젝트는 iSENSOR PIR ESP32-C3 프로젝트의 일부입니다.
 
@@ -285,4 +234,4 @@ UART 통신 외에 **BLE (Bluetooth Low Energy)** 통신을 추가하여 무선�
 
 ---
 
-**최종 업데이트**: 2025-12-05
+**최종 업데이트**: 2025-12-04
