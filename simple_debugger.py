@@ -186,8 +186,8 @@ class SimpleUartDebugger:
             print(f"  Settings:")
             print(f"    - TP1: {s.tp1}")
             print(f"    - TP2: {s.tp2}")
-            print(f"    - LED: Max={s.led_max_percentage}%, Min={s.led_min_percentage}%, Ind={s.led_indicator_percentage}%")
-            print(f"    - LED Delay: {s.led_indicator_delay_time_ms} ms")
+            print(f"    - LED: Max={s.led_max_percentage}%, Min={s.led_min_percentage}%, Ind={s.led_dimming_percentage}%")
+            print(f"    - LED Step Time: {s.led_dimming_step_time_ms} ms")
             print(f"    - Occupancy Timeout: {s.occupancy_timeout_us} us")
             print(f"    - Sleep Time: {s.sleep_time} us")
         

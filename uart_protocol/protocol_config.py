@@ -59,6 +59,7 @@ class UartCommandType(IntEnum):
     
     CMD_SET_TP1         = 0x10  # TP1 임계값 설정 (payload: uint16_t, 2 bytes)
     CMD_SET_TP2         = 0x11  # TP2 카운트 설정 (payload: uint64_t, 8 bytes)
+    CMD_SET_TP1_RECHECK = 0x12  # TP1 Recheck 임계값 설정 (payload: uint16_t, 2 bytes)
     CMD_GET_SETTINGS    = 0x20  # 현재 설정값 요청 (payload: 없음)
     CMD_SAVE_NVS        = 0x30  # 현재 설정을 NVS에 저장 (payload: 없음)
     CMD_RESET           = 0xF0  # ESP32 소프트 리셋 (payload: 없음)
@@ -75,12 +76,13 @@ PAYLOAD_SIZE_MAP = {
     UartDataType.VOLTAGE_DELTA_BUFFER: WINDOW_SIZE * 2, # 600 bytes
     UartDataType.HPF_DELTA_BUFFER: WINDOW_SIZE * 4,     # 1200 bytes (float32)
     UartDataType.OCCUPANCY_BUFFER: WINDOW_SIZE * 1,     # 300 bytes (bool = 1 byte)
-    UartDataType.SETTINGS: 33,                          # 33 bytes (고정)
+    UartDataType.SETTINGS: 37,                          # 37 bytes (고정) - pir_output 추가
     # ALL_BUFFERS와 ALL_DATA는 가변 크기
 }
 
 # SETTINGS 페이로드 구조 크기
-SETTINGS_TP1_SIZE: Final[int] = 2          # uint16
+SETTINGS_TP1_SIZE: Final[int] = 2          # uint16 (occupancy)
+SETTINGS_TP1_RECHECK_SIZE: Final[int] = 2  # uint16 (recheck)
 SETTINGS_TP2_SIZE: Final[int] = 8          # uint64
 SETTINGS_LED_MAX_SIZE: Final[int] = 1      # uint8
 SETTINGS_LED_MIN_SIZE: Final[int] = 1      # uint8
@@ -88,11 +90,14 @@ SETTINGS_LED_IND_SIZE: Final[int] = 1      # uint8
 SETTINGS_LED_DELAY_SIZE: Final[int] = 4    # uint32
 SETTINGS_OCCU_TO_SIZE: Final[int] = 8      # uint64
 SETTINGS_SLEEP_SIZE: Final[int] = 8        # uint64
+SETTINGS_OCCUPANCY_SIZE: Final[int] = 1    # bool (uint8)
+SETTINGS_PIR_OUTPUT_SIZE: Final[int] = 1   # bool (uint8)
 SETTINGS_TOTAL_SIZE: Final[int] = (
-    SETTINGS_TP1_SIZE + SETTINGS_TP2_SIZE +
+    SETTINGS_TP1_SIZE + SETTINGS_TP1_RECHECK_SIZE + SETTINGS_TP2_SIZE +
     SETTINGS_LED_MAX_SIZE + SETTINGS_LED_MIN_SIZE + SETTINGS_LED_IND_SIZE +
-    SETTINGS_LED_DELAY_SIZE + SETTINGS_OCCU_TO_SIZE + SETTINGS_SLEEP_SIZE
-)  # 33 bytes
+    SETTINGS_LED_DELAY_SIZE + SETTINGS_OCCU_TO_SIZE + SETTINGS_SLEEP_SIZE +
+    SETTINGS_OCCUPANCY_SIZE + SETTINGS_PIR_OUTPUT_SIZE
+)  # 37 bytes
 
 
 # ==================== UART 설정 ====================

@@ -119,7 +119,7 @@ class PayloadParser:
     @staticmethod
     def _parse_settings(payload: bytes) -> SettingsData:
         """
-        설정값 파싱 (33 bytes)
+        설정값 파싱 (34 bytes)
         
         구조:
         - TP1: uint16 (Big Endian) - 2 bytes
@@ -127,12 +127,13 @@ class PayloadParser:
         - LED_MAX: uint8 - 1 byte
         - LED_MIN: uint8 - 1 byte
         - LED_IND: uint8 - 1 byte
-        - LED_DELAY: uint32 (Big Endian) - 4 bytes
+        - LED_DIMMING_STEP_TIME_MS: uint32 (Big Endian) - 4 bytes
         - OCCU_TO: uint64 (Big Endian) - 8 bytes
         - SLEEP: uint64 (Big Endian) - 8 bytes
+        - OCCUPANCY: bool (uint8) - 1 byte
         
         Args:
-            payload: 33 bytes
+            payload: 34 bytes
         
         Returns:
             SettingsData
@@ -142,8 +143,12 @@ class PayloadParser:
         
         offset = 0
         
-        # TP1 (uint16 BE)
+        # TP1 Occupancy (uint16 BE)
         tp1 = bytes_to_uint16_be(payload[offset:offset+2])
+        offset += 2
+        
+        # TP1 Recheck (uint16 BE)
+        tp1_recheck = bytes_to_uint16_be(payload[offset:offset+2])
         offset += 2
         
         # TP2 (uint64 BE)
@@ -162,8 +167,8 @@ class PayloadParser:
         led_ind = payload[offset]
         offset += 1
         
-        # LED_DELAY (uint32 BE)
-        led_delay = bytes_to_uint32_be(payload[offset:offset+4])
+        # LED_DIMMING_STEP_TIME_MS (uint32 BE)
+        led_dimming_step_time_ms = bytes_to_uint32_be(payload[offset:offset+4])
         offset += 4
         
         # OCCU_TO (uint64 BE)
@@ -172,16 +177,27 @@ class PayloadParser:
         
         # SLEEP (uint64 BE)
         sleep_time = bytes_to_uint64_be(payload[offset:offset+8])
+        offset += 8
+        
+        # OCCUPANCY (bool, uint8)
+        occupancy = bool(payload[offset])
+        offset += 1
+        
+        # PIR_OUTPUT (bool, uint8)
+        pir_output = bool(payload[offset])
         
         return SettingsData(
             tp1=tp1,
+            tp1_recheck=tp1_recheck,
             tp2=tp2,
             led_max_percentage=led_max,
             led_min_percentage=led_min,
-            led_indicator_percentage=led_ind,
-            led_indicator_delay_time_ms=led_delay,
+            led_dimming_percentage=led_ind,
+            led_dimming_step_time_ms=led_dimming_step_time_ms,
             occupancy_timeout_us=occu_to,
-            sleep_time=sleep_time
+            sleep_time=sleep_time,
+            occupancy=occupancy,
+            pir_output=pir_output
         )
     
     @staticmethod

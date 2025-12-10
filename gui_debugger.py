@@ -131,6 +131,12 @@ class MainWindow(QMainWindow):
         conn_layout.addWidget(self.baud_combo, 1, 1)
         conn_layout.addWidget(self.connect_button, 2, 0, 1, 2)
         
+        # ESP32 리셋 버튼 (Connect 버튼 바로 아래)
+        self.reset_button = QPushButton("🔄 ESP32 리셋")
+        self.reset_button.setEnabled(False)
+        self.reset_button.setStyleSheet("QPushButton { color: #cc3333; }")
+        conn_layout.addWidget(self.reset_button, 3, 0, 1, 2)
+        
         self.populate_ports()
         self.populate_bauds()
 
@@ -141,6 +147,44 @@ class MainWindow(QMainWindow):
         self.settings_label = QLabel("Not connected")
         self.settings_label.setWordWrap(True)
         settings_layout.addWidget(self.settings_label)
+        
+        # 재실 상태 표시 라벨 (눈에 띄게!)
+        self.occupancy_label = QLabel("⚪ 재실 상태: 대기 중")
+        self.occupancy_label.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                font-weight: bold;
+                padding: 8px;
+                border-radius: 5px;
+                background-color: #3a3a3a;
+                color: #888888;
+            }
+        """)
+        settings_layout.addWidget(self.occupancy_label)
+        
+        # PIR 출력 상태 표시 라벨
+        self.pir_output_label = QLabel("📡 PIR 출력: 대기 중")
+        self.pir_output_label.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                font-weight: bold;
+                padding: 8px;
+                border-radius: 5px;
+                background-color: #3a3a3a;
+                color: #888888;
+            }
+        """)
+        settings_layout.addWidget(self.pir_output_label)
+        
+        # 설정값 요청 버튼
+        self.get_settings_button = QPushButton("설정값 요청")
+        self.get_settings_button.setEnabled(False)
+        settings_layout.addWidget(self.get_settings_button)
+        
+        # NVS 저장 버튼
+        self.save_nvs_button = QPushButton("💾 NVS 저장")
+        self.save_nvs_button.setEnabled(False)
+        settings_layout.addWidget(self.save_nvs_button)
 
         # 3. TP1 제어 그룹
         tp1_control_group = QGroupBox("TP1 Control")
@@ -157,15 +201,44 @@ class MainWindow(QMainWindow):
         self.tp1_send_button = QPushButton("TP1 전송")
         self.tp1_send_button.setEnabled(False)  # 연결 전에는 비활성화
         tp1_control_layout.addWidget(self.tp1_send_button, 1, 0, 1, 2)
+
+        # 4. TP2 제어 그룹 (TP1과 동일한 스타일)
+        tp2_control_group = QGroupBox("TP2 Control")
+        tp2_control_layout = QGridLayout()
+        tp2_control_group.setLayout(tp2_control_layout)
         
-        # 설정 요청/저장 버튼
-        self.get_settings_button = QPushButton("설정값 요청")
-        self.get_settings_button.setEnabled(False)
-        tp1_control_layout.addWidget(self.get_settings_button, 2, 0, 1, 2)
+        tp2_control_layout.addWidget(QLabel("TP2 Value:"), 0, 0)
+        self.tp2_spinbox = QSpinBox()
+        self.tp2_spinbox.setMinimum(0)
+        self.tp2_spinbox.setMaximum(2147483647)  # SpinBox는 int32 최대값까지만 지원
+        self.tp2_spinbox.setValue(10)  # 기본값
+        tp2_control_layout.addWidget(self.tp2_spinbox, 0, 1)
+        
+        self.tp2_send_button = QPushButton("TP2 전송")
+        self.tp2_send_button.setEnabled(False)  # 연결 전에는 비활성화
+        tp2_control_layout.addWidget(self.tp2_send_button, 1, 0, 1, 2)
+
+        # 5. TP1_RECHECK 제어 그룹
+        tp1_recheck_control_group = QGroupBox("TP1 Recheck Control")
+        tp1_recheck_control_layout = QGridLayout()
+        tp1_recheck_control_group.setLayout(tp1_recheck_control_layout)
+        
+        tp1_recheck_control_layout.addWidget(QLabel("TP1_RCK Value:"), 0, 0)
+        self.tp1_recheck_spinbox = QSpinBox()
+        self.tp1_recheck_spinbox.setMinimum(0)
+        self.tp1_recheck_spinbox.setMaximum(4095)
+        self.tp1_recheck_spinbox.setValue(2000)  # 기본값
+        tp1_recheck_control_layout.addWidget(self.tp1_recheck_spinbox, 0, 1)
+        
+        self.tp1_recheck_send_button = QPushButton("TP1_RCK 전송")
+        self.tp1_recheck_send_button.setEnabled(False)  # 연결 전에는 비활성화
+        tp1_recheck_control_layout.addWidget(self.tp1_recheck_send_button, 1, 0, 1, 2)
 
         left_layout.addWidget(conn_group)
         left_layout.addWidget(settings_group)
         left_layout.addWidget(tp1_control_group)
+        left_layout.addWidget(tp2_control_group)
+        left_layout.addWidget(tp1_recheck_control_group)
         left_layout.addStretch(1)
 
         # --- 우측 패널 구성 ---
@@ -190,11 +263,37 @@ class MainWindow(QMainWindow):
         # 각 데이터 타입별 플롯을 저장할 딕셔너리
         self.plots = {}
         self.plot_widgets = {}  # PlotWidget 저장용
-        self.threshold_lines = {}  # 임계값 가로선 저장용
+        self.threshold_lines = {}  # TP1 임계값 가로선 저장용
+        self.tp1_recheck_lines = {}  # TP1 Recheck 임계값 가로선 저장용
         self.exceed_plots = {}  # TP1 초과 지점 표시용 ScatterPlot
         self.exceed_labels = {}  # TP1 초과 개수 표시용 TextItem
         self.stats_labels = {}  # 통계 정보 표시용 TextItem
         self.tp1_value = 0  # TP1 값 저장
+        self.tp1_recheck_value = 0  # TP1 Recheck 값 저장
+
+        # ★ 탭을 미리 정해진 순서로 생성 (순서 고정)
+        # 상단 탭 (ADC 관련)
+        upper_tab_configs = [
+            ("ADC_BUFFER", None, False),
+            ("ADC_BUFFER (Fixed)", (0, 4096), True),  # TP1 선 추가
+            ("ADC_DELTA_BUFFER", None, False),
+            ("ADC_DELTA_BUFFER (Fixed)", (0, 4096), True),
+            ("VOLTAGE_BUFFER", None, False),
+            ("VOLTAGE_DELTA_BUFFER", None, False),
+        ]
+        for name, fixed_range, show_tp1 in upper_tab_configs:
+            self._create_plot_tab(name, fixed_range, show_tp1, is_upper=True)
+        
+        # 하단 탭 (HPF 관련)
+        lower_tab_configs = [
+            ("HPF_BUFFER", None, False),
+            # ("HPF_BUFFER (Fixed)", (-3500, 3500), True),  # TP1 선 추가
+            ("HPF_BUFFER (Fixed)", (0, 3500), True),  # TP1 선 추가
+            ("HPF_DELTA_BUFFER", None, False),
+            ("HPF_DELTA_BUFFER (Fixed)", (-50, 2500), True),
+        ]
+        for name, fixed_range, show_tp1 in lower_tab_configs:
+            self._create_plot_tab(name, fixed_range, show_tp1, is_upper=False)
 
 
         # 2. 로그 위젯
@@ -213,7 +312,11 @@ class MainWindow(QMainWindow):
         # --- 시그널/슬롯 연결 ---
         self.connect_button.clicked.connect(self.toggle_connection)
         self.tp1_send_button.clicked.connect(self.send_tp1_command)
+        self.tp2_send_button.clicked.connect(self.send_tp2_command)
+        self.tp1_recheck_send_button.clicked.connect(self.send_tp1_recheck_command)
         self.get_settings_button.clicked.connect(self.send_get_settings_command)
+        self.save_nvs_button.clicked.connect(self.send_save_nvs_command)
+        self.reset_button.clicked.connect(self.send_reset_command)
         
         self.uart_thread = None
         self.command_sender = CommandSender()  # 명령 송신 객체
@@ -224,17 +327,25 @@ class MainWindow(QMainWindow):
         self.connect_button.setEnabled(True)
         if is_connected:
             self.connect_button.setText("Disconnect")
-            # TP1 컨트롤 버튼 활성화
+            # 모든 컨트롤 버튼 활성화
             self.tp1_send_button.setEnabled(True)
+            self.tp2_send_button.setEnabled(True)
+            self.tp1_recheck_send_button.setEnabled(True)
             self.get_settings_button.setEnabled(True)
+            self.save_nvs_button.setEnabled(True)
+            self.reset_button.setEnabled(True)
             # CommandSender에 시리얼 포트 설정
             if self.uart_thread and self.uart_thread.serial_port:
                 self.command_sender.set_serial(self.uart_thread.serial_port)
         else:
             self.connect_button.setText("Connect")
-            # TP1 컨트롤 버튼 비활성화
+            # 모든 컨트롤 버튼 비활성화
             self.tp1_send_button.setEnabled(False)
+            self.tp2_send_button.setEnabled(False)
+            self.tp1_recheck_send_button.setEnabled(False)
             self.get_settings_button.setEnabled(False)
+            self.save_nvs_button.setEnabled(False)
+            self.reset_button.setEnabled(False)
             self.command_sender.set_serial(None)
             # Clean up the thread object
             if self.uart_thread:
@@ -285,9 +396,19 @@ class MainWindow(QMainWindow):
     @pyqtSlot(object)
     def update_ui(self, data: SensorData):
         """UI 업데이트: 로그, 그래프, 설정 표시"""
-        # 1. 로그 텍스트 업데이트
+        # 1. 로그 텍스트 업데이트 (최대 500줄 제한)
         log_str = self._format_sensor_data_for_log(data)
         self.log_text.append(log_str)
+        
+        # 로그 줄 수 제한 (메모리 누수 방지)
+        MAX_LOG_LINES = 500
+        doc = self.log_text.document()
+        if doc.blockCount() > MAX_LOG_LINES:
+            cursor = self.log_text.textCursor()
+            cursor.movePosition(cursor.MoveOperation.Start)
+            cursor.movePosition(cursor.MoveOperation.Down, cursor.MoveMode.KeepAnchor, doc.blockCount() - MAX_LOG_LINES)
+            cursor.removeSelectedText()
+        
         self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
 
         # 2. 그래프 업데이트
@@ -296,6 +417,9 @@ class MainWindow(QMainWindow):
             self._update_stats("ADC_BUFFER", data.adc_buffer)
             self._get_or_create_plot("ADC_BUFFER (Fixed)", fixed_range=(0, 4096)).setData(data.adc_buffer)
             self._update_stats("ADC_BUFFER (Fixed)", data.adc_buffer, y_max=3900)
+            
+            # ★ TP1 초과 지점 빨간색으로 표시
+            self._update_exceed_points("ADC_BUFFER (Fixed)", data.adc_buffer, y_max=3900)
         elif data.adc_delta_buffer:
             self._get_or_create_plot("ADC_DELTA_BUFFER").setData(data.adc_delta_buffer)
             self._update_stats("ADC_DELTA_BUFFER", data.adc_delta_buffer)
@@ -310,6 +434,12 @@ class MainWindow(QMainWindow):
         elif data.hpf_buffer:
             self._get_or_create_plot("HPF_BUFFER").setData(data.hpf_buffer)
             self._update_stats("HPF_BUFFER", data.hpf_buffer)
+            # self._get_or_create_plot("HPF_BUFFER (Fixed)", fixed_range=(-3500, 3500), show_tp1_line=True).setData(data.hpf_buffer)
+            self._get_or_create_plot("HPF_BUFFER (Fixed)", fixed_range=(0, 3500), show_tp1_line=True).setData(data.hpf_buffer)
+            self._update_stats("HPF_BUFFER (Fixed)", data.hpf_buffer, y_max=3300)
+            
+            # ★ TP1 초과 지점 빨간색으로 표시
+            self._update_exceed_points("HPF_BUFFER (Fixed)", data.hpf_buffer, y_max=3300)
         elif data.voltage_delta_buffer:
             self._get_or_create_plot("VOLTAGE_DELTA_BUFFER").setData(data.voltage_delta_buffer)
             self._update_stats("VOLTAGE_DELTA_BUFFER", data.voltage_delta_buffer)
@@ -326,17 +456,71 @@ class MainWindow(QMainWindow):
         if data.settings:
             s = data.settings
             self.tp1_value = s.tp1  # TP1 값 저장
+            self.tp1_recheck_value = s.tp1_recheck  # TP1 Recheck 값 저장
             
             # TP1 가로선 업데이트
             self._update_threshold_lines()
             
+            # 재실 상태 라벨 업데이트 (눈에 띄게!)
+            if s.occupancy:
+                self.occupancy_label.setText("🟢 재실 상태: 재실")
+                self.occupancy_label.setStyleSheet("""
+                    QLabel {
+                        font-size: 14px;
+                        font-weight: bold;
+                        padding: 8px;
+                        border-radius: 5px;
+                        background-color: #1a4d1a;
+                        color: #66ff66;
+                    }
+                """)
+            else:
+                self.occupancy_label.setText("⚪ 재실 상태: 없음")
+                self.occupancy_label.setStyleSheet("""
+                    QLabel {
+                        font-size: 14px;
+                        font-weight: bold;
+                        padding: 8px;
+                        border-radius: 5px;
+                        background-color: #3a3a3a;
+                        color: #888888;
+                    }
+                """)
+            
+            # PIR 출력 상태 라벨 업데이트
+            if s.pir_output:
+                self.pir_output_label.setText("📡 PIR 출력: ON")
+                self.pir_output_label.setStyleSheet("""
+                    QLabel {
+                        font-size: 14px;
+                        font-weight: bold;
+                        padding: 8px;
+                        border-radius: 5px;
+                        background-color: #4d4d1a;
+                        color: #ffff66;
+                    }
+                """)
+            else:
+                self.pir_output_label.setText("📡 PIR 출력: OFF")
+                self.pir_output_label.setStyleSheet("""
+                    QLabel {
+                        font-size: 14px;
+                        font-weight: bold;
+                        padding: 8px;
+                        border-radius: 5px;
+                        background-color: #3a3a3a;
+                        color: #888888;
+                    }
+                """)
+            
             settings_str = (
                 f"TP1: {s.tp1}\n"
+                f"TP1 Recheck: {s.tp1_recheck}\n"
                 f"TP2: {s.tp2}\n"
                 f"LED Max: {s.led_max_percentage}%\n"
                 f"LED Min: {s.led_min_percentage}%\n"
-                f"LED Indicator: {s.led_indicator_percentage}%\n"
-                f"LED Delay: {s.led_indicator_delay_time_ms} ms\n"
+                f"LED dimming: {s.led_dimming_percentage}%\n"
+                f"LED Step Time: {s.led_dimming_step_time_ms} ms\n"
                 f"Occupancy Timeout: {s.occupancy_timeout_us} us\n"
                 f"Sleep Time: {s.sleep_time} us"
             )
@@ -398,72 +582,94 @@ class MainWindow(QMainWindow):
 
             log_lines.append(f"  {name}: {len(buffer)} samples (Valid: {count}) "
                                 f"(Min: {min_v}, Max: {max_v}, Avg: {avg_str})")
-            log_lines.append(self._format_array_pretty(buffer))
+            # 배열 전체 출력 제거 (성능 개선)
+            # log_lines.append(self._format_array_pretty(buffer))
 
         # --- 설정값 처리 ---
         elif sensor_data.settings:
             s = sensor_data.settings
+            occupancy_status = "🟢 재실" if s.occupancy else "⚪ 없음"
             log_lines.append("  Settings:")
             log_lines.append(f"    - TP1: {s.tp1}")
+            log_lines.append(f"    - TP1 Recheck: {s.tp1_recheck}")
             log_lines.append(f"    - TP2: {s.tp2}")
-            log_lines.append(f"    - LED: Max={s.led_max_percentage}%, Min={s.led_min_percentage}%, Ind={s.led_indicator_percentage}%")
-            log_lines.append(f"    - LED Delay: {s.led_indicator_delay_time_ms} ms")
+            log_lines.append(f"    - LED: Max={s.led_max_percentage}%, Min={s.led_min_percentage}%, Dim={s.led_dimming_percentage}%")
+            log_lines.append(f"    - LED Step Time: {s.led_dimming_step_time_ms} ms")
             log_lines.append(f"    - Occupancy Timeout: {s.occupancy_timeout_us} us")
             log_lines.append(f"    - Sleep Time: {s.sleep_time} us")
+            log_lines.append(f"    - Occupancy: {occupancy_status}")
 
         return "\n".join(log_lines)
 
+    def _create_plot_tab(self, name, fixed_range=None, show_tp1_line=False, is_upper=True):
+        """플롯 탭을 미리 생성 (초기화 시 호출)"""
+        plot_widget = pg.PlotWidget()
+        
+        # 마우스 드래그(팬) 및 휠 줌 비활성화
+        plot_widget.setMouseEnabled(x=False, y=False)
+        plot_widget.setMenuEnabled(False)
+        
+        if fixed_range:
+            plot_widget.setYRange(fixed_range[0], fixed_range[1], padding=0)
+            plot_widget.setTitle(f"{name}")
+        else:
+            plot_widget.setTitle(name)
+        
+        # TP1 임계값 가로선 추가 (빨간색)
+        if show_tp1_line:
+            tp1_line = pg.InfiniteLine(
+                pos=self.tp1_value, 
+                angle=0,
+                pen=pg.mkPen('r', width=2, style=pg.QtCore.Qt.PenStyle.DashLine),
+                label=f'TP1={self.tp1_value}',
+                labelOpts={'position': 0.95, 'color': 'r', 'fill': (200, 200, 200, 100)}
+            )
+            plot_widget.addItem(tp1_line)
+            self.threshold_lines[name] = tp1_line
+            
+            # TP1 Recheck 임계값 가로선 추가 (주황색)
+            tp1_recheck_line = pg.InfiniteLine(
+                pos=self.tp1_recheck_value, 
+                angle=0,
+                pen=pg.mkPen(color=(255, 165, 0), width=2, style=pg.QtCore.Qt.PenStyle.DashLine),  # Orange
+                label=f'TP1_RCK={self.tp1_recheck_value}',
+                labelOpts={'position': 0.85, 'color': (255, 165, 0), 'fill': (200, 200, 200, 100)}
+            )
+            plot_widget.addItem(tp1_recheck_line)
+            self.tp1_recheck_lines[name] = tp1_recheck_line
+            
+        plot_item = plot_widget.plot(pen='y', name=name)
+        
+        # 상단/하단 탭에 추가
+        if is_upper:
+            self.upper_plot_tabs.addTab(plot_widget, name)
+        else:
+            self.lower_plot_tabs.addTab(plot_widget, name)
+        
+        self.plots[name] = plot_item
+        self.plot_widgets[name] = plot_widget
+
     def _get_or_create_plot(self, name, fixed_range=None, show_tp1_line=False):
-        """데이터 타입 이름으로 플롯을 가져오거나 새로 생성. fixed_range가 주어지면 Y축 고정."""
+        """데이터 타입 이름으로 플롯을 반환. 미리 생성된 탭을 사용."""
         if name in self.plots:
-            # 해당 탭으로 전환 로직 제거
             return self.plots[name]
         else:
-            # 새 플롯 위젯과 탭 생성
-            plot_widget = pg.PlotWidget()
-            
-            # ★ 마우스 드래그(팬) 및 휠 줌 비활성화
-            plot_widget.setMouseEnabled(x=False, y=False)  # 드래그로 이동 비활성화
-            plot_widget.setMenuEnabled(False)  # 우클릭 메뉴 비활성화
-            
-            if fixed_range:
-                plot_widget.setYRange(fixed_range[0], fixed_range[1], padding=0)
-                plot_widget.setTitle(f"{name} (Fixed Range)")
-            else:
-                plot_widget.setTitle(name)
-            
-            # ★ TP1 임계값 가로선 추가
-            if show_tp1_line:
-                tp1_line = pg.InfiniteLine(
-                    pos=self.tp1_value, 
-                    angle=0,  # 0 = 가로선
-                    pen=pg.mkPen('r', width=2, style=pg.QtCore.Qt.PenStyle.DashLine),
-                    label=f'TP1={self.tp1_value}',
-                    labelOpts={'position': 0.95, 'color': 'r', 'fill': (200, 200, 200, 100)}
-                )
-                plot_widget.addItem(tp1_line)
-                self.threshold_lines[name] = tp1_line
-                
-            plot_item = plot_widget.plot(pen='y', name=name)
-            
-            # ★ HPF 관련은 하단 탭, 나머지는 상단 탭에 추가
-            if "HPF" in name:
-                self.lower_plot_tabs.addTab(plot_widget, name)
-            else:
-                self.upper_plot_tabs.addTab(plot_widget, name)
-            
-            self.plots[name] = plot_item
-            self.plot_widgets[name] = plot_widget  # PlotWidget도 저장
-            
-            # 새로 추가된 탭으로 자동 전환 로직 제거
-            
-            return plot_item
+            # 미리 생성되지 않은 탭은 동적으로 생성 (fallback)
+            is_upper = "HPF" not in name
+            self._create_plot_tab(name, fixed_range, show_tp1_line, is_upper)
+            return self.plots[name]
 
     def _update_threshold_lines(self):
         """모든 임계값 가로선의 위치 업데이트"""
+        # TP1 빨간선 업데이트
         for name, line in self.threshold_lines.items():
             line.setValue(self.tp1_value)
             line.label.setText(f'TP1={self.tp1_value}')
+        
+        # TP1 Recheck 주황선 업데이트
+        for name, line in self.tp1_recheck_lines.items():
+            line.setValue(self.tp1_recheck_value)
+            line.label.setText(f'TP1_RCK={self.tp1_recheck_value}')
 
     def _update_stats(self, plot_name, data, y_max=None):
         """그래프 우측 상단에 통계 정보(최소, 최대, 중앙값, 평균) 표시"""
@@ -515,13 +721,13 @@ class MainWindow(QMainWindow):
         self.stats_labels[plot_name].setPos(len(data) - 2, y_pos)
 
     def _update_exceed_points(self, plot_name, data, y_max=3900):
-        """TP1 초과 지점을 빨간색 점으로 표시"""
+        """TP1 초과 지점을 빨간색 점, TP1_RECHECK 초과 지점을 주황색 점으로 표시"""
         if plot_name not in self.plot_widgets:
             return
         
         plot_widget = self.plot_widgets[plot_name]
         
-        # 기존 ScatterPlot이 없으면 생성
+        # TP1 초과용 ScatterPlot (빨간색)
         if plot_name not in self.exceed_plots:
             scatter = pg.ScatterPlotItem(
                 pen=None,
@@ -532,31 +738,56 @@ class MainWindow(QMainWindow):
             plot_widget.addItem(scatter)
             self.exceed_plots[plot_name] = scatter
         
+        # TP1_RECHECK 초과용 ScatterPlot (주황색)
+        recheck_key = f"{plot_name}_recheck"
+        if recheck_key not in self.exceed_plots:
+            scatter_recheck = pg.ScatterPlotItem(
+                pen=None,
+                brush=pg.mkBrush(255, 165, 0),  # 주황색
+                size=10,
+                symbol='s'  # 사각형으로 구분
+            )
+            plot_widget.addItem(scatter_recheck)
+            self.exceed_plots[recheck_key] = scatter_recheck
+        
         # 초과 개수 표시용 TextItem 생성
         if plot_name not in self.exceed_labels:
             label = pg.TextItem(
-                text='TP1 초과 개수: 0',
+                text='TP1 초과: 0 / TP1_RCK 초과: 0',
                 color='r',
                 anchor=(1, 0)  # 우측 상단 기준
             )
-            label.setFont(pg.QtGui.QFont('Arial', 12, pg.QtGui.QFont.Weight.Bold))
+            label.setFont(pg.QtGui.QFont('Arial', 10, pg.QtGui.QFont.Weight.Bold))
             plot_widget.addItem(label)
             self.exceed_labels[plot_name] = label
         
-        # TP1 초과하는 지점 찾기
-        exceed_x = []
+        # 영역 구분 방식:
+        # 🔴 빨간 점: TP1 < value <= TP1_RECHECK (중간 영역)
+        # 🟠 주황 점: value > TP1_RECHECK (높은 영역)
+        
+        exceed_x = []  # 빨간 점 (TP1 ~ TP1_RECHECK)
         exceed_y = []
+        exceed_recheck_x = []  # 주황 점 (TP1_RECHECK 초과)
+        exceed_recheck_y = []
+        
         for i, value in enumerate(data):
-            if value > self.tp1_value and self.tp1_value > 0:
+            if self.tp1_recheck_value > 0 and value > self.tp1_recheck_value:
+                # TP1_RECHECK 초과 → 주황 점
+                exceed_recheck_x.append(i)
+                exceed_recheck_y.append(value)
+            elif self.tp1_value > 0 and value > self.tp1_value:
+                # TP1 초과 but TP1_RECHECK 이하 → 빨간 점
                 exceed_x.append(i)
                 exceed_y.append(value)
         
         # ScatterPlot 업데이트
         self.exceed_plots[plot_name].setData(exceed_x, exceed_y)
+        self.exceed_plots[recheck_key].setData(exceed_recheck_x, exceed_recheck_y)
         
         # 초과 개수 라벨 업데이트 (우측 상단 위치)
         exceed_count = len(exceed_x)
-        self.exceed_labels[plot_name].setText(f'TP1 초과 개수: {exceed_count}')
+        exceed_recheck_count = len(exceed_recheck_x)
+        self.exceed_labels[plot_name].setText(f'TP1: {exceed_count} / TP1_RCK: {exceed_recheck_count}')
         # 우측 상단에 위치 (x=데이터길이-5, y=고정범위 상단)
         self.exceed_labels[plot_name].setPos(len(data) - 5, y_max)
 
@@ -573,12 +804,61 @@ class MainWindow(QMainWindow):
             self.log_text.append("[TX] TP1 전송 실패 - 연결 상태를 확인하세요")
             QMessageBox.warning(self, "전송 실패", "TP1 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
     
+    def send_tp2_command(self):
+        """TP2 값을 ESP32에 전송"""
+        tp2_value = self.tp2_spinbox.value()
+        
+        if self.command_sender.send_set_tp2(tp2_value):
+            self.log_text.append(f"[TX] TP2 설정 명령 전송: {tp2_value}")
+        else:
+            self.log_text.append("[TX] TP2 전송 실패 - 연결 상태를 확인하세요")
+            QMessageBox.warning(self, "전송 실패", "TP2 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
+    
+    def send_tp1_recheck_command(self):
+        """TP1_RECHECK 값을 ESP32에 전송"""
+        tp1_recheck_value = self.tp1_recheck_spinbox.value()
+        
+        if self.command_sender.send_set_tp1_recheck(tp1_recheck_value):
+            self.log_text.append(f"[TX] TP1_RECHECK 설정 명령 전송: {tp1_recheck_value}")
+            # 로컬 tp1_recheck_value 업데이트 및 그래프 임계선 업데이트
+            self.tp1_recheck_value = tp1_recheck_value
+            self._update_threshold_lines()
+        else:
+            self.log_text.append("[TX] TP1_RECHECK 전송 실패 - 연결 상태를 확인하세요")
+            QMessageBox.warning(self, "전송 실패", "TP1_RECHECK 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
+    
     def send_get_settings_command(self):
         """ESP32에 현재 설정값을 요청"""
         if self.command_sender.send_get_settings():
             self.log_text.append("[TX] 설정값 요청 명령 전송")
         else:
             self.log_text.append("[TX] 설정값 요청 실패 - 연결 상태를 확인하세요")
+
+    def send_save_nvs_command(self):
+        """현재 설정을 NVS(비휘발성 메모리)에 저장"""
+        if self.command_sender.send_save_nvs():
+            self.log_text.append("[TX] 💾 NVS 저장 명령 전송")
+            QMessageBox.information(self, "NVS 저장", "설정값이 NVS에 저장되었습니다.")
+        else:
+            self.log_text.append("[TX] NVS 저장 실패 - 연결 상태를 확인하세요")
+            QMessageBox.warning(self, "전송 실패", "NVS 저장 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
+
+    def send_reset_command(self):
+        """ESP32 소프트 리셋"""
+        # 확인 대화상자
+        reply = QMessageBox.question(
+            self, 
+            "ESP32 리셋", 
+            "ESP32를 리셋하시겠습니까?\n연결이 끊어집니다.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            if self.command_sender.send_reset():
+                self.log_text.append("[TX] 🔄 ESP32 리셋 명령 전송 (1초 후 리셋됨)")
+            else:
+                self.log_text.append("[TX] 리셋 실패 - 연결 상태를 확인하세요")
 
     def closeEvent(self, event):
         """윈도우 종료 이벤트"""

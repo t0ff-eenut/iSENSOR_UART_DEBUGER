@@ -142,6 +142,29 @@ class CommandSender:
         frame = self.build_frame(UartCommandType.CMD_SET_TP2, payload)
         return self.send_frame(frame)
     
+    def send_set_tp1_recheck(self, tp1_recheck_value: int) -> bool:
+        """TP1 Recheck 값 설정 명령 전송
+        
+        Args:
+            tp1_recheck_value: TP1 Recheck 값 (0-65535)
+            
+        Returns:
+            True: 성공, False: 실패
+        """
+        # 범위 검사
+        if not 0 <= tp1_recheck_value <= 65535:
+            print(f"[CommandSender] TP1_RECHECK 값 범위 오류: {tp1_recheck_value}")
+            return False
+        
+        # uint16_t Little Endian
+        payload = bytes([
+            tp1_recheck_value & 0xFF,
+            (tp1_recheck_value >> 8) & 0xFF
+        ])
+        
+        frame = self.build_frame(UartCommandType.CMD_SET_TP1_RECHECK, payload)
+        return self.send_frame(frame)
+    
     def send_get_settings(self) -> bool:
         """설정값 요청 명령 전송
         

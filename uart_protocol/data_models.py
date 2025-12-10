@@ -84,32 +84,41 @@ class SettingsData:
     """
     설정값 데이터 (타입 7)
     
-    총 33 bytes:
+    총 37 bytes:
     - TP1: uint16 (2 bytes)
+    - TP1_RECHECK: uint16 (2 bytes)
     - TP2: uint64 (8 bytes)
     - LED_MAX: uint8 (1 byte)
     - LED_MIN: uint8 (1 byte)
-    - LED_IND: uint8 (1 byte)
-    - LED_DELAY: uint32 (4 bytes)
+    - LED_DIMMING: uint8 (1 byte)
+    - LED_DIMMING_STEP_TIME_MS: uint32 (4 bytes)
     - OCCU_TO: uint64 (8 bytes)
     - SLEEP: uint64 (8 bytes)
+    - OCCUPANCY: bool (1 byte)
+    - PIR_OUTPUT: bool (1 byte)
     """
-    tp1: int                            # uint16
+    tp1: int                            # uint16 (occupancy)
+    tp1_recheck: int                    # uint16 (recheck)
     tp2: int                            # uint64
     led_max_percentage: int             # uint8
     led_min_percentage: int             # uint8
-    led_indicator_percentage: int       # uint8
-    led_indicator_delay_time_ms: int    # uint32
+    led_dimming_percentage: int       # uint8
+    led_dimming_step_time_ms: int       # uint32
     occupancy_timeout_us: int           # uint64
     sleep_time: int                     # uint64
+    occupancy: bool = False             # bool (재실 여부)
+    pir_output: bool = False            # bool (PIR 출력)
     
     def __repr__(self) -> str:
         return (
             f"SettingsData("
             f"TP1={self.tp1}, "
+            f"TP1_RECHECK={self.tp1_recheck}, "
             f"TP2={self.tp2}, "
-            f"LED={self.led_max_percentage}/{self.led_min_percentage}/{self.led_indicator_percentage}%, "
-            f"OCCU_TO={self.occupancy_timeout_us}us"
+            f"LED={self.led_max_percentage}/{self.led_min_percentage}/{self.led_dimming_percentage}%, "
+            f"OCCU_TO={self.occupancy_timeout_us}us, "
+            f"OCCUPANCY={'재실' if self.occupancy else '없음'}, "
+            f"PIR={'ON' if self.pir_output else 'OFF'}"
             f")"
         )
 
