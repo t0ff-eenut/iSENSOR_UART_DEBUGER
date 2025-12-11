@@ -171,6 +171,14 @@ class PayloadParser:
         led_dimming_step_time_ms = bytes_to_uint32_be(payload[offset:offset+4])
         offset += 4
         
+        # LED_DIMMING_WORK_TIME_MS (uint32 BE)
+        led_dimming_work_time_ms = bytes_to_uint32_be(payload[offset:offset+4])
+        offset += 4
+        
+        # LED_DIMMING_DELAY_TIME_MS (uint32 BE)
+        led_dimming_delay_time_ms = bytes_to_uint32_be(payload[offset:offset+4])
+        offset += 4
+        
         # OCCU_TO (uint64 BE)
         occu_to = bytes_to_uint64_be(payload[offset:offset+8])
         offset += 8
@@ -194,6 +202,8 @@ class PayloadParser:
             led_min_percentage=led_min,
             led_dimming_percentage=led_ind,
             led_dimming_step_time_ms=led_dimming_step_time_ms,
+            led_dimming_work_time_ms=led_dimming_work_time_ms,
+            led_dimming_delay_time_ms=led_dimming_delay_time_ms,
             occupancy_timeout_us=occu_to,
             sleep_time=sleep_time,
             occupancy=occupancy,

@@ -436,7 +436,7 @@ class MainWindow(QMainWindow):
             self._update_stats("HPF_BUFFER", data.hpf_buffer)
             # self._get_or_create_plot("HPF_BUFFER (Fixed)", fixed_range=(-3500, 3500), show_tp1_line=True).setData(data.hpf_buffer)
             self._get_or_create_plot("HPF_BUFFER (Fixed)", fixed_range=(0, 3500), show_tp1_line=True).setData(data.hpf_buffer)
-            self._update_stats("HPF_BUFFER (Fixed)", data.hpf_buffer, y_max=3300)
+            self._update_stats("HPF_BUFFER (Fixed)", data.hpf_buffer, y_max=3300, positive_only=True)
             
             # ★ TP1 초과 지점 빨간색으로 표시
             self._update_exceed_points("HPF_BUFFER (Fixed)", data.hpf_buffer, y_max=3300)
@@ -520,7 +520,9 @@ class MainWindow(QMainWindow):
                 f"LED Max: {s.led_max_percentage}%\n"
                 f"LED Min: {s.led_min_percentage}%\n"
                 f"LED dimming: {s.led_dimming_percentage}%\n"
-                f"LED Step Time: {s.led_dimming_step_time_ms} ms\n"
+                f"LED Step: {s.led_dimming_step_time_ms} ms\n"
+                f"LED Work: {s.led_dimming_work_time_ms} ms\n"
+                f"LED Delay: {s.led_dimming_delay_time_ms} ms\n"
                 f"Occupancy Timeout: {s.occupancy_timeout_us} us\n"
                 f"Sleep Time: {s.sleep_time} us"
             )
@@ -594,7 +596,7 @@ class MainWindow(QMainWindow):
             log_lines.append(f"    - TP1 Recheck: {s.tp1_recheck}")
             log_lines.append(f"    - TP2: {s.tp2}")
             log_lines.append(f"    - LED: Max={s.led_max_percentage}%, Min={s.led_min_percentage}%, Dim={s.led_dimming_percentage}%")
-            log_lines.append(f"    - LED Step Time: {s.led_dimming_step_time_ms} ms")
+            log_lines.append(f"    - LED Step: {s.led_dimming_step_time_ms} ms, Work: {s.led_dimming_work_time_ms} ms, Delay: {s.led_dimming_delay_time_ms} ms")
             log_lines.append(f"    - Occupancy Timeout: {s.occupancy_timeout_us} us")
             log_lines.append(f"    - Sleep Time: {s.sleep_time} us")
             log_lines.append(f"    - Occupancy: {occupancy_status}")
@@ -671,8 +673,15 @@ class MainWindow(QMainWindow):
             line.setValue(self.tp1_recheck_value)
             line.label.setText(f'TP1_RCK={self.tp1_recheck_value}')
 
-    def _update_stats(self, plot_name, data, y_max=None):
-        """그래프 우측 상단에 통계 정보(최소, 최대, 중앙값, 평균) 표시"""
+    def _update_stats(self, plot_name, data, y_max=None, positive_only=False):
+        """그래프 우측 상단에 통계 정보(최소, 최대, 중앙값, 평균) 표시
+        
+        Args:
+            plot_name: 플롯 이름
+            data: 데이터 배열
+            y_max: 고정 Y축 최대값 (옵션)
+            positive_only: True면 양수 값만 필터링해서 통계 계산
+        """
         import statistics
         
         if plot_name not in self.plot_widgets:
@@ -691,22 +700,37 @@ class MainWindow(QMainWindow):
             plot_widget.addItem(label)
             self.stats_labels[plot_name] = label
         
+        # 양수만 필터링 (옵션)
+        if positive_only:
+            filtered_data = [x for x in data if x > 0]
+        else:
+            filtered_data = data
+        
         # 통계 계산
-        if len(data) > 0:
-            min_val = min(data)
-            max_val = max(data)
-            avg_val = sum(data) / len(data)
-            median_val = statistics.median(data)
+        if len(filtered_data) > 0:
+            min_val = min(filtered_data)
+            max_val = max(filtered_data)
+            avg_val = sum(filtered_data) / len(filtered_data)
+            median_val = statistics.median(filtered_data)
             
             # 포맷팅 (소수점 1자리)
-            stats_text = (
-                f"Min: {min_val:.1f}\n"
-                f"Max: {max_val:.1f}\n"
-                f"Med: {median_val:.1f}\n"
-                f"Avg: {avg_val:.1f}"
-            )
+            if positive_only:
+                stats_text = (
+                    f"(양수만 {len(filtered_data)}개)\n"
+                    f"Min: {min_val:.1f}\n"
+                    f"Max: {max_val:.1f}\n"
+                    f"Med: {median_val:.1f}\n"
+                    f"Avg: {avg_val:.1f}"
+                )
+            else:
+                stats_text = (
+                    f"Min: {min_val:.1f}\n"
+                    f"Max: {max_val:.1f}\n"
+                    f"Med: {median_val:.1f}\n"
+                    f"Avg: {avg_val:.1f}"
+                )
         else:
-            stats_text = "No data"
+            stats_text = "No positive data" if positive_only else "No data"
         
         # 라벨 업데이트
         self.stats_labels[plot_name].setText(stats_text)

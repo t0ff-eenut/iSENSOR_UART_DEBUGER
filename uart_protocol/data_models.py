@@ -84,7 +84,7 @@ class SettingsData:
     """
     설정값 데이터 (타입 7)
     
-    총 37 bytes:
+    총 45 bytes:
     - TP1: uint16 (2 bytes)
     - TP1_RECHECK: uint16 (2 bytes)
     - TP2: uint64 (8 bytes)
@@ -92,6 +92,8 @@ class SettingsData:
     - LED_MIN: uint8 (1 byte)
     - LED_DIMMING: uint8 (1 byte)
     - LED_DIMMING_STEP_TIME_MS: uint32 (4 bytes)
+    - LED_DIMMING_WORK_TIME_MS: uint32 (4 bytes)
+    - LED_DIMMING_DELAY_TIME_MS: uint32 (4 bytes)
     - OCCU_TO: uint64 (8 bytes)
     - SLEEP: uint64 (8 bytes)
     - OCCUPANCY: bool (1 byte)
@@ -102,8 +104,10 @@ class SettingsData:
     tp2: int                            # uint64
     led_max_percentage: int             # uint8
     led_min_percentage: int             # uint8
-    led_dimming_percentage: int       # uint8
+    led_dimming_percentage: int         # uint8
     led_dimming_step_time_ms: int       # uint32
+    led_dimming_work_time_ms: int       # uint32
+    led_dimming_delay_time_ms: int      # uint32
     occupancy_timeout_us: int           # uint64
     sleep_time: int                     # uint64
     occupancy: bool = False             # bool (재실 여부)
@@ -116,7 +120,9 @@ class SettingsData:
             f"TP1_RECHECK={self.tp1_recheck}, "
             f"TP2={self.tp2}, "
             f"LED={self.led_max_percentage}/{self.led_min_percentage}/{self.led_dimming_percentage}%, "
-            f"OCCU_TO={self.occupancy_timeout_us}us, "
+            f"STEP={self.led_dimming_step_time_ms}ms, "
+            f"WORK={self.led_dimming_work_time_ms}ms, "
+            f"DELAY={self.led_dimming_delay_time_ms}ms, "
             f"OCCUPANCY={'재실' if self.occupancy else '없음'}, "
             f"PIR={'ON' if self.pir_output else 'OFF'}"
             f")"

@@ -76,7 +76,7 @@ PAYLOAD_SIZE_MAP = {
     UartDataType.VOLTAGE_DELTA_BUFFER: WINDOW_SIZE * 2, # 600 bytes
     UartDataType.HPF_DELTA_BUFFER: WINDOW_SIZE * 4,     # 1200 bytes (float32)
     UartDataType.OCCUPANCY_BUFFER: WINDOW_SIZE * 1,     # 300 bytes (bool = 1 byte)
-    UartDataType.SETTINGS: 37,                          # 37 bytes (고정) - pir_output 추가
+    UartDataType.SETTINGS: 45,                          # 45 bytes (고정) - led_dimming_work/delay 추가
     # ALL_BUFFERS와 ALL_DATA는 가변 크기
 }
 
@@ -87,7 +87,9 @@ SETTINGS_TP2_SIZE: Final[int] = 8          # uint64
 SETTINGS_LED_MAX_SIZE: Final[int] = 1      # uint8
 SETTINGS_LED_MIN_SIZE: Final[int] = 1      # uint8
 SETTINGS_LED_IND_SIZE: Final[int] = 1      # uint8
-SETTINGS_LED_DELAY_SIZE: Final[int] = 4    # uint32
+SETTINGS_LED_STEP_SIZE: Final[int] = 4     # uint32 (led_dimming_step_time_ms)
+SETTINGS_LED_WORK_SIZE: Final[int] = 4     # uint32 (led_dimming_work_time_ms)
+SETTINGS_LED_DELAY_SIZE: Final[int] = 4    # uint32 (led_dimming_delay_time_ms)
 SETTINGS_OCCU_TO_SIZE: Final[int] = 8      # uint64
 SETTINGS_SLEEP_SIZE: Final[int] = 8        # uint64
 SETTINGS_OCCUPANCY_SIZE: Final[int] = 1    # bool (uint8)
@@ -95,9 +97,10 @@ SETTINGS_PIR_OUTPUT_SIZE: Final[int] = 1   # bool (uint8)
 SETTINGS_TOTAL_SIZE: Final[int] = (
     SETTINGS_TP1_SIZE + SETTINGS_TP1_RECHECK_SIZE + SETTINGS_TP2_SIZE +
     SETTINGS_LED_MAX_SIZE + SETTINGS_LED_MIN_SIZE + SETTINGS_LED_IND_SIZE +
-    SETTINGS_LED_DELAY_SIZE + SETTINGS_OCCU_TO_SIZE + SETTINGS_SLEEP_SIZE +
+    SETTINGS_LED_STEP_SIZE + SETTINGS_LED_WORK_SIZE + SETTINGS_LED_DELAY_SIZE +
+    SETTINGS_OCCU_TO_SIZE + SETTINGS_SLEEP_SIZE +
     SETTINGS_OCCUPANCY_SIZE + SETTINGS_PIR_OUTPUT_SIZE
-)  # 37 bytes
+)  # 45 bytes
 
 
 # ==================== UART 설정 ====================
