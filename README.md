@@ -130,16 +130,16 @@ ESP32-C3 PIR 재실 감지 센서의 UART 데이터를 수신하고 파싱하는
 
 | 타입 | 값 | 설명 | 페이로드 크기 |
 |------|-----|------|---------------|
-| ADC_BUFFER | 0 | ADC 버퍼 (uint16 × 300) | 600 bytes |
+| ADC_BUFFER | 0 | ADC RAW 버퍼 (uint16 × 300) | 600 bytes |
 | VOLTAGE_BUFFER | 1 | Voltage 버퍼 (uint16 × 300) | 600 bytes |
-| HPF_BUFFER | 2 | HPF 버퍼 (float32 × 300) | 1200 bytes |
-| ADC_DELTA_BUFFER | 3 | ADC Delta 버퍼 (uint16 × 300) | 600 bytes |
-| VOLTAGE_DELTA_BUFFER | 4 | Voltage Delta 버퍼 (uint16 × 300) | 600 bytes |
-| HPF_DELTA_BUFFER | 5 | HPF Delta 버퍼 (float32 × 300) | 1200 bytes |
-| OCCUPANCY_BUFFER | 6 | Occupancy 버퍼 (bool × 300) | 300 bytes |
-| SETTINGS | 7 | 설정값 (TP1, TP2, LED 등) | 33 bytes |
-| ALL_BUFFERS | 8 | 모든 버퍼 통합 | 가변 |
-| ALL_DATA | 9 | 모든 데이터 (미지원) | - |
+| ADC_HPF_BUFFER | 2 | SW HPF 버퍼 (float32 × 300) | 1200 bytes |
+| ~~ADC_DELTA_BUFFER~~ | ~~3~~ | ~~비활성화~~ | - |
+| ~~VOLTAGE_DELTA_BUFFER~~ | ~~4~~ | ~~비활성화~~ | - |
+| ~~HPF_DELTA_BUFFER~~ | ~~5~~ | ~~비활성화~~ | - |
+| ~~OCCUPANCY_BUFFER~~ | ~~6~~ | ~~비활성화~~ | - |
+| SETTINGS | 3 | 설정값 (TP1, TP2, LED 등) | 45 bytes |
+| ALL_BUFFERS | 4 | 모든 버퍼 통합 | 가변 |
+| ALL_DATA | 5 | 모든 데이터 (미지원) | - |
 
 ### 체크섬 계산
 ```python

@@ -51,19 +51,25 @@ class SensorData:
     timestamp: datetime = field(default_factory=datetime.now)
     
     # 버퍼 데이터 (uint16 or float32)
-    adc_buffer: Optional[List[int]] = None              # 타입 0
-    voltage_buffer: Optional[List[int]] = None          # 타입 1
-    hpf_buffer: Optional[List[float]] = None            # 타입 2
-    adc_delta_buffer: Optional[List[int]] = None        # 타입 3
-    voltage_delta_buffer: Optional[List[int]] = None    # 타입 4
-    hpf_delta_buffer: Optional[List[float]] = None      # 타입 5
-    occupancy_buffer: Optional[List[bool]] = None       # 타입 6
+    adc_buffer: Optional[List[int]] = None              # 타입 0 (RAW)
+    voltage_buffer: Optional[List[int]] = None          # 타입 1 (Voltage)
+    adc_hpf_buffer: Optional[List[float]] = None        # 타입 2 (SW HPF 적용값)
+    hpf_buffer: Optional[List[float]] = None            # 타입 2 별칭 (하위 호환성)
+    adc_bpf_buffer: Optional[List[float]] = None        # 타입 3 (SW BPF 적용값)
+    hw_hpf_buffer: Optional[List[int]] = None           # 타입 4 (HW HPF RAW)
+    hw_bpf_buffer: Optional[List[int]] = None           # 타입 5 (HW BPF RAW)
+    # 델타 버퍼 및 Occupancy 버퍼는 비활성화됨
+    # adc_delta_buffer: Optional[List[int]] = None      # (비활성화)
+    # voltage_delta_buffer: Optional[List[int]] = None  # (비활성화)
+    # hpf_delta_buffer: Optional[List[float]] = None    # (비활성화)
+    # occupancy_buffer: Optional[List[bool]] = None     # (비활성화)
     
-    # 설정 데이터 (타입 7)
+    # 설정 데이터 (타입 6)
     settings: Optional['SettingsData'] = None
     
-    # 통합 데이터 (타입 8)
+    # 통합 데이터 (타입 7)
     all_buffers: Optional[dict] = None
+
     
     # 원본 프레임 참조
     raw_frame: Optional[UartFrame] = None

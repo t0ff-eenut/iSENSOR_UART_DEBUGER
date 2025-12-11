@@ -46,21 +46,31 @@ class PayloadParser:
             elif data_type == UartDataType.VOLTAGE_BUFFER:
                 sensor_data.voltage_buffer = PayloadParser._parse_uint16_buffer(payload)
             
-            elif data_type == UartDataType.HPF_BUFFER:
-                sensor_data.hpf_buffer = PayloadParser._parse_float32_buffer(payload)
+            elif data_type == UartDataType.ADC_HPF_BUFFER:  # SW HPF
+                sensor_data.adc_hpf_buffer = PayloadParser._parse_float32_buffer(payload)
             
-            elif data_type == UartDataType.ADC_DELTA_BUFFER:
-                sensor_data.adc_delta_buffer = PayloadParser._parse_uint16_buffer(payload)
+            elif data_type == UartDataType.ADC_BPF_BUFFER:  # SW BPF
+                sensor_data.adc_bpf_buffer = PayloadParser._parse_float32_buffer(payload)
             
-            elif data_type == UartDataType.VOLTAGE_DELTA_BUFFER:
-                sensor_data.voltage_delta_buffer = PayloadParser._parse_uint16_buffer(payload)
+            elif data_type == UartDataType.HPF_BUFFER:  # HW HPF (RAW uint16)
+                sensor_data.hw_hpf_buffer = PayloadParser._parse_uint16_buffer(payload)
             
-            elif data_type == UartDataType.HPF_DELTA_BUFFER:
-                sensor_data.hpf_delta_buffer = PayloadParser._parse_float32_buffer(payload)
+            elif data_type == UartDataType.BPF_BUFFER:  # HW BPF (RAW uint16)
+                sensor_data.hw_bpf_buffer = PayloadParser._parse_uint16_buffer(payload)
             
-            elif data_type == UartDataType.OCCUPANCY_BUFFER:
-                sensor_data.occupancy_buffer = PayloadParser._parse_bool_buffer(payload)
-            
+            # 델타 버퍼 및 Occupancy 버퍼는 비활성화됨
+            # elif data_type == UartDataType.ADC_DELTA_BUFFER:
+            #     sensor_data.adc_delta_buffer = PayloadParser._parse_uint16_buffer(payload)
+            # 
+            # elif data_type == UartDataType.VOLTAGE_DELTA_BUFFER:
+            #     sensor_data.voltage_delta_buffer = PayloadParser._parse_uint16_buffer(payload)
+            # 
+            # elif data_type == UartDataType.HPF_DELTA_BUFFER:
+            #     sensor_data.hpf_delta_buffer = PayloadParser._parse_float32_buffer(payload)
+            # 
+            # elif data_type == UartDataType.OCCUPANCY_BUFFER:
+            #     sensor_data.occupancy_buffer = PayloadParser._parse_bool_buffer(payload)
+
             elif data_type == UartDataType.SETTINGS:
                 sensor_data.settings = PayloadParser._parse_settings(payload)
             

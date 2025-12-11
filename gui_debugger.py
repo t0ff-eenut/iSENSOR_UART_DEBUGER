@@ -244,20 +244,22 @@ class MainWindow(QMainWindow):
         # --- 우측 패널 구성 ---
         # 1. 그래프 위젯 (상/하 두 개의 탭 위젯)
         
-        # 상단: ADC 관련 그래프
-        upper_graph_group = QGroupBox("ADC Data Plot")
+        # 상단: SW 필터 그래프 (ADC RAW + SW HPF + SW BPF)
+        upper_graph_group = QGroupBox("SW Filter Data Plot (Software Filtered)")
         upper_graph_layout = QVBoxLayout()
         upper_graph_group.setLayout(upper_graph_layout)
         
         self.upper_plot_tabs = QTabWidget()
+        self.upper_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
         upper_graph_layout.addWidget(self.upper_plot_tabs)
         
-        # 하단: HPF 관련 그래프
-        lower_graph_group = QGroupBox("HPF Data Plot")
+        # 하단: HW 필터 채널 그래프
+        lower_graph_group = QGroupBox("HW Filter Data Plot (Hardware Filtered)")
         lower_graph_layout = QVBoxLayout()
         lower_graph_group.setLayout(lower_graph_layout)
         
         self.lower_plot_tabs = QTabWidget()
+        self.lower_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
         lower_graph_layout.addWidget(self.lower_plot_tabs)
 
         # 각 데이터 타입별 플롯을 저장할 딕셔너리
@@ -271,26 +273,25 @@ class MainWindow(QMainWindow):
         self.tp1_value = 0  # TP1 값 저장
         self.tp1_recheck_value = 0  # TP1 Recheck 값 저장
 
-        # ★ 탭을 미리 정해진 순서로 생성 (순서 고정)
-        # 상단 탭 (ADC 관련)
+        # ★ 탭을 미리 정해진 순서로 생성 (각 영역 내에서 드래그로 순서 변경 가능)
+        # 상단 탭 (SW 필터 - ADC RAW, SW HPF, SW BPF)
         upper_tab_configs = [
-            ("ADC_BUFFER", None, False),
-            ("ADC_BUFFER (Fixed)", (0, 4096), True),  # TP1 선 추가
-            ("ADC_DELTA_BUFFER", None, False),
-            ("ADC_DELTA_BUFFER (Fixed)", (0, 4096), True),
-            ("VOLTAGE_BUFFER", None, False),
-            ("VOLTAGE_DELTA_BUFFER", None, False),
+            ("ADC_BUFFER", (0, 4096), False),
+            ("ADC_BUFFER (Adaptive)", None, False),
+            ("ADC_HPF_BUFFER", (0, 3500), True),
+            ("ADC_HPF_BUFFER (Adaptive)", None, False),       # SW HPF
+            ("ADC_BPF_BUFFER", (0, 3500), True),
+            ("ADC_BPF_BUFFER (Adaptive)", None, False),       # SW BPF
         ]
         for name, fixed_range, show_tp1 in upper_tab_configs:
             self._create_plot_tab(name, fixed_range, show_tp1, is_upper=True)
         
-        # 하단 탭 (HPF 관련)
+        # 하단 탭 (HW 필터 - HW HPF, HW BPF 채널)
         lower_tab_configs = [
-            ("HPF_BUFFER", None, False),
-            # ("HPF_BUFFER (Fixed)", (-3500, 3500), True),  # TP1 선 추가
-            ("HPF_BUFFER (Fixed)", (0, 3500), True),  # TP1 선 추가
-            ("HPF_DELTA_BUFFER", None, False),
-            ("HPF_DELTA_BUFFER (Fixed)", (-50, 2500), True),
+            ("HW_HPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
+            ("HW_HPF_BUFFER (Adaptive)", None, False),        # HW HPF
+            ("HW_BPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
+            ("HW_BPF_BUFFER (Adaptive)", None, False),        # HW BPF
         ]
         for name, fixed_range, show_tp1 in lower_tab_configs:
             self._create_plot_tab(name, fixed_range, show_tp1, is_upper=False)
@@ -305,9 +306,11 @@ class MainWindow(QMainWindow):
         self.log_text.setReadOnly(True)
         log_layout.addWidget(self.log_text)
 
-        right_layout.addWidget(upper_graph_group, stretch=2)  # 상단 그래프
-        right_layout.addWidget(lower_graph_group, stretch=2)  # 하단 그래프
+        right_layout.addWidget(upper_graph_group, stretch=2)  # 상단 그래프 (SW)
+        right_layout.addWidget(lower_graph_group, stretch=2)  # 하단 그래프 (HW)
         right_layout.addWidget(log_group, stretch=1)  # 로그
+
+
 
         # --- 시그널/슬롯 연결 ---
         self.connect_button.clicked.connect(self.toggle_connection)
@@ -413,44 +416,71 @@ class MainWindow(QMainWindow):
 
         # 2. 그래프 업데이트
         if data.adc_buffer:
-            self._get_or_create_plot("ADC_BUFFER").setData(data.adc_buffer)
-            self._update_stats("ADC_BUFFER", data.adc_buffer)
-            self._get_or_create_plot("ADC_BUFFER (Fixed)", fixed_range=(0, 4096)).setData(data.adc_buffer)
-            self._update_stats("ADC_BUFFER (Fixed)", data.adc_buffer, y_max=3900)
+            self._get_or_create_plot("ADC_BUFFER (Adaptive)").setData(data.adc_buffer)
+            self._update_stats("ADC_BUFFER (Adaptive)", data.adc_buffer)
+            self._get_or_create_plot("ADC_BUFFER", fixed_range=(0, 4096)).setData(data.adc_buffer)
+            self._update_stats("ADC_BUFFER", data.adc_buffer, y_max=3900)
+        # 델타 버퍼는 비활성화됨
+        # elif data.adc_delta_buffer:
+        #     self._get_or_create_plot("ADC_DELTA_BUFFER").setData(data.adc_delta_buffer)
+        #     self._update_stats("ADC_DELTA_BUFFER", data.adc_delta_buffer)
+        #     self._get_or_create_plot("ADC_DELTA_BUFFER (Fixed)", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_delta_buffer)
+        #     self._update_stats("ADC_DELTA_BUFFER (Fixed)", data.adc_delta_buffer, y_max=3900)
+        #     self._update_exceed_points("ADC_DELTA_BUFFER (Fixed)", data.adc_delta_buffer, y_max=3900)
+        # VOLTAGE_BUFFER 삭제됨
+        elif data.adc_hpf_buffer:  # SW HPF 버퍼
+            self._get_or_create_plot("ADC_HPF_BUFFER (Adaptive)").setData(data.adc_hpf_buffer)
+            self._update_stats("ADC_HPF_BUFFER (Adaptive)", data.adc_hpf_buffer)
+            self._get_or_create_plot("ADC_HPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.adc_hpf_buffer)
+            self._update_stats("ADC_HPF_BUFFER", data.adc_hpf_buffer, y_max=3300, positive_only=True)
             
             # ★ TP1 초과 지점 빨간색으로 표시
-            self._update_exceed_points("ADC_BUFFER (Fixed)", data.adc_buffer, y_max=3900)
-        elif data.adc_delta_buffer:
-            self._get_or_create_plot("ADC_DELTA_BUFFER").setData(data.adc_delta_buffer)
-            self._update_stats("ADC_DELTA_BUFFER", data.adc_delta_buffer)
-            self._get_or_create_plot("ADC_DELTA_BUFFER (Fixed)", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_delta_buffer)
-            self._update_stats("ADC_DELTA_BUFFER (Fixed)", data.adc_delta_buffer, y_max=3900)
-            
-            # ★ TP1 초과 지점 빨간색으로 표시
-            self._update_exceed_points("ADC_DELTA_BUFFER (Fixed)", data.adc_delta_buffer, y_max=3900)
-        elif data.voltage_buffer:
-            self._get_or_create_plot("VOLTAGE_BUFFER").setData(data.voltage_buffer)
-            self._update_stats("VOLTAGE_BUFFER", data.voltage_buffer)
+            self._update_exceed_points("ADC_HPF_BUFFER", data.adc_hpf_buffer, y_max=3300)
+        # hpf_buffer (하위 호환성 - adc_hpf_buffer 별칭)
         elif data.hpf_buffer:
-            self._get_or_create_plot("HPF_BUFFER").setData(data.hpf_buffer)
-            self._update_stats("HPF_BUFFER", data.hpf_buffer)
-            # self._get_or_create_plot("HPF_BUFFER (Fixed)", fixed_range=(-3500, 3500), show_tp1_line=True).setData(data.hpf_buffer)
-            self._get_or_create_plot("HPF_BUFFER (Fixed)", fixed_range=(0, 3500), show_tp1_line=True).setData(data.hpf_buffer)
-            self._update_stats("HPF_BUFFER (Fixed)", data.hpf_buffer, y_max=3300, positive_only=True)
-            
-            # ★ TP1 초과 지점 빨간색으로 표시
-            self._update_exceed_points("HPF_BUFFER (Fixed)", data.hpf_buffer, y_max=3300)
-        elif data.voltage_delta_buffer:
-            self._get_or_create_plot("VOLTAGE_DELTA_BUFFER").setData(data.voltage_delta_buffer)
-            self._update_stats("VOLTAGE_DELTA_BUFFER", data.voltage_delta_buffer)
-        elif data.hpf_delta_buffer:
-            self._get_or_create_plot("HPF_DELTA_BUFFER").setData(data.hpf_delta_buffer)
-            self._update_stats("HPF_DELTA_BUFFER", data.hpf_delta_buffer)
-            self._get_or_create_plot("HPF_DELTA_BUFFER (Fixed)", fixed_range=(-50, 2500), show_tp1_line=True).setData(data.hpf_delta_buffer)
-            self._update_stats("HPF_DELTA_BUFFER (Fixed)", data.hpf_delta_buffer, y_max=2300)
-            
-            # ★ TP1 초과 지점 빨간색으로 표시
-            self._update_exceed_points("HPF_DELTA_BUFFER (Fixed)", data.hpf_delta_buffer, y_max=2400)
+            self._get_or_create_plot("ADC_HPF_BUFFER (Adaptive)").setData(data.hpf_buffer)
+            self._update_stats("ADC_HPF_BUFFER (Adaptive)", data.hpf_buffer)
+            self._get_or_create_plot("ADC_HPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.hpf_buffer)
+            self._update_stats("ADC_HPF_BUFFER", data.hpf_buffer, y_max=3300, positive_only=True)
+            self._update_exceed_points("ADC_HPF_BUFFER", data.hpf_buffer, y_max=3300)
+        
+        # SW BPF 버퍼 (Band-Pass Filter 적용값)
+        elif data.adc_bpf_buffer:
+            self._get_or_create_plot("ADC_BPF_BUFFER (Adaptive)").setData(data.adc_bpf_buffer)
+            self._update_stats("ADC_BPF_BUFFER (Adaptive)", data.adc_bpf_buffer)
+            self._get_or_create_plot("ADC_BPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.adc_bpf_buffer)
+            self._update_stats("ADC_BPF_BUFFER", data.adc_bpf_buffer, y_max=3300, positive_only=True)
+            self._update_exceed_points("ADC_BPF_BUFFER", data.adc_bpf_buffer, y_max=3300)
+        
+        # HW HPF 버퍼 (하드웨어 HPF 채널 RAW ADC)
+        elif data.hw_hpf_buffer:
+            self._get_or_create_plot("HW_HPF_BUFFER (Adaptive)").setData(data.hw_hpf_buffer)
+            self._update_stats("HW_HPF_BUFFER (Adaptive)", data.hw_hpf_buffer)
+            self._get_or_create_plot("HW_HPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_hpf_buffer)
+            self._update_stats("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
+            # ★ TP1 초과 지점 표시
+            self._update_exceed_points("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
+        
+        # HW BPF 버퍼 (하드웨어 BPF 채널 RAW ADC)
+        elif data.hw_bpf_buffer:
+            self._get_or_create_plot("HW_BPF_BUFFER (Adaptive)").setData(data.hw_bpf_buffer)
+            self._update_stats("HW_BPF_BUFFER (Adaptive)", data.hw_bpf_buffer)
+            self._get_or_create_plot("HW_BPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_bpf_buffer)
+            self._update_stats("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
+            # ★ TP1 초과 지점 표시
+            self._update_exceed_points("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
+        
+        # 델타 버퍼는 비활성화됨
+        # elif data.voltage_delta_buffer:
+        #     self._get_or_create_plot("VOLTAGE_DELTA_BUFFER").setData(data.voltage_delta_buffer)
+        #     self._update_stats("VOLTAGE_DELTA_BUFFER", data.voltage_delta_buffer)
+        # elif data.hpf_delta_buffer:
+        #     self._get_or_create_plot("HPF_DELTA_BUFFER").setData(data.hpf_delta_buffer)
+        #     self._update_stats("HPF_DELTA_BUFFER", data.hpf_delta_buffer)
+        #     self._get_or_create_plot("HPF_DELTA_BUFFER (Fixed)", fixed_range=(-50, 2500), show_tp1_line=True).setData(data.hpf_delta_buffer)
+        #     self._update_stats("HPF_DELTA_BUFFER (Fixed)", data.hpf_delta_buffer, y_max=2300)
+        #     self._update_exceed_points("HPF_DELTA_BUFFER (Fixed)", data.hpf_delta_buffer, y_max=2400)
+
 
         # 3. 설정값 업데이트
         if data.settings:
@@ -566,18 +596,27 @@ class MainWindow(QMainWindow):
         buffer, name = None, None
         if sensor_data.adc_buffer:
             buffer, name = sensor_data.adc_buffer, "ADC"
-        elif sensor_data.voltage_buffer:
-            buffer, name = sensor_data.voltage_buffer, "Voltage"
-        elif sensor_data.hpf_buffer:
-            buffer, name = sensor_data.hpf_buffer, "HPF"
-        elif sensor_data.adc_delta_buffer:
-            buffer, name = sensor_data.adc_delta_buffer, "ADC Delta"
-        elif sensor_data.voltage_delta_buffer:
-            buffer, name = sensor_data.voltage_delta_buffer, "Voltage Delta"
-        elif sensor_data.hpf_delta_buffer:
-            buffer, name = sensor_data.hpf_delta_buffer, "HPF Delta"
+        # voltage_buffer 로그 처리 삭제됨
+        elif sensor_data.adc_hpf_buffer:
+            buffer, name = sensor_data.adc_hpf_buffer, "SW HPF"
+        elif sensor_data.hpf_buffer:  # 하위 호환성
+            buffer, name = sensor_data.hpf_buffer, "SW HPF"
+        elif sensor_data.adc_bpf_buffer:
+            buffer, name = sensor_data.adc_bpf_buffer, "SW BPF"
+        elif sensor_data.hw_hpf_buffer:
+            buffer, name = sensor_data.hw_hpf_buffer, "HW HPF"
+        elif sensor_data.hw_bpf_buffer:
+            buffer, name = sensor_data.hw_bpf_buffer, "HW BPF"
+        # 델타 버퍼는 비활성화됨
+        # elif sensor_data.adc_delta_buffer:
+        #     buffer, name = sensor_data.adc_delta_buffer, "ADC Delta"
+        # elif sensor_data.voltage_delta_buffer:
+        #     buffer, name = sensor_data.voltage_delta_buffer, "Voltage Delta"
+        # elif sensor_data.hpf_delta_buffer:
+        #     buffer, name = sensor_data.hpf_delta_buffer, "HPF Delta"
 
         if buffer is not None and name is not None:
+
             count, min_v, max_v, avg_v = self._calculate_stats(buffer)
             # 정수형 avg 값은 소수점 없이 표현
             avg_str = f"{int(avg_v)}" if isinstance(avg_v, float) and avg_v.is_integer() else f"{avg_v:.2f}"
@@ -657,9 +696,10 @@ class MainWindow(QMainWindow):
             return self.plots[name]
         else:
             # 미리 생성되지 않은 탭은 동적으로 생성 (fallback)
-            is_upper = "HPF" not in name
+            is_upper = "HPF" not in name and "BPF" not in name
             self._create_plot_tab(name, fixed_range, show_tp1_line, is_upper)
             return self.plots[name]
+
 
     def _update_threshold_lines(self):
         """모든 임계값 가로선의 위치 업데이트"""
