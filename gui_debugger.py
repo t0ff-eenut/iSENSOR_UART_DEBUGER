@@ -125,8 +125,18 @@ class MainWindow(QMainWindow):
         self.baud_combo = QComboBox()
         self.connect_button = QPushButton("Connect")
         
+        # 🔍 COM Port 재검색 버튼
+        self.refresh_port_button = QPushButton("🔍")
+        self.refresh_port_button.setFixedWidth(30)
+        self.refresh_port_button.setToolTip("COM Port 재검색")
+        
+        # 레이아웃: Port 라벨 + 콤보박스 + 재검색 버튼
+        port_layout = QHBoxLayout()
+        port_layout.addWidget(self.port_combo)
+        port_layout.addWidget(self.refresh_port_button)
+        
         conn_layout.addWidget(QLabel("Port:"), 0, 0)
-        conn_layout.addWidget(self.port_combo, 0, 1)
+        conn_layout.addLayout(port_layout, 0, 1)
         conn_layout.addWidget(QLabel("Baud Rate:"), 1, 0)
         conn_layout.addWidget(self.baud_combo, 1, 1)
         conn_layout.addWidget(self.connect_button, 2, 0, 1, 2)
@@ -136,6 +146,9 @@ class MainWindow(QMainWindow):
         self.reset_button.setEnabled(False)
         self.reset_button.setStyleSheet("QPushButton { color: #cc3333; }")
         conn_layout.addWidget(self.reset_button, 3, 0, 1, 2)
+        
+        # 재검색 버튼 시그널 연결
+        self.refresh_port_button.clicked.connect(self.refresh_ports)
         
         self.populate_ports()
         self.populate_bauds()
@@ -242,25 +255,43 @@ class MainWindow(QMainWindow):
         left_layout.addStretch(1)
 
         # --- 우측 패널 구성 ---
-        # 1. 그래프 위젯 (상/하 두 개의 탭 위젯)
+        # 1. 그래프 위젯 (3개의 탭 위젯으로 분리)
         
-        # 상단: SW 필터 그래프 (ADC RAW + SW HPF + SW BPF)
-        upper_graph_group = QGroupBox("SW Filter Data Plot (Software Filtered)")
-        upper_graph_layout = QVBoxLayout()
-        upper_graph_group.setLayout(upper_graph_layout)
+        # 상단: ADC RAW 그래프 (원본 신호)
+        adc_raw_graph_group = QGroupBox("ADC RAW Data Plot")
+        adc_raw_graph_layout = QVBoxLayout()
+        adc_raw_graph_group.setLayout(adc_raw_graph_layout)
         
-        self.upper_plot_tabs = QTabWidget()
-        self.upper_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
-        upper_graph_layout.addWidget(self.upper_plot_tabs)
+        self.adc_raw_plot_tabs = QTabWidget()
+        self.adc_raw_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
+        adc_raw_graph_layout.addWidget(self.adc_raw_plot_tabs)
         
-        # 하단: HW 필터 채널 그래프
-        lower_graph_group = QGroupBox("HW Filter Data Plot (Hardware Filtered)")
-        lower_graph_layout = QVBoxLayout()
-        lower_graph_group.setLayout(lower_graph_layout)
+        # 중단: SW 필터 그래프 (ADC_HPF + ADC_BPF)
+        sw_filter_graph_group = QGroupBox("SW Filter Data Plot (ADC_HPF, ADC_BPF)")
+        sw_filter_graph_layout = QVBoxLayout()
+        sw_filter_graph_group.setLayout(sw_filter_graph_layout)
         
-        self.lower_plot_tabs = QTabWidget()
-        self.lower_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
-        lower_graph_layout.addWidget(self.lower_plot_tabs)
+        self.sw_filter_plot_tabs = QTabWidget()
+        self.sw_filter_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
+        sw_filter_graph_layout.addWidget(self.sw_filter_plot_tabs)
+        
+        # 3번째: HW 필터 채널 그래프 (HW_HPF + HW_BPF)
+        hw_filter_graph_group = QGroupBox("HW Filter Data Plot (HW_HPF, HW_BPF)")
+        hw_filter_graph_layout = QVBoxLayout()
+        hw_filter_graph_group.setLayout(hw_filter_graph_layout)
+        
+        self.hw_filter_plot_tabs = QTabWidget()
+        self.hw_filter_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
+        hw_filter_graph_layout.addWidget(self.hw_filter_plot_tabs)
+        
+        # 4번째: HW 필터 채널 그래프 2 (HW_HPF + HW_BPF 복제)
+        hw_filter_2_graph_group = QGroupBox("HW Filter Data Plot 2 (HW_HPF, HW_BPF)")
+        hw_filter_2_graph_layout = QVBoxLayout()
+        hw_filter_2_graph_group.setLayout(hw_filter_2_graph_layout)
+        
+        self.hw_filter_2_plot_tabs = QTabWidget()
+        self.hw_filter_2_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
+        hw_filter_2_graph_layout.addWidget(self.hw_filter_2_plot_tabs)
 
         # 각 데이터 타입별 플롯을 저장할 딕셔너리
         self.plots = {}
@@ -274,27 +305,43 @@ class MainWindow(QMainWindow):
         self.tp1_recheck_value = 0  # TP1 Recheck 값 저장
 
         # ★ 탭을 미리 정해진 순서로 생성 (각 영역 내에서 드래그로 순서 변경 가능)
-        # 상단 탭 (SW 필터 - ADC RAW, SW HPF, SW BPF)
-        upper_tab_configs = [
+        # 1. ADC RAW 탭 (원본 신호)
+        adc_raw_tab_configs = [
             ("ADC_BUFFER", (0, 4096), False),
             ("ADC_BUFFER (Adaptive)", None, False),
+        ]
+        for name, fixed_range, show_tp1 in adc_raw_tab_configs:
+            self._create_plot_tab(name, fixed_range, show_tp1, tab_type="adc_raw")
+        
+        # 2. SW 필터 탭 (ADC_HPF, ADC_BPF)
+        sw_filter_tab_configs = [
             ("ADC_HPF_BUFFER", (0, 3500), True),
             ("ADC_HPF_BUFFER (Adaptive)", None, False),       # SW HPF
             ("ADC_BPF_BUFFER", (0, 3500), True),
             ("ADC_BPF_BUFFER (Adaptive)", None, False),       # SW BPF
         ]
-        for name, fixed_range, show_tp1 in upper_tab_configs:
-            self._create_plot_tab(name, fixed_range, show_tp1, is_upper=True)
+        for name, fixed_range, show_tp1 in sw_filter_tab_configs:
+            self._create_plot_tab(name, fixed_range, show_tp1, tab_type="sw_filter")
         
-        # 하단 탭 (HW 필터 - HW HPF, HW BPF 채널)
-        lower_tab_configs = [
+        # 3. HW 필터 탭 (HW_HPF, HW_BPF 채널)
+        hw_filter_tab_configs = [
             ("HW_HPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
             ("HW_HPF_BUFFER (Adaptive)", None, False),        # HW HPF
             ("HW_BPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
             ("HW_BPF_BUFFER (Adaptive)", None, False),        # HW BPF
         ]
-        for name, fixed_range, show_tp1 in lower_tab_configs:
-            self._create_plot_tab(name, fixed_range, show_tp1, is_upper=False)
+        for name, fixed_range, show_tp1 in hw_filter_tab_configs:
+            self._create_plot_tab(name, fixed_range, show_tp1, tab_type="hw_filter")
+        
+        # 4. HW 필터 2 탭 (HW_HPF, HW_BPF 채널 - 복제)
+        hw_filter_2_tab_configs = [
+            ("HW_HPF_BUFFER_2", (0, 4096), True),  # TP1 선 및 초과점 표시
+            ("HW_HPF_BUFFER_2 (Adaptive)", None, False),        # HW HPF
+            ("HW_BPF_BUFFER_2", (0, 4096), True),  # TP1 선 및 초과점 표시
+            ("HW_BPF_BUFFER_2 (Adaptive)", None, False),        # HW BPF
+        ]
+        for name, fixed_range, show_tp1 in hw_filter_2_tab_configs:
+            self._create_plot_tab(name, fixed_range, show_tp1, tab_type="hw_filter_2")
 
 
         # 2. 로그 위젯
@@ -306,8 +353,10 @@ class MainWindow(QMainWindow):
         self.log_text.setReadOnly(True)
         log_layout.addWidget(self.log_text)
 
-        right_layout.addWidget(upper_graph_group, stretch=2)  # 상단 그래프 (SW)
-        right_layout.addWidget(lower_graph_group, stretch=2)  # 하단 그래프 (HW)
+        right_layout.addWidget(adc_raw_graph_group, stretch=2)       # 1. 상단 그래프 (ADC RAW)
+        right_layout.addWidget(sw_filter_graph_group, stretch=2)     # 2. 중단 그래프 (SW 필터)
+        right_layout.addWidget(hw_filter_graph_group, stretch=2)     # 3. HW 필터
+        right_layout.addWidget(hw_filter_2_graph_group, stretch=2)   # 4. HW 필터 2 (복제)
         right_layout.addWidget(log_group, stretch=1)  # 로그
 
 
@@ -364,6 +413,15 @@ class MainWindow(QMainWindow):
             self.port_combo.addItem(f"{port.device}: {port.description}", port.device)
         if not ports:
             self.port_combo.addItem("No ports found")
+
+    def refresh_ports(self):
+        """COM Port 재검색 (버튼 클릭 시 호출)"""
+        self.populate_ports()
+        port_count = self.port_combo.count()
+        if port_count > 0 and "No ports found" not in self.port_combo.itemText(0):
+            self.log_text.append(f"🔍 COM Port 재검색 완료: {port_count}개 포트 발견")
+        else:
+            self.log_text.append("🔍 COM Port 재검색 완료: 포트를 찾을 수 없습니다")
 
     def populate_bauds(self):
         """Baud Rate 목록 채우기"""
@@ -454,21 +512,37 @@ class MainWindow(QMainWindow):
         
         # HW HPF 버퍼 (하드웨어 HPF 채널 RAW ADC)
         elif data.hw_hpf_buffer:
+            # 3번째 그래프 (HW Filter)
             self._get_or_create_plot("HW_HPF_BUFFER (Adaptive)").setData(data.hw_hpf_buffer)
             self._update_stats("HW_HPF_BUFFER (Adaptive)", data.hw_hpf_buffer)
             self._get_or_create_plot("HW_HPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_hpf_buffer)
             self._update_stats("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
             # ★ TP1 초과 지점 표시
             self._update_exceed_points("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
+            
+            # 4번째 그래프 (HW Filter 2) - 동일 데이터 복제 출력
+            self._get_or_create_plot("HW_HPF_BUFFER_2 (Adaptive)").setData(data.hw_hpf_buffer)
+            self._update_stats("HW_HPF_BUFFER_2 (Adaptive)", data.hw_hpf_buffer)
+            self._get_or_create_plot("HW_HPF_BUFFER_2", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_hpf_buffer)
+            self._update_stats("HW_HPF_BUFFER_2", data.hw_hpf_buffer, y_max=3900)
+            self._update_exceed_points("HW_HPF_BUFFER_2", data.hw_hpf_buffer, y_max=3900)
         
         # HW BPF 버퍼 (하드웨어 BPF 채널 RAW ADC)
         elif data.hw_bpf_buffer:
+            # 3번째 그래프 (HW Filter)
             self._get_or_create_plot("HW_BPF_BUFFER (Adaptive)").setData(data.hw_bpf_buffer)
             self._update_stats("HW_BPF_BUFFER (Adaptive)", data.hw_bpf_buffer)
             self._get_or_create_plot("HW_BPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_bpf_buffer)
             self._update_stats("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
             # ★ TP1 초과 지점 표시
             self._update_exceed_points("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
+            
+            # 4번째 그래프 (HW Filter 2) - 동일 데이터 복제 출력
+            self._get_or_create_plot("HW_BPF_BUFFER_2 (Adaptive)").setData(data.hw_bpf_buffer)
+            self._update_stats("HW_BPF_BUFFER_2 (Adaptive)", data.hw_bpf_buffer)
+            self._get_or_create_plot("HW_BPF_BUFFER_2", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_bpf_buffer)
+            self._update_stats("HW_BPF_BUFFER_2", data.hw_bpf_buffer, y_max=3900)
+            self._update_exceed_points("HW_BPF_BUFFER_2", data.hw_bpf_buffer, y_max=3900)
         
         # 델타 버퍼는 비활성화됨
         # elif data.voltage_delta_buffer:
@@ -642,8 +716,15 @@ class MainWindow(QMainWindow):
 
         return "\n".join(log_lines)
 
-    def _create_plot_tab(self, name, fixed_range=None, show_tp1_line=False, is_upper=True):
-        """플롯 탭을 미리 생성 (초기화 시 호출)"""
+    def _create_plot_tab(self, name, fixed_range=None, show_tp1_line=False, tab_type="adc_raw"):
+        """플롯 탭을 미리 생성 (초기화 시 호출)
+        
+        Args:
+            name: 플롯 이름
+            fixed_range: Y축 고정 범위 (튜플) 또는 None (자동)
+            show_tp1_line: TP1 임계선 표시 여부
+            tab_type: 탭 타입 ("adc_raw", "sw_filter", "hw_filter")
+        """
         plot_widget = pg.PlotWidget()
         
         # 마우스 드래그(팬) 및 휠 줌 비활성화
@@ -681,11 +762,15 @@ class MainWindow(QMainWindow):
             
         plot_item = plot_widget.plot(pen='y', name=name)
         
-        # 상단/하단 탭에 추가
-        if is_upper:
-            self.upper_plot_tabs.addTab(plot_widget, name)
-        else:
-            self.lower_plot_tabs.addTab(plot_widget, name)
+        # 탭 타입에 따라 해당 탭 위젯에 추가
+        if tab_type == "adc_raw":
+            self.adc_raw_plot_tabs.addTab(plot_widget, name)
+        elif tab_type == "sw_filter":
+            self.sw_filter_plot_tabs.addTab(plot_widget, name)
+        elif tab_type == "hw_filter":
+            self.hw_filter_plot_tabs.addTab(plot_widget, name)
+        elif tab_type == "hw_filter_2":
+            self.hw_filter_2_plot_tabs.addTab(plot_widget, name)
         
         self.plots[name] = plot_item
         self.plot_widgets[name] = plot_widget
@@ -696,8 +781,16 @@ class MainWindow(QMainWindow):
             return self.plots[name]
         else:
             # 미리 생성되지 않은 탭은 동적으로 생성 (fallback)
-            is_upper = "HPF" not in name and "BPF" not in name
-            self._create_plot_tab(name, fixed_range, show_tp1_line, is_upper)
+            # 이름에 따라 적절한 탭 타입 결정
+            if ("HW_HPF" in name or "HW_BPF" in name) and "_2" in name:
+                tab_type = "hw_filter_2"
+            elif "HW_HPF" in name or "HW_BPF" in name:
+                tab_type = "hw_filter"
+            elif "ADC_HPF" in name or "ADC_BPF" in name:
+                tab_type = "sw_filter"
+            else:
+                tab_type = "adc_raw"
+            self._create_plot_tab(name, fixed_range, show_tp1_line, tab_type)
             return self.plots[name]
 
 
