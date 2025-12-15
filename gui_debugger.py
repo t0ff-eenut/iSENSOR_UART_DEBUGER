@@ -252,6 +252,58 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(tp1_control_group)
         left_layout.addWidget(tp2_control_group)
         left_layout.addWidget(tp1_recheck_control_group)
+        
+        # 6. Plot Range Control 그룹
+        range_control_group = QGroupBox("Plot Range Control")
+        range_control_layout = QVBoxLayout()
+        range_control_group.setLayout(range_control_layout)
+        
+        # 그래프 선택 콤보박스
+        range_control_layout.addWidget(QLabel("Select Plot:"))
+        self.plot_select_combo = QComboBox()
+        self.plot_select_combo.addItems([
+            "HW_HPF_BUFFER",
+            "HW_HPF_BUFFER (Zoom)",
+            "HW_BPF_BUFFER",
+            "HW_BPF_BUFFER (Zoom)",
+            "HW_HPF_BUFFER_2",
+            "HW_HPF_BUFFER_2 (Zoom)",
+            "HW_BPF_BUFFER_2",
+            "HW_BPF_BUFFER_2 (Zoom)",
+            "ADC_BUFFER",
+            "ADC_BUFFER (Adaptive)",
+        ])
+        range_control_layout.addWidget(self.plot_select_combo)
+        
+        # Y축 범위 설정
+        y_range_layout = QGridLayout()
+        y_range_layout.addWidget(QLabel("Y Min:"), 0, 0)
+        self.y_min_spinbox = QSpinBox()
+        self.y_min_spinbox.setMinimum(-10000)
+        self.y_min_spinbox.setMaximum(10000)
+        self.y_min_spinbox.setValue(0)
+        y_range_layout.addWidget(self.y_min_spinbox, 0, 1)
+        
+        y_range_layout.addWidget(QLabel("Y Max:"), 1, 0)
+        self.y_max_spinbox = QSpinBox()
+        self.y_max_spinbox.setMinimum(-10000)
+        self.y_max_spinbox.setMaximum(10000)
+        self.y_max_spinbox.setValue(4096)
+        y_range_layout.addWidget(self.y_max_spinbox, 1, 1)
+        
+        range_control_layout.addLayout(y_range_layout)
+        
+        # Apply 버튼
+        self.apply_range_button = QPushButton("Apply Y Range")
+        self.apply_range_button.clicked.connect(self.apply_plot_range)
+        range_control_layout.addWidget(self.apply_range_button)
+        
+        # Auto Range 버튼
+        self.auto_range_button = QPushButton("🔄 Auto Range")
+        self.auto_range_button.clicked.connect(self.reset_plot_range)
+        range_control_layout.addWidget(self.auto_range_button)
+        
+        left_layout.addWidget(range_control_group)
         left_layout.addStretch(1)
 
         # --- 우측 패널 구성 ---
@@ -266,14 +318,14 @@ class MainWindow(QMainWindow):
         self.adc_raw_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
         adc_raw_graph_layout.addWidget(self.adc_raw_plot_tabs)
         
-        # 중단: SW 필터 그래프 (ADC_HPF + ADC_BPF)
-        sw_filter_graph_group = QGroupBox("SW Filter Data Plot (ADC_HPF, ADC_BPF)")
-        sw_filter_graph_layout = QVBoxLayout()
-        sw_filter_graph_group.setLayout(sw_filter_graph_layout)
+        # 중단: SW 필터 그래프 (ADC_HPF + ADC_BPF) - 비활성화
+        # sw_filter_graph_group = QGroupBox("SW Filter Data Plot (ADC_HPF, ADC_BPF)")
+        # sw_filter_graph_layout = QVBoxLayout()
+        # sw_filter_graph_group.setLayout(sw_filter_graph_layout)
         
-        self.sw_filter_plot_tabs = QTabWidget()
-        self.sw_filter_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
-        sw_filter_graph_layout.addWidget(self.sw_filter_plot_tabs)
+        self.sw_filter_plot_tabs = QTabWidget()  # 참조용으로 유지
+        # self.sw_filter_plot_tabs.setMovable(True)
+        # sw_filter_graph_layout.addWidget(self.sw_filter_plot_tabs)
         
         # 3번째: HW 필터 채널 그래프 (HW_HPF + HW_BPF)
         hw_filter_graph_group = QGroupBox("HW Filter Data Plot (HW_HPF, HW_BPF)")
@@ -313,22 +365,22 @@ class MainWindow(QMainWindow):
         for name, fixed_range, show_tp1 in adc_raw_tab_configs:
             self._create_plot_tab(name, fixed_range, show_tp1, tab_type="adc_raw")
         
-        # 2. SW 필터 탭 (ADC_HPF, ADC_BPF)
-        sw_filter_tab_configs = [
-            ("ADC_HPF_BUFFER", (0, 3500), True),
-            ("ADC_HPF_BUFFER (Adaptive)", None, False),       # SW HPF
-            ("ADC_BPF_BUFFER", (0, 3500), True),
-            ("ADC_BPF_BUFFER (Adaptive)", None, False),       # SW BPF
-        ]
-        for name, fixed_range, show_tp1 in sw_filter_tab_configs:
-            self._create_plot_tab(name, fixed_range, show_tp1, tab_type="sw_filter")
+        # 2. SW 필터 탭 (ADC_HPF, ADC_BPF) - 비활성화
+        # sw_filter_tab_configs = [
+        #     ("ADC_HPF_BUFFER", (0, 3500), True),
+        #     ("ADC_HPF_BUFFER (Adaptive)", None, False),       # SW HPF
+        #     ("ADC_BPF_BUFFER", (0, 3500), True),
+        #     ("ADC_BPF_BUFFER (Adaptive)", None, False),       # SW BPF
+        # ]
+        # for name, fixed_range, show_tp1 in sw_filter_tab_configs:
+        #     self._create_plot_tab(name, fixed_range, show_tp1, tab_type="sw_filter")
         
         # 3. HW 필터 탭 (HW_HPF, HW_BPF 채널)
         hw_filter_tab_configs = [
             ("HW_HPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
-            ("HW_HPF_BUFFER (Adaptive)", None, False),        # HW HPF
+            ("HW_HPF_BUFFER (Zoom)", (0, 300), True),        # HW HPF 확대 + TP1
             ("HW_BPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
-            ("HW_BPF_BUFFER (Adaptive)", None, False),        # HW BPF
+            ("HW_BPF_BUFFER (Zoom)", (0, 300), True),        # HW BPF 확대 + TP1
         ]
         for name, fixed_range, show_tp1 in hw_filter_tab_configs:
             self._create_plot_tab(name, fixed_range, show_tp1, tab_type="hw_filter")
@@ -336,9 +388,9 @@ class MainWindow(QMainWindow):
         # 4. HW 필터 2 탭 (HW_HPF, HW_BPF 채널 - 복제)
         hw_filter_2_tab_configs = [
             ("HW_HPF_BUFFER_2", (0, 4096), True),  # TP1 선 및 초과점 표시
-            ("HW_HPF_BUFFER_2 (Adaptive)", None, False),        # HW HPF
+            ("HW_HPF_BUFFER_2 (Zoom)", (0, 300), True),        # HW HPF 확대 + TP1
             ("HW_BPF_BUFFER_2", (0, 4096), True),  # TP1 선 및 초과점 표시
-            ("HW_BPF_BUFFER_2 (Adaptive)", None, False),        # HW BPF
+            ("HW_BPF_BUFFER_2 (Zoom)", (0, 300), True),        # HW BPF 확대 + TP1
         ]
         for name, fixed_range, show_tp1 in hw_filter_2_tab_configs:
             self._create_plot_tab(name, fixed_range, show_tp1, tab_type="hw_filter_2")
@@ -354,7 +406,7 @@ class MainWindow(QMainWindow):
         log_layout.addWidget(self.log_text)
 
         right_layout.addWidget(adc_raw_graph_group, stretch=2)       # 1. 상단 그래프 (ADC RAW)
-        right_layout.addWidget(sw_filter_graph_group, stretch=2)     # 2. 중단 그래프 (SW 필터)
+        # right_layout.addWidget(sw_filter_graph_group, stretch=2)     # 2. 중단 그래프 (SW 필터) - 비활성화
         right_layout.addWidget(hw_filter_graph_group, stretch=2)     # 3. HW 필터
         right_layout.addWidget(hw_filter_2_graph_group, stretch=2)   # 4. HW 필터 2 (복제)
         right_layout.addWidget(log_group, stretch=1)  # 로그
@@ -513,16 +565,18 @@ class MainWindow(QMainWindow):
         # HW HPF 버퍼 (하드웨어 HPF 채널 RAW ADC)
         elif data.hw_hpf_buffer:
             # 3번째 그래프 (HW Filter)
-            self._get_or_create_plot("HW_HPF_BUFFER (Adaptive)").setData(data.hw_hpf_buffer)
-            self._update_stats("HW_HPF_BUFFER (Adaptive)", data.hw_hpf_buffer)
+            self._get_or_create_plot("HW_HPF_BUFFER (Zoom)").setData(data.hw_hpf_buffer)
+            self._update_stats("HW_HPF_BUFFER (Zoom)", data.hw_hpf_buffer, y_max=300)
+            self._update_exceed_points("HW_HPF_BUFFER (Zoom)", data.hw_hpf_buffer, y_max=300)
             self._get_or_create_plot("HW_HPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_hpf_buffer)
             self._update_stats("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
             # ★ TP1 초과 지점 표시
             self._update_exceed_points("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
             
             # 4번째 그래프 (HW Filter 2) - 동일 데이터 복제 출력
-            self._get_or_create_plot("HW_HPF_BUFFER_2 (Adaptive)").setData(data.hw_hpf_buffer)
-            self._update_stats("HW_HPF_BUFFER_2 (Adaptive)", data.hw_hpf_buffer)
+            self._get_or_create_plot("HW_HPF_BUFFER_2 (Zoom)").setData(data.hw_hpf_buffer)
+            self._update_stats("HW_HPF_BUFFER_2 (Zoom)", data.hw_hpf_buffer, y_max=300)
+            self._update_exceed_points("HW_HPF_BUFFER_2 (Zoom)", data.hw_hpf_buffer, y_max=300)
             self._get_or_create_plot("HW_HPF_BUFFER_2", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_hpf_buffer)
             self._update_stats("HW_HPF_BUFFER_2", data.hw_hpf_buffer, y_max=3900)
             self._update_exceed_points("HW_HPF_BUFFER_2", data.hw_hpf_buffer, y_max=3900)
@@ -530,16 +584,18 @@ class MainWindow(QMainWindow):
         # HW BPF 버퍼 (하드웨어 BPF 채널 RAW ADC)
         elif data.hw_bpf_buffer:
             # 3번째 그래프 (HW Filter)
-            self._get_or_create_plot("HW_BPF_BUFFER (Adaptive)").setData(data.hw_bpf_buffer)
-            self._update_stats("HW_BPF_BUFFER (Adaptive)", data.hw_bpf_buffer)
+            self._get_or_create_plot("HW_BPF_BUFFER (Zoom)").setData(data.hw_bpf_buffer)
+            self._update_stats("HW_BPF_BUFFER (Zoom)", data.hw_bpf_buffer, y_max=300)
+            self._update_exceed_points("HW_BPF_BUFFER (Zoom)", data.hw_bpf_buffer, y_max=300)
             self._get_or_create_plot("HW_BPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_bpf_buffer)
             self._update_stats("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
             # ★ TP1 초과 지점 표시
             self._update_exceed_points("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
             
             # 4번째 그래프 (HW Filter 2) - 동일 데이터 복제 출력
-            self._get_or_create_plot("HW_BPF_BUFFER_2 (Adaptive)").setData(data.hw_bpf_buffer)
-            self._update_stats("HW_BPF_BUFFER_2 (Adaptive)", data.hw_bpf_buffer)
+            self._get_or_create_plot("HW_BPF_BUFFER_2 (Zoom)").setData(data.hw_bpf_buffer)
+            self._update_stats("HW_BPF_BUFFER_2 (Zoom)", data.hw_bpf_buffer, y_max=300)
+            self._update_exceed_points("HW_BPF_BUFFER_2 (Zoom)", data.hw_bpf_buffer, y_max=300)
             self._get_or_create_plot("HW_BPF_BUFFER_2", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_bpf_buffer)
             self._update_stats("HW_BPF_BUFFER_2", data.hw_bpf_buffer, y_max=3900)
             self._update_exceed_points("HW_BPF_BUFFER_2", data.hw_bpf_buffer, y_max=3900)
@@ -1016,6 +1072,30 @@ class MainWindow(QMainWindow):
                 self.log_text.append("[TX] 🔄 ESP32 리셋 명령 전송 (1초 후 리셋됨)")
             else:
                 self.log_text.append("[TX] 리셋 실패 - 연결 상태를 확인하세요")
+
+    def apply_plot_range(self):
+        """선택한 플롯의 Y축 범위를 적용"""
+        plot_name = self.plot_select_combo.currentText()
+        y_min = self.y_min_spinbox.value()
+        y_max = self.y_max_spinbox.value()
+        
+        if plot_name in self.plot_widgets:
+            plot_widget = self.plot_widgets[plot_name]
+            plot_widget.setYRange(y_min, y_max, padding=0)
+            self.log_text.append(f"📊 {plot_name} Y축 범위 설정: {y_min} ~ {y_max}")
+        else:
+            self.log_text.append(f"⚠️ 플롯 '{plot_name}'을 찾을 수 없습니다.")
+    
+    def reset_plot_range(self):
+        """선택한 플롯의 Y축 범위를 자동으로 리셋"""
+        plot_name = self.plot_select_combo.currentText()
+        
+        if plot_name in self.plot_widgets:
+            plot_widget = self.plot_widgets[plot_name]
+            plot_widget.enableAutoRange(axis='y')
+            self.log_text.append(f"🔄 {plot_name} Y축 자동 범위 활성화")
+        else:
+            self.log_text.append(f"⚠️ 플롯 '{plot_name}'을 찾을 수 없습니다.")
 
     def closeEvent(self, event):
         """윈도우 종료 이벤트"""
