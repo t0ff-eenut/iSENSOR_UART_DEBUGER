@@ -39,23 +39,19 @@ FRAME_OVERHEAD_SIZE: Final[int] = FRAME_HEADER_SIZE + FRAME_FOOTER_SIZE  # 11 by
 class UartDataType(IntEnum):
     """UART 데이터 타입 Enum (ESP32 펌웨어의 utdte와 동일)
     
-    ⚠️ 주의: 델타 버퍼 및 Occupancy 버퍼가 비활성화되어 enum 값이 변경됨!
+    ⚠️ C 펌웨어의 uart_tx_data_type_enum과 정확히 일치해야 함!
     """
     
-    ADC_BUFFER = 0              # ADC RAW 버퍼 (uint16 × WINDOW_SIZE)
-    VOLTAGE_BUFFER = 1          # Voltage 버퍼 (uint16 × WINDOW_SIZE)
-    ADC_HPF_BUFFER = 2          # SW HPF 버퍼 (float32 × WINDOW_SIZE) - RAW에 소프트웨어 HPF 적용
-    ADC_BPF_BUFFER = 3          # SW BPF 버퍼 (float32 × WINDOW_SIZE) - RAW에 소프트웨어 BPF 적용
-    HPF_BUFFER = 4              # HW HPF 버퍼 (uint16 × WINDOW_SIZE) - 하드웨어 HPF 채널
-    BPF_BUFFER = 5              # HW BPF 버퍼 (uint16 × WINDOW_SIZE) - 하드웨어 BPF 채널
-    # 델타 버퍼 및 Occupancy 버퍼는 비활성화됨
-    # ADC_DELTA_BUFFER = 3
-    # VOLTAGE_DELTA_BUFFER = 4
-    # HPF_DELTA_BUFFER = 5
-    # OCCUPANCY_BUFFER = 6
-    SETTINGS = 6                # 설정값 (TP1, TP2, LED 등)
-    ALL_BUFFERS = 7             # 모든 버퍼 통합
-    ALL_DATA = 8                # 모든 데이터 (현재 미지원)
+    ADC_BUFFER = 0              # UART_TX_ADC_RAW_BUFFER - ADC RAW 버퍼 (uint16 × WINDOW_SIZE)
+    VOLTAGE_BUFFER = 1          # UART_TX_ADC_RAW_VOLTAGE_BUFFER - Voltage 버퍼 (uint16 × WINDOW_SIZE)
+    ADC_HPF_BUFFER = 2          # UART_TX_ADC_SW_HPF_BUFFER - SW HPF 버퍼 (float32 × WINDOW_SIZE)
+    ADC_BPF_BUFFER = 3          # UART_TX_ADC_SW_BPF_BUFFER - SW BPF 버퍼 (float32 × WINDOW_SIZE)
+    HPF_BUFFER = 4              # UART_TX_HPF_BUFFER - HW HPF 버퍼 (uint16 × WINDOW_SIZE)
+    HPF_VOLTAGE_BUFFER = 5      # UART_TX_HPF_VOLTAGE_BUFFER - HW HPF Voltage 버퍼 (uint16 × WINDOW_SIZE)
+    BPF_BUFFER = 6              # UART_TX_BPF_BUFFER - HW BPF 버퍼 (uint16 × WINDOW_SIZE)
+    BPF_VOLTAGE_BUFFER = 7      # UART_TX_BPF_VOLTAGE_BUFFER - HW BPF Voltage 버퍼 (uint16 × WINDOW_SIZE)
+    SETTINGS = 8                # UART_TX_SETTINGS - 설정값 (TP1, TP2, LED 등)
+    ALL_DATA = 9                # UART_TX_ALL_DATA - 모든 데이터 (현재 미지원)
 
 
 class UartCommandType(IntEnum):
@@ -81,14 +77,11 @@ PAYLOAD_SIZE_MAP = {
     UartDataType.ADC_HPF_BUFFER: WINDOW_SIZE * 4,       # 1200 bytes (float32) - SW HPF
     UartDataType.ADC_BPF_BUFFER: WINDOW_SIZE * 4,       # 1200 bytes (float32) - SW BPF
     UartDataType.HPF_BUFFER: WINDOW_SIZE * 2,           # 600 bytes (uint16) - HW HPF
+    UartDataType.HPF_VOLTAGE_BUFFER: WINDOW_SIZE * 2,   # 600 bytes (uint16) - HW HPF Voltage
     UartDataType.BPF_BUFFER: WINDOW_SIZE * 2,           # 600 bytes (uint16) - HW BPF
-    # 델타/Occupancy 버퍼 비활성화됨
-    # UartDataType.ADC_DELTA_BUFFER: WINDOW_SIZE * 2,
-    # UartDataType.VOLTAGE_DELTA_BUFFER: WINDOW_SIZE * 2,
-    # UartDataType.HPF_DELTA_BUFFER: WINDOW_SIZE * 4,
-    # UartDataType.OCCUPANCY_BUFFER: WINDOW_SIZE * 1,
-    UartDataType.SETTINGS: 45,                          # 45 bytes (고정) - led_dimming_work/delay 추가
-    # ALL_BUFFERS와 ALL_DATA는 가변 크기
+    UartDataType.BPF_VOLTAGE_BUFFER: WINDOW_SIZE * 2,   # 600 bytes (uint16) - HW BPF Voltage
+    UartDataType.SETTINGS: 45,                          # 45 bytes (고정)
+    # ALL_DATA는 가변 크기
 }
 
 

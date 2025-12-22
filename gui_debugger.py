@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSlot, QThread, pyqtSignal
 import pyqtgraph as pg
+import numpy as np  # FFT 분석용
 
 # --- 기존 로직 import ---
 from uart_protocol.frame_parser import FrameParser
@@ -63,12 +64,20 @@ class UartWorker(QThread):
             try:
                 if self.serial_port.in_waiting > 0:
                     byte_data = self.serial_port.read(self.serial_port.in_waiting)
+                    # ★ 디버그: 수신 바이트 수 출력
+                    print(f"[UART RX] {len(byte_data)} bytes received")
                     for byte in byte_data:
                         frame = self.parser.feed_byte(byte)
                         if frame:
+                            # ★ 디버그: 프레임 파싱 완료
+                            print(f"[UART RX] Frame parsed! Type: {frame.data_type}, Payload: {frame.data_length} bytes")
                             sensor_data = PayloadParser.parse(frame)
                             if sensor_data:
+                                # ★ 디버그: 센서 데이터 파싱 완료
+                                print(f"[UART RX] SensorData ready! Data type: {sensor_data.data_type}")
                                 self.new_data.emit(sensor_data)
+                            else:
+                                print(f"[UART RX] ⚠ PayloadParser returned None for type {frame.data_type}")
 
             except serial.SerialException as e:
                 self.log_message.emit(f"✗ Serial error: {e}")
@@ -266,10 +275,10 @@ class MainWindow(QMainWindow):
             "HW_HPF_BUFFER (Zoom)",
             "HW_BPF_BUFFER",
             "HW_BPF_BUFFER (Zoom)",
-            "HW_HPF_BUFFER_2",
-            "HW_HPF_BUFFER_2 (Zoom)",
-            "HW_BPF_BUFFER_2",
-            "HW_BPF_BUFFER_2 (Zoom)",
+            "SW_HPF_BUFFER",
+            "SW_HPF_BUFFER (Zoom)",
+            "SW_BPF_BUFFER",
+            "SW_BPF_BUFFER (Zoom)",
             "ADC_BUFFER",
             "ADC_BUFFER (Adaptive)",
         ])
@@ -336,14 +345,23 @@ class MainWindow(QMainWindow):
         self.hw_filter_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
         hw_filter_graph_layout.addWidget(self.hw_filter_plot_tabs)
         
-        # 4번째: HW 필터 채널 그래프 2 (HW_HPF + HW_BPF 복제)
-        hw_filter_2_graph_group = QGroupBox("HW Filter Data Plot 2 (HW_HPF, HW_BPF)")
-        hw_filter_2_graph_layout = QVBoxLayout()
-        hw_filter_2_graph_group.setLayout(hw_filter_2_graph_layout)
+        # 4번째: SW 필터 채널 그래프 (SW_HPF + SW_BPF)
+        sw_filter_2_graph_group = QGroupBox("SW Filter Data Plot (SW_HPF, SW_BPF)")
+        sw_filter_2_graph_layout = QVBoxLayout()
+        sw_filter_2_graph_group.setLayout(sw_filter_2_graph_layout)
         
         self.hw_filter_2_plot_tabs = QTabWidget()
         self.hw_filter_2_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
-        hw_filter_2_graph_layout.addWidget(self.hw_filter_2_plot_tabs)
+        sw_filter_2_graph_layout.addWidget(self.hw_filter_2_plot_tabs)
+        
+        # 2번째: FFT 스펙트럼 그래프 (주파수 분석)
+        fft_graph_group = QGroupBox("FFT Spectrum Analysis (ADC_BUFFER -> Frequency Domain)")
+        fft_graph_layout = QVBoxLayout()
+        fft_graph_group.setLayout(fft_graph_layout)
+        
+        self.fft_plot_tabs = QTabWidget()
+        self.fft_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
+        fft_graph_layout.addWidget(self.fft_plot_tabs)
 
         # 각 데이터 타입별 플롯을 저장할 딕셔너리
         self.plots = {}
@@ -365,6 +383,14 @@ class MainWindow(QMainWindow):
         for name, fixed_range, show_tp1 in adc_raw_tab_configs:
             self._create_plot_tab(name, fixed_range, show_tp1, tab_type="adc_raw")
         
+        # 2. FFT 스펙트럼 탭 (주파수 분석) - 별도 그룹박스
+        fft_tab_configs = [
+            ("ADC_FFT", None),              # 전체 주파수 (0~50Hz)
+            ("ADC_FFT (Zoom)", (0, 15)),    # 확대 (0~15Hz, PIR 관심 대역)
+        ]
+        for name, x_range in fft_tab_configs:
+            self._create_fft_plot_tab(name, x_range, y_max=150)
+        
         # 2. SW 필터 탭 (ADC_HPF, ADC_BPF) - 비활성화
         # sw_filter_tab_configs = [
         #     ("ADC_HPF_BUFFER", (0, 3500), True),
@@ -385,14 +411,14 @@ class MainWindow(QMainWindow):
         for name, fixed_range, show_tp1 in hw_filter_tab_configs:
             self._create_plot_tab(name, fixed_range, show_tp1, tab_type="hw_filter")
         
-        # 4. HW 필터 2 탭 (HW_HPF, HW_BPF 채널 - 복제)
-        hw_filter_2_tab_configs = [
-            ("HW_HPF_BUFFER_2", (0, 4096), True),  # TP1 선 및 초과점 표시
-            ("HW_HPF_BUFFER_2 (Zoom)", (0, 300), True),        # HW HPF 확대 + TP1
-            ("HW_BPF_BUFFER_2", (0, 4096), True),  # TP1 선 및 초과점 표시
-            ("HW_BPF_BUFFER_2 (Zoom)", (0, 300), True),        # HW BPF 확대 + TP1
+        # 4. SW 필터 탭 (SW_HPF, SW_BPF 채널)
+        sw_filter_2_tab_configs = [
+            ("SW_HPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
+            ("SW_HPF_BUFFER (Zoom)", (0, 300), True),        # SW HPF 확대 + TP1
+            ("SW_BPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
+            ("SW_BPF_BUFFER (Zoom)", (0, 300), True),        # SW BPF 확대 + TP1
         ]
-        for name, fixed_range, show_tp1 in hw_filter_2_tab_configs:
+        for name, fixed_range, show_tp1 in sw_filter_2_tab_configs:
             self._create_plot_tab(name, fixed_range, show_tp1, tab_type="hw_filter_2")
 
 
@@ -406,10 +432,14 @@ class MainWindow(QMainWindow):
         log_layout.addWidget(self.log_text)
 
         right_layout.addWidget(adc_raw_graph_group, stretch=2)       # 1. 상단 그래프 (ADC RAW)
-        # right_layout.addWidget(sw_filter_graph_group, stretch=2)     # 2. 중단 그래프 (SW 필터) - 비활성화
+        right_layout.addWidget(fft_graph_group, stretch=2)            # 2. FFT 스펙트럼
+        # right_layout.addWidget(sw_filter_graph_group, stretch=2)     # (SW 필터) - 비활성화
         right_layout.addWidget(hw_filter_graph_group, stretch=2)     # 3. HW 필터
-        right_layout.addWidget(hw_filter_2_graph_group, stretch=2)   # 4. HW 필터 2 (복제)
-        right_layout.addWidget(log_group, stretch=1)  # 로그
+        right_layout.addWidget(sw_filter_2_graph_group, stretch=2)   # 4. SW 필터 (SW_HPF, SW_BPF)
+        right_layout.addWidget(log_group, stretch=1)  # 5. 로그
+        
+        # FFT 관련 변수 초기화
+        self.sampling_rate = 100.0  # 100Hz (ADC_SPEED_MS = 10ms)
 
 
 
@@ -530,6 +560,9 @@ class MainWindow(QMainWindow):
             self._update_stats("ADC_BUFFER (Adaptive)", data.adc_buffer)
             self._get_or_create_plot("ADC_BUFFER", fixed_range=(0, 4096)).setData(data.adc_buffer)
             self._update_stats("ADC_BUFFER", data.adc_buffer, y_max=3900)
+            
+            # ★ FFT 분석 및 그래프 업데이트
+            self._update_fft_plot(data.adc_buffer)
         # 델타 버퍼는 비활성화됨
         # elif data.adc_delta_buffer:
         #     self._get_or_create_plot("ADC_DELTA_BUFFER").setData(data.adc_delta_buffer)
@@ -546,6 +579,14 @@ class MainWindow(QMainWindow):
             
             # ★ TP1 초과 지점 빨간색으로 표시
             self._update_exceed_points("ADC_HPF_BUFFER", data.adc_hpf_buffer, y_max=3300)
+            
+            # ★ SW Filter Plot (4번째 그래프)에도 표시
+            self._get_or_create_plot("SW_HPF_BUFFER (Zoom)").setData(data.adc_hpf_buffer)
+            self._update_stats("SW_HPF_BUFFER (Zoom)", data.adc_hpf_buffer, y_max=300)
+            self._update_exceed_points("SW_HPF_BUFFER (Zoom)", data.adc_hpf_buffer, y_max=300)
+            self._get_or_create_plot("SW_HPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_hpf_buffer)
+            self._update_stats("SW_HPF_BUFFER", data.adc_hpf_buffer, y_max=3900)
+            self._update_exceed_points("SW_HPF_BUFFER", data.adc_hpf_buffer, y_max=3900)
         # hpf_buffer (하위 호환성 - adc_hpf_buffer 별칭)
         elif data.hpf_buffer:
             self._get_or_create_plot("ADC_HPF_BUFFER (Adaptive)").setData(data.hpf_buffer)
@@ -561,6 +602,14 @@ class MainWindow(QMainWindow):
             self._get_or_create_plot("ADC_BPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.adc_bpf_buffer)
             self._update_stats("ADC_BPF_BUFFER", data.adc_bpf_buffer, y_max=3300, positive_only=True)
             self._update_exceed_points("ADC_BPF_BUFFER", data.adc_bpf_buffer, y_max=3300)
+            
+            # ★ SW Filter Plot (4번째 그래프)에도 표시
+            self._get_or_create_plot("SW_BPF_BUFFER (Zoom)").setData(data.adc_bpf_buffer)
+            self._update_stats("SW_BPF_BUFFER (Zoom)", data.adc_bpf_buffer, y_max=300)
+            self._update_exceed_points("SW_BPF_BUFFER (Zoom)", data.adc_bpf_buffer, y_max=300)
+            self._get_or_create_plot("SW_BPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_bpf_buffer)
+            self._update_stats("SW_BPF_BUFFER", data.adc_bpf_buffer, y_max=3900)
+            self._update_exceed_points("SW_BPF_BUFFER", data.adc_bpf_buffer, y_max=3900)
         
         # HW HPF 버퍼 (하드웨어 HPF 채널 RAW ADC)
         elif data.hw_hpf_buffer:
@@ -573,13 +622,7 @@ class MainWindow(QMainWindow):
             # ★ TP1 초과 지점 표시
             self._update_exceed_points("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
             
-            # 4번째 그래프 (HW Filter 2) - 동일 데이터 복제 출력
-            self._get_or_create_plot("HW_HPF_BUFFER_2 (Zoom)").setData(data.hw_hpf_buffer)
-            self._update_stats("HW_HPF_BUFFER_2 (Zoom)", data.hw_hpf_buffer, y_max=300)
-            self._update_exceed_points("HW_HPF_BUFFER_2 (Zoom)", data.hw_hpf_buffer, y_max=300)
-            self._get_or_create_plot("HW_HPF_BUFFER_2", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_hpf_buffer)
-            self._update_stats("HW_HPF_BUFFER_2", data.hw_hpf_buffer, y_max=3900)
-            self._update_exceed_points("HW_HPF_BUFFER_2", data.hw_hpf_buffer, y_max=3900)
+            # 4번째 그래프 (SW Filter) - HW HPF 데이터가 있으면 SW 플롯은 업데이트하지 않음 (SW 데이터가 별도로 전송됨)
         
         # HW BPF 버퍼 (하드웨어 BPF 채널 RAW ADC)
         elif data.hw_bpf_buffer:
@@ -592,13 +635,7 @@ class MainWindow(QMainWindow):
             # ★ TP1 초과 지점 표시
             self._update_exceed_points("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
             
-            # 4번째 그래프 (HW Filter 2) - 동일 데이터 복제 출력
-            self._get_or_create_plot("HW_BPF_BUFFER_2 (Zoom)").setData(data.hw_bpf_buffer)
-            self._update_stats("HW_BPF_BUFFER_2 (Zoom)", data.hw_bpf_buffer, y_max=300)
-            self._update_exceed_points("HW_BPF_BUFFER_2 (Zoom)", data.hw_bpf_buffer, y_max=300)
-            self._get_or_create_plot("HW_BPF_BUFFER_2", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_bpf_buffer)
-            self._update_stats("HW_BPF_BUFFER_2", data.hw_bpf_buffer, y_max=3900)
-            self._update_exceed_points("HW_BPF_BUFFER_2", data.hw_bpf_buffer, y_max=3900)
+            # 4번째 그래프 (SW Filter) - HW BPF 데이터가 있으면 SW 플롯은 업데이트하지 않음 (SW 데이터가 별도로 전송됨)
         
         # 델타 버퍼는 비활성화됨
         # elif data.voltage_delta_buffer:
@@ -830,6 +867,143 @@ class MainWindow(QMainWindow):
         
         self.plots[name] = plot_item
         self.plot_widgets[name] = plot_widget
+
+    def _create_fft_plot_tab(self, name, x_range=None, y_max=150):
+        """FFT 스펙트럼 플롯 탭 생성
+        
+        Args:
+            name: 플롯 이름 (예: "ADC_FFT", "ADC_FFT (Zoom)")
+            x_range: X축 범위 (주파수 Hz) - 튜플 또는 None
+            y_max: Y축 최대값 (진폭) - 기본값 150
+        """
+        plot_widget = pg.PlotWidget()
+        
+        # 마우스 드래그(팬) 및 휠 줌 비활성화
+        plot_widget.setMouseEnabled(x=False, y=False)
+        plot_widget.setMenuEnabled(False)
+        
+        # X축 라벨 설정 (주파수)
+        plot_widget.setLabel('bottom', 'Frequency', units='Hz')
+        plot_widget.setLabel('left', 'Magnitude')
+        plot_widget.setTitle(name)
+        
+        # X축 범위 설정
+        if x_range:
+            plot_widget.setXRange(x_range[0], x_range[1], padding=0)
+        
+        # Y축 범위 고정 설정
+        if y_max:
+            plot_widget.setYRange(0, y_max, padding=0)
+        
+        # 바 그래프 스타일로 그리기 (stepMode)
+        plot_item = plot_widget.plot(
+            pen=pg.mkPen(color=(0, 255, 255), width=1),  # Cyan
+            fillLevel=0,
+            fillBrush=(0, 255, 255, 80),  # 반투명 Cyan
+            name=name
+        )
+        
+        # 피크 주파수 표시용 텍스트 아이템
+        peak_label = pg.TextItem(anchor=(0, 1), color='y')
+        plot_widget.addItem(peak_label)
+        
+        # FFT 전용 탭에 추가
+        self.fft_plot_tabs.addTab(plot_widget, name)
+        
+        # 저장
+        self.plots[name] = plot_item
+        self.plot_widgets[name] = plot_widget
+        
+        # 피크 라벨 저장용 딕셔너리
+        if not hasattr(self, 'fft_peak_labels'):
+            self.fft_peak_labels = {}
+        self.fft_peak_labels[name] = peak_label
+
+    def _compute_fft(self, adc_buffer, apply_window=True):
+        """ADC 버퍼에 FFT 적용
+        
+        Args:
+            adc_buffer: ADC 샘플 배열 (예: 300개의 uint16)
+            apply_window: 윈도우 함수 적용 여부
+            
+        Returns:
+            frequencies: 주파수 배열 (Hz)
+            magnitudes: 진폭 배열 (정규화됨)
+        """
+        n = len(adc_buffer)
+        
+        # 1. DC 오프셋 제거
+        signal = np.array(adc_buffer, dtype=np.float64)
+        signal = signal - np.mean(signal)
+        
+        # 2. 윈도우 함수 적용 (스펙트럼 누설 방지)
+        if apply_window:
+            window = np.hanning(n)
+            signal = signal * window
+        
+        # 3. FFT 연산 (실수 신호용 rfft)
+        fft_result = np.fft.rfft(signal)
+        
+        # 4. 진폭 계산 및 정규화
+        magnitudes = np.abs(fft_result) * 2 / n
+        magnitudes[0] /= 2  # DC 성분 보정
+        
+        # 5. 주파수 축 생성
+        frequencies = np.fft.rfftfreq(n, d=1.0/self.sampling_rate)
+        
+        return frequencies, magnitudes
+
+    def _update_fft_plot(self, adc_buffer):
+        """FFT 그래프 업데이트
+        
+        Args:
+            adc_buffer: ADC 샘플 배열
+        """
+        if len(adc_buffer) < 10:
+            return
+        
+        # DC 오프셋 (Mean 값) 계산
+        dc_mean = np.mean(adc_buffer)
+        
+        # FFT 계산
+        frequencies, magnitudes = self._compute_fft(adc_buffer)
+        
+        # 전체 스펙트럼 그래프 업데이트
+        if "ADC_FFT" in self.plots:
+            self.plots["ADC_FFT"].setData(frequencies, magnitudes)
+            
+            # 피크 주파수 찾기 (DC 제외)
+            if len(magnitudes) > 1:
+                # DC(0Hz) 제외한 영역에서 피크 찾기
+                peak_idx = np.argmax(magnitudes[1:]) + 1
+                peak_freq = frequencies[peak_idx]
+                peak_mag = magnitudes[peak_idx]
+                
+                # 피크 라벨 업데이트 (Mean 값 포함)
+                if "ADC_FFT" in self.fft_peak_labels:
+                    label = self.fft_peak_labels["ADC_FFT"]
+                    label.setText(f"DC Mean: {dc_mean:.1f}\nPeak: {peak_freq:.2f} Hz\n진폭(Mag): {peak_mag:.1f}")
+                    label.setPos(frequencies[-1] * 0.6, 50)  # Y축 150 고정, 중간 위치
+        
+        # 확대 스펙트럼 그래프 업데이트 (0~15Hz)
+        if "ADC_FFT (Zoom)" in self.plots:
+            self.plots["ADC_FFT (Zoom)"].setData(frequencies, magnitudes)
+            
+            # 0~15Hz 범위에서 피크 찾기
+            zoom_mask = frequencies <= 15
+            if np.any(zoom_mask) and len(magnitudes[zoom_mask]) > 1:
+                zoom_freqs = frequencies[zoom_mask]
+                zoom_mags = magnitudes[zoom_mask]
+                
+                # DC 제외
+                peak_idx = np.argmax(zoom_mags[1:]) + 1
+                peak_freq = zoom_freqs[peak_idx]
+                peak_mag = zoom_mags[peak_idx]
+                
+                if "ADC_FFT (Zoom)" in self.fft_peak_labels:
+                    label = self.fft_peak_labels["ADC_FFT (Zoom)"]
+                    label.setText(f"DC Mean: {dc_mean:.1f}\nPeak: {peak_freq:.2f} Hz\n진폭(Mag): {peak_mag:.1f}")
+                    label.setPos(10, 50)  # Y축 150 고정, 중간 위치
 
     def _get_or_create_plot(self, name, fixed_range=None, show_tp1_line=False):
         """데이터 타입 이름으로 플롯을 반환. 미리 생성된 탭을 사용."""

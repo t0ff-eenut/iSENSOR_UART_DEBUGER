@@ -55,27 +55,23 @@ class PayloadParser:
             elif data_type == UartDataType.HPF_BUFFER:  # HW HPF (RAW uint16)
                 sensor_data.hw_hpf_buffer = PayloadParser._parse_uint16_buffer(payload)
             
+            elif data_type == UartDataType.HPF_VOLTAGE_BUFFER:  # HW HPF Voltage (uint16)
+                # 현재 GUI에서는 hw_hpf_buffer와 동일하게 처리
+                sensor_data.hw_hpf_buffer = PayloadParser._parse_uint16_buffer(payload)
+            
             elif data_type == UartDataType.BPF_BUFFER:  # HW BPF (RAW uint16)
                 sensor_data.hw_bpf_buffer = PayloadParser._parse_uint16_buffer(payload)
             
-            # 델타 버퍼 및 Occupancy 버퍼는 비활성화됨
-            # elif data_type == UartDataType.ADC_DELTA_BUFFER:
-            #     sensor_data.adc_delta_buffer = PayloadParser._parse_uint16_buffer(payload)
-            # 
-            # elif data_type == UartDataType.VOLTAGE_DELTA_BUFFER:
-            #     sensor_data.voltage_delta_buffer = PayloadParser._parse_uint16_buffer(payload)
-            # 
-            # elif data_type == UartDataType.HPF_DELTA_BUFFER:
-            #     sensor_data.hpf_delta_buffer = PayloadParser._parse_float32_buffer(payload)
-            # 
-            # elif data_type == UartDataType.OCCUPANCY_BUFFER:
-            #     sensor_data.occupancy_buffer = PayloadParser._parse_bool_buffer(payload)
+            elif data_type == UartDataType.BPF_VOLTAGE_BUFFER:  # HW BPF Voltage (uint16)
+                # 현재 GUI에서는 hw_bpf_buffer와 동일하게 처리
+                sensor_data.hw_bpf_buffer = PayloadParser._parse_uint16_buffer(payload)
 
             elif data_type == UartDataType.SETTINGS:
                 sensor_data.settings = PayloadParser._parse_settings(payload)
             
-            elif data_type == UartDataType.ALL_BUFFERS:
-                sensor_data.all_buffers = PayloadParser._parse_all_buffers(payload)
+            elif data_type == UartDataType.ALL_DATA:
+                # ALL_DATA는 현재 미지원
+                pass
             
             else:
                 # 알 수 없는 타입
