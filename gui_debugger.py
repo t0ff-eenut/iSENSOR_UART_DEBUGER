@@ -64,17 +64,17 @@ class UartWorker(QThread):
             try:
                 if self.serial_port.in_waiting > 0:
                     byte_data = self.serial_port.read(self.serial_port.in_waiting)
-                    # ★ 디버그: 수신 바이트 수 출력
-                    print(f"[UART RX] {len(byte_data)} bytes received")
+                    # ★ 디버그: 수신 바이트 수 출력 (비활성화)
+                    # print(f"[UART RX] {len(byte_data)} bytes received")
                     for byte in byte_data:
                         frame = self.parser.feed_byte(byte)
                         if frame:
-                            # ★ 디버그: 프레임 파싱 완료
-                            print(f"[UART RX] Frame parsed! Type: {frame.data_type}, Payload: {frame.data_length} bytes")
+                            # ★ 디버그: 프레임 파싱 완료 (비활성화)
+                            # print(f"[UART RX] Frame parsed! Type: {frame.data_type}, Payload: {frame.data_length} bytes")
                             sensor_data = PayloadParser.parse(frame)
                             if sensor_data:
-                                # ★ 디버그: 센서 데이터 파싱 완료
-                                print(f"[UART RX] SensorData ready! Data type: {sensor_data.data_type}")
+                                # ★ 디버그: 센서 데이터 파싱 완료 (비활성화)
+                                # print(f"[UART RX] SensorData ready! Data type: {sensor_data.data_type}")
                                 self.new_data.emit(sensor_data)
                             else:
                                 print(f"[UART RX] ⚠ PayloadParser returned None for type {frame.data_type}")
@@ -375,10 +375,10 @@ class MainWindow(QMainWindow):
         self.tp1_recheck_value = 0  # TP1 Recheck 값 저장
 
         # ★ 탭을 미리 정해진 순서로 생성 (각 영역 내에서 드래그로 순서 변경 가능)
-        # 1. ADC RAW 탭 (원본 신호)
+        # 1. ADC RAW 탭 (원본 신호) - TP1 선 및 초과점 표시 포함
         adc_raw_tab_configs = [
-            ("ADC_BUFFER", (0, 4096), False),
-            ("ADC_BUFFER (Adaptive)", None, False),
+            ("ADC_BUFFER", (0, 4096), True),   # TP1 선 및 초과점 표시
+            ("ADC_BUFFER (Adaptive)", None, True),  # TP1 선 및 초과점 표시
         ]
         for name, fixed_range, show_tp1 in adc_raw_tab_configs:
             self._create_plot_tab(name, fixed_range, show_tp1, tab_type="adc_raw")
@@ -401,25 +401,25 @@ class MainWindow(QMainWindow):
         # for name, fixed_range, show_tp1 in sw_filter_tab_configs:
         #     self._create_plot_tab(name, fixed_range, show_tp1, tab_type="sw_filter")
         
-        # 3. HW 필터 탭 (HW_HPF, HW_BPF 채널)
-        hw_filter_tab_configs = [
-            ("HW_HPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
-            ("HW_HPF_BUFFER (Zoom)", (0, 300), True),        # HW HPF 확대 + TP1
-            ("HW_BPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
-            ("HW_BPF_BUFFER (Zoom)", (0, 300), True),        # HW BPF 확대 + TP1
-        ]
-        for name, fixed_range, show_tp1 in hw_filter_tab_configs:
-            self._create_plot_tab(name, fixed_range, show_tp1, tab_type="hw_filter")
+        # 3. HW 필터 탭 (HW_HPF, HW_BPF 채널) - 비활성화
+        # hw_filter_tab_configs = [
+        #     ("HW_HPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
+        #     ("HW_HPF_BUFFER (Zoom)", (0, 300), True),        # HW HPF 확대 + TP1
+        #     ("HW_BPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
+        #     ("HW_BPF_BUFFER (Zoom)", (0, 300), True),        # HW BPF 확대 + TP1
+        # ]
+        # for name, fixed_range, show_tp1 in hw_filter_tab_configs:
+        #     self._create_plot_tab(name, fixed_range, show_tp1, tab_type="hw_filter")
         
-        # 4. SW 필터 탭 (SW_HPF, SW_BPF 채널)
-        sw_filter_2_tab_configs = [
-            ("SW_HPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
-            ("SW_HPF_BUFFER (Zoom)", (0, 300), True),        # SW HPF 확대 + TP1
-            ("SW_BPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
-            ("SW_BPF_BUFFER (Zoom)", (0, 300), True),        # SW BPF 확대 + TP1
-        ]
-        for name, fixed_range, show_tp1 in sw_filter_2_tab_configs:
-            self._create_plot_tab(name, fixed_range, show_tp1, tab_type="hw_filter_2")
+        # 4. SW 필터 탭 (SW_HPF, SW_BPF 채널) - 비활성화
+        # sw_filter_2_tab_configs = [
+        #     ("SW_HPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
+        #     ("SW_HPF_BUFFER (Zoom)", (0, 300), True),        # SW HPF 확대 + TP1
+        #     ("SW_BPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
+        #     ("SW_BPF_BUFFER (Zoom)", (0, 300), True),        # SW BPF 확대 + TP1
+        # ]
+        # for name, fixed_range, show_tp1 in sw_filter_2_tab_configs:
+        #     self._create_plot_tab(name, fixed_range, show_tp1, tab_type="hw_filter_2")
 
 
         # 2. 로그 위젯
@@ -434,9 +434,9 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(adc_raw_graph_group, stretch=2)       # 1. 상단 그래프 (ADC RAW)
         right_layout.addWidget(fft_graph_group, stretch=2)            # 2. FFT 스펙트럼
         # right_layout.addWidget(sw_filter_graph_group, stretch=2)     # (SW 필터) - 비활성화
-        right_layout.addWidget(hw_filter_graph_group, stretch=2)     # 3. HW 필터
-        right_layout.addWidget(sw_filter_2_graph_group, stretch=2)   # 4. SW 필터 (SW_HPF, SW_BPF)
-        right_layout.addWidget(log_group, stretch=1)  # 5. 로그
+        # right_layout.addWidget(hw_filter_graph_group, stretch=2)     # 3. HW 필터 - 비활성화
+        # right_layout.addWidget(sw_filter_2_graph_group, stretch=2)   # 4. SW 필터 (SW_HPF, SW_BPF) - 비활성화
+        right_layout.addWidget(log_group, stretch=1)  # 3. 로그
         
         # FFT 관련 변수 초기화
         self.sampling_rate = 100.0  # 100Hz (ADC_SPEED_MS = 10ms)
@@ -556,10 +556,12 @@ class MainWindow(QMainWindow):
 
         # 2. 그래프 업데이트
         if data.adc_buffer:
-            self._get_or_create_plot("ADC_BUFFER (Adaptive)").setData(data.adc_buffer)
+            self._get_or_create_plot("ADC_BUFFER (Adaptive)", show_tp1_line=True).setData(data.adc_buffer)
             self._update_stats("ADC_BUFFER (Adaptive)", data.adc_buffer)
-            self._get_or_create_plot("ADC_BUFFER", fixed_range=(0, 4096)).setData(data.adc_buffer)
+            self._update_exceed_points("ADC_BUFFER (Adaptive)", data.adc_buffer, y_max=4096)  # TP1 초과점 표시
+            self._get_or_create_plot("ADC_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_buffer)
             self._update_stats("ADC_BUFFER", data.adc_buffer, y_max=3900)
+            self._update_exceed_points("ADC_BUFFER", data.adc_buffer, y_max=3900)  # TP1 초과점 표시
             
             # ★ FFT 분석 및 그래프 업데이트
             self._update_fft_plot(data.adc_buffer)
