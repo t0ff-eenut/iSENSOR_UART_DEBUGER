@@ -4,14 +4,20 @@ iSENSOR UART Debugger - GUI 버전
 PyQt6와 pyqtgraph를 사용한 UART 데이터 시각화 도구
 """
 import sys
+
+import serial
 from serial.tools import (list_ports)
+
+import PyQt6.QtCore
+# from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QComboBox, QPushButton, QGridLayout, QLabel, QTextEdit, QGroupBox, QTabWidget,
     QSpinBox, QAbstractSpinBox, QMessageBox,
     QSizePolicy
 )
-from PyQt6.QtCore import Qt
+
+
 import pyqtgraph
 # from pyqtgraph import (PlotWidget, mkPen, InfiniteLine, QtCore, pyqtgraph.TextItem)
 
@@ -38,6 +44,7 @@ import enum
 import config
 import uart_protocol.protocol_config
 import uart_protocol.command_sender
+import uart_protocol.frame_parser
 # from uart_protocol.protocol_config import (BaudRate)
 # from uart_protocol.command_sender import CommandSender
 
@@ -113,44 +120,140 @@ TEXT_COLOR = "color: {};"
 # self.tp1_value = 0  # TP1 값 저장
 # self.tp1_rck_value = 0  # TP1 Recheck 값 저장
 
+NO_PORT_FOUND = "No ports found"
 
-
+# class enum_graph_plot_num(enum.IntEnum):
+#     ADC_RAW = 0
+#     ADC_FFT = ADC_RAW + 1
+# class enum_graph_plot_range_opt(enum.IntEnum):
+#     ALL = 0
+#     ADAPTIVE = ALL + 1
+# class enum_graph_plot_index(enum.IntEnum):
+#     STR_PLOT_NAME = 0
+#     INT_GRAPH_X_RANGE = STR_PLOT_NAME + 1
+#     STR_GRAPH_X_LABEL_POS = INT_GRAPH_X_RANGE + 1
+#     STR_GRAPH_X_LABEL = STR_GRAPH_X_LABEL_POS + 1
+#     INT_GRAPH_Y_RANGE = STR_GRAPH_X_LABEL + 1
+#     STR_GRAPH_Y_LABEL_POS = INT_GRAPH_Y_RANGE + 1
+#     STR_GRAPH_Y_LABEL = STR_GRAPH_Y_LABEL_POS + 1
+#     STR_LINE_COLOR = STR_GRAPH_Y_LABEL + 1
+#     STR_LEGEND_TEXT = STR_LINE_COLOR + 1
 class enum_graph_plot_num(enum.IntEnum):
     ADC_RAW = 0
     ADC_FFT = ADC_RAW + 1
 class enum_graph_plot_range_opt(enum.IntEnum):
-    ALL = 0
-    ADAPTIVE = ALL + 1
+    ALL         = 0
+    ADAPTIVE    = ALL + 1
 class enum_graph_plot_index(enum.IntEnum):
-    STR_PLOT_NAME = 0
-    INT_GRAPH_X_RANGE = STR_PLOT_NAME + 1
-    STR_GRAPH_X_LABEL_POS = INT_GRAPH_X_RANGE + 1
-    STR_GRAPH_X_LABEL = STR_GRAPH_X_LABEL_POS + 1
-    INT_GRAPH_Y_RANGE = STR_GRAPH_X_LABEL + 1
-    STR_GRAPH_Y_LABEL_POS = INT_GRAPH_Y_RANGE + 1
-    STR_GRAPH_Y_LABEL = STR_GRAPH_Y_LABEL_POS + 1
-    STR_LINE_COLOR = STR_GRAPH_Y_LABEL + 1
-    STR_LEGEND_TEXT = STR_LINE_COLOR + 1
+    STR_PLOT_NAME           = 0
+    INT_GRAPH_X_RANGE       = STR_PLOT_NAME + 1
+    STR_GRAPH_X_LABEL_POS   = INT_GRAPH_X_RANGE + 1
+    STR_GRAPH_X_LABEL       = STR_GRAPH_X_LABEL_POS + 1
+    INT_GRAPH_Y_RANGE       = STR_GRAPH_X_LABEL + 1
+    STR_GRAPH_Y_LABEL_POS   = INT_GRAPH_Y_RANGE + 1
+    STR_GRAPH_Y_LABEL       = STR_GRAPH_Y_LABEL_POS + 1
+    STR_LINE_COLOR          = STR_GRAPH_Y_LABEL + 1
+    STR_LEGEND_TEXT         = STR_LINE_COLOR + 1
+
+class UartWorker(PyQt6.QtCore.QThread):
+    """
+    UART 통신을 처리하는 워커 스레드
+    """
+
+    new_data            = PyQt6.QtCore.pyqtSignal(object)      # 파싱된 SensorData 객체
+    log_message         = PyQt6.QtCore.pyqtSignal(str)       # 로그 메시지 (텍스트)
+    connection_status   = PyQt6.QtCore.pyqtSignal(bool)  # 연결 상태 (True: 성공, False: 실패)
+
+
+    def __init__(self, intput_i_port_num:int, input_i_baud_rate:int):
+        super().__init__()
+        self.i_port_num:int                                 = intput_i_port_num
+        self.i_baud_rate:int                                = input_i_baud_rate
+
+        self.serial_port                                    = None
+        self.b_uart_thread_running:bool                     = False
+        self.parser:uart_protocol.frame_parser.FrameParser  = uart_protocol.frame_parser.FrameParser()
+
+    def run(self):
+        """스레드 실행"""
+        self.b_uart_thread_running:bool = True
+
+        try:
+            self.serial_port:serial.Serial = serial.Serial(
+                port        = self.i_port_num,
+                baudrate    = self.i_baud_rate,
+                bytesize    = serial.EIGHTBITS,
+                parity      = serial.PARITY_NONE,
+                stopbits    = serial.STOPBITS_ONE,
+                timeout     = 1.0
+            )
+            self.connection_status.emit(True)
+            self.log_message.emit(f"✓ Connected to {self.i_port_num} at {self.i_baud_rate} bps.")
+
+        except serial.SerialException as e:
+            self.log_message.emit(f"✗ Connection failed: {e}")
+            self.connection_status.emit(False)
+            self.b_uart_thread_running = False
+            return
+
+        while self.b_uart_thread_running:
+            try:
+                if self.serial_port.in_waiting > 0: # 시리얼 포트 수신 버퍼에 현재 들어와 있는 바이트 수
+                    byte_data:bytes = self.serial_port.read(self.serial_port.in_waiting)
+                    # ★ 디버그: 수신 바이트 수 출력 (비활성화)
+                    print(f"[UART RX] {len(byte_data)} bytes received")
+
+                    for byte in byte_data:
+                        frame = self.parser.feed_byte(byte)
+                        # if frame:
+                        #     # ★ 디버그: 프레임 파싱 완료 (비활성화)
+                        #     # print(f"[UART RX] Frame parsed! Type: {frame.data_type}, Payload: {frame.data_length} bytes")
+                        #     sensor_data = PayloadParser.parse(frame)
+                        #     if sensor_data:
+                        #         # ★ 디버그: 센서 데이터 파싱 완료 (비활성화)
+                        #         # print(f"[UART RX] SensorData ready! Data type: {sensor_data.data_type}")
+                        #         self.new_data.emit(sensor_data)
+                        #     else:
+                        #         print(f"[UART RX] ⚠ PayloadParser returned None for type {frame.data_type}")
+
+            except serial.SerialException as e:
+                self.log_message.emit(f"✗ Serial error: {e}")
+                self.b_uart_thread_running = False
+        
+        if self.serial_port and self.serial_port.is_open:
+            self.serial_port.close()
+            self.log_message.emit("Port closed.")
+        
+        self.connection_status.emit(False)
+
+    def stop(self):
+        """스레드 종료"""
+        self.b_uart_thread_running = False
+
+        self.log_message.emit("Requesting to stop UART thread...")
+        self.wait(2000) # Wait up to 2 seconds for the thread to finish
+
+
 
 
 class MainWindow(QMainWindow):
 
-    def adc_bit_2_range(self, input_i_bit):
+    def adc_bit_2_range(self, input_i_bit:int = 0) -> int:
         return (1 << input_i_bit) - 1
 
     # GUI Window
-    def adc_window_size_setting(self, input_i_adc_window_size):
-        self.i_adc_window_size = input_i_adc_window_size
+    def adc_window_size_setting(self, input_i_adc_window_size:int):
+        self.i_adc_window_size:int = input_i_adc_window_size
 
     # ADC
-    def adc_tp1_setting(self, input_i_tp1):
-        self.i_tp1 = input_i_tp1
-    def adc_tp1_rck_setting(self, input_i_tp1_rck):
-        self.i_tp1_rck = input_i_tp1_rck
+    def adc_tp1_setting(self, input_i_tp1:int):
+        self.i_tp1:int = input_i_tp1
+    def adc_tp1_rck_setting(self, input_i_tp1_rck:int):
+        self.i_tp1_rck:int = input_i_tp1_rck
 
     # FFT
-    def adc_smapling_rate_setting(self, input_f_sampling_rate):
-        self.sampling_rate = input_f_sampling_rate
+    def adc_smapling_rate_setting(self, input_f_sampling_rate:float):
+        self.f_sampling_rate:float = input_f_sampling_rate
 
     def value_init(self):
 
@@ -179,13 +282,13 @@ class MainWindow(QMainWindow):
 # target_PlotWidget.setObjectName("plot_"+graph_tab_name)
 # pw = self.adc_raw_plot_TabWidget.findChild(pyqtgraph.PlotWidget, "plot_"+graph_tab_name)
 
-        self.A_graph_plot_value = []
+        self.A_graph_plot_value:list = []
         """
         STR_PLOT_NAME
         INT_GRAPH_X_RANGE(x), INT_GRAPH_Y_RANGE(y)
         STR_LINE_COLOR, STR_LEGEND_TEXT
         """
-        self.A_adc_raw_plot_TabWidget_configs = [
+        self.A_adc_raw_plot_TabWidget_configs:list = [
             [
                 "TEMP_PLOT_NAME - 0.0"
                 , 0, "POS", 'LABEL'
@@ -199,7 +302,7 @@ class MainWindow(QMainWindow):
                 , "#000000", "TEMP_LEGEND"
             ],
         ]
-        self.A_adc_fft_plot_TabWidget_configs = [
+        self.A_adc_fft_plot_TabWidget_configs:list = [
             # PLOT_NAME_INDEX, INT_GRAPH_X_RANGE(x), INT_GRAPH_Y_RANGE(y)
             [
                 "TEMP_PLOT_NAME - 1.0"
@@ -218,63 +321,67 @@ class MainWindow(QMainWindow):
         self.A_graph_plot_value.append(self.A_adc_raw_plot_TabWidget_configs)   # 0
         self.A_graph_plot_value.append(self.A_adc_fft_plot_TabWidget_configs)   # 1
 
-    def graph_title_setting(self, input_s_graph_title, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+        self.uart_thread = None
+        self.command_sender = uart_protocol.command_sender.CommandSender()  # 명령 송신 객체
+        
+
+    def graph_title_setting(self, input_s_graph_title:str, input_enum_graph_plot_num:enum_graph_plot_num = None, input_enum_graph_plot_range_opt:enum_graph_plot_range_opt = None):
         for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
             for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
                 if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
                     if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
                         self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_PLOT_NAME] = input_s_graph_title
 
-    def graph_x_range_setting(self, input_i_graph_x_range, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+    def graph_x_range_setting(self, input_i_graph_x_range:int, input_enum_graph_plot_num:enum_graph_plot_num = None, input_enum_graph_plot_range_opt:enum_graph_plot_range_opt = None):
         for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
             for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
                 if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
                     if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
                         self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.INT_GRAPH_X_RANGE] = input_i_graph_x_range
 
-    def graph_x_label_pos_setting(self, input_s_graph_x_label_pos, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+    def graph_x_label_pos_setting(self, input_s_graph_x_label_pos:str, input_enum_graph_plot_num:enum_graph_plot_num = None, input_enum_graph_plot_range_opt:enum_graph_plot_range_opt = None):
         for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
             for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
                 if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
                     if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
                         self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_GRAPH_X_LABEL_POS] = input_s_graph_x_label_pos
 
-    def graph_x_label_setting(self, input_s_graph_x_label, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+    def graph_x_label_setting(self, input_s_graph_x_label:str, input_enum_graph_plot_num:enum_graph_plot_num = None, input_enum_graph_plot_range_opt:enum_graph_plot_range_opt = None):
         for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
             for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
                 if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
                     if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
                         self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_GRAPH_X_LABEL] = input_s_graph_x_label
 
-    def graph_y_range_setting(self, input_i_graph_y_range, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+    def graph_y_range_setting(self, input_i_graph_y_range:int, input_enum_graph_plot_num:enum_graph_plot_num = None, input_enum_graph_plot_range_opt:enum_graph_plot_range_opt = None):
         for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
             for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
                 if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
                     if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
                         self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.INT_GRAPH_Y_RANGE] = input_i_graph_y_range
 
-    def graph_y_label_pos_setting(self, input_s_graph_y_label_pos, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+    def graph_y_label_pos_setting(self, input_s_graph_y_label_pos:str, input_enum_graph_plot_num:enum_graph_plot_num = None, input_enum_graph_plot_range_opt:enum_graph_plot_range_opt = None):
         for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
             for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
                 if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
                     if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
                         self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_GRAPH_Y_LABEL_POS] = input_s_graph_y_label_pos
 
-    def graph_y_label_setting(self, input_s_graph_y_label, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+    def graph_y_label_setting(self, input_s_graph_y_label:str, input_enum_graph_plot_num:enum_graph_plot_num = None, input_enum_graph_plot_range_opt:enum_graph_plot_range_opt = None):
         for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
             for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
                 if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
                     if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
                         self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_GRAPH_Y_LABEL] = input_s_graph_y_label
 
-    def graph_line_color_setting(self, input_s_graph_line_color, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+    def graph_line_color_setting(self, input_s_graph_line_color:str, input_enum_graph_plot_num:enum_graph_plot_num = None, input_enum_graph_plot_range_opt:enum_graph_plot_range_opt = None):
         for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
             for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
                 if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
                     if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
                         self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_LINE_COLOR] = input_s_graph_line_color
 
-    def graph_legend_setting(self, input_s_graph_legend, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+    def graph_legend_setting(self, input_s_graph_legend:str, input_enum_graph_plot_num:enum_graph_plot_num = None, input_enum_graph_plot_range_opt:enum_graph_plot_range_opt = None):
         for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
             for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
                 if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
@@ -295,6 +402,7 @@ class MainWindow(QMainWindow):
 
         self.value_init()
 
+        #TODO : str -> config로 옮기기
         self.graph_title_setting("ADC Full Scale", enum_graph_plot_num.ADC_RAW, enum_graph_plot_range_opt.ALL)
         self.graph_title_setting("ADC Zoom Scale", enum_graph_plot_num.ADC_RAW, enum_graph_plot_range_opt.ADAPTIVE)
         self.graph_x_range_setting(self.i_adc_window_size, enum_graph_plot_num.ADC_RAW)
@@ -316,7 +424,6 @@ class MainWindow(QMainWindow):
         self.graph_y_label_setting("강도", enum_graph_plot_num.ADC_FFT)
         self.graph_line_color_setting("#eeff00", enum_graph_plot_num.ADC_FFT)
         self.graph_legend_setting('FFT 분포', enum_graph_plot_num.ADC_FFT)
-
 
         self.setWindowTitle(config.WINDOW_TITLE)
         self.setGeometry(
@@ -532,7 +639,7 @@ class MainWindow(QMainWindow):
         self.tp1_down_btn = QPushButton("▼")
         for b in (self.tp1_up_btn, self.tp1_down_btn):
             b.setFixedWidth(28)
-            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setFocusPolicy(PyQt6.QtCore.Qt.FocusPolicy.NoFocus)
             b.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Maximum)
         self.tp1_up_btn.clicked.connect(self.tp1_SpinBox.stepUp)
         self.tp1_down_btn.clicked.connect(self.tp1_SpinBox.stepDown)
@@ -563,7 +670,7 @@ class MainWindow(QMainWindow):
         self.tp1_rkc_down_btn = QPushButton("▼")
         for b in (self.tp1_rkc_up_btn, self.tp1_rkc_down_btn):
             b.setFixedWidth(28)
-            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setFocusPolicy(PyQt6.QtCore.Qt.FocusPolicy.NoFocus)
             b.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Maximum)
         self.tp1_rkc_up_btn.clicked.connect(self.tp1_rck_SpinBox.stepUp)
         self.tp1_rkc_down_btn.clicked.connect(self.tp1_rck_SpinBox.stepDown)
@@ -596,7 +703,7 @@ class MainWindow(QMainWindow):
         self.tp2_down_btn = QPushButton("▼")
         for b in (self.tp2_up_btn, self.tp2_down_btn):
             b.setFixedWidth(28)
-            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setFocusPolicy(PyQt6.QtCore.Qt.FocusPolicy.NoFocus)
             b.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Maximum)
         self.tp2_up_btn.clicked.connect(self.tp2_SpinBox.stepUp)
         self.tp2_down_btn.clicked.connect(self.tp2_SpinBox.stepDown)
@@ -709,10 +816,10 @@ class MainWindow(QMainWindow):
         self.adc_fft_graph_VBoxLayout.addWidget(self.adc_fft_plot_TabWidget, stretch=1)  # 3. 로그
         
         # FFT 관련 변수 초기화
-        # self.sampling_rate = 100.0  # 100Hz (ADC_SPEED_MS = 10ms)
+        # self.f_sampling_rate = 100.0  # 100Hz (ADC_SPEED_MS = 10ms)
 
-        self.uart_thread = None
-        self.command_sender = uart_protocol.command_sender.CommandSender()  # 명령 송신 객체
+        # self.uart_thread = None
+        # self.command_sender = uart_protocol.command_sender.CommandSender(None)  # 명령 송신 객체
 
     # @pyqtSlot(bool)
     # def on_connection_status_changed(self, is_connected):
@@ -745,23 +852,25 @@ class MainWindow(QMainWindow):
     #             self.uart_thread.deleteLater()
     #             self.uart_thread = None
 
+
     def insert_ports_to_ComboBox(self):
         """사용 가능한 시리얼 포트 목록 채우기"""
         self.port_sel_ComboBox.clear()
-        ports = list_ports.comports()
-        for port in ports:
-            self.port_sel_ComboBox.addItem(f"{port.description}")
-        if not ports:
-            self.port_sel_ComboBox.addItem("No ports found")
+        A_ports:list = list_ports.comports()
+        for port in A_ports:
+            # self.port_sel_ComboBox.addItem(f"{port.description}")
+            self.port_sel_ComboBox.addItem(f"{port.device}: {port.description}", port.device)
+        if not A_ports:
+            self.port_sel_ComboBox.addItem(NO_PORT_FOUND)
 
     def refresh_ports(self):
         """COM Port 재검색 (버튼 클릭 시 호출)"""
         self.insert_ports_to_ComboBox()
         port_count = self.port_sel_ComboBox.count()
-        if port_count > 0 and ("No ports found" not in self.port_sel_ComboBox.itemText(0)):
-            self.log_text.append(f"🔍 COM Port 재검색 완료: {port_count}개 포트 발견")
+        if port_count > 0 and (NO_PORT_FOUND not in self.port_sel_ComboBox.itemText(0)):
+            self.log_TextEdit.append(f"🔍 COM Port 재검색 완료: {port_count}개 포트 발견")
         else:
-            self.log_text.append("🔍 COM Port 재검색 완료: 포트를 찾을 수 없습니다")
+            self.log_TextEdit.append("🔍 COM Port 재검색 완료: 포트를 찾을 수 없습니다")
 
     def insert_baudrates_to_ComboBox(self):
         """Baud Rate 목록 채우기"""
@@ -772,45 +881,49 @@ class MainWindow(QMainWindow):
 
     def port_connection(self):
         """연결/해제 토글"""
+
         if self.uart_thread and self.uart_thread.isRunning():
             # 연결 해제
             self.uart_thread.stop()
-            self.connect_button.setText("Connect")
-            self.log_text.append("Disconnected.")
+            self.port_connect_PushButton.setText("Connect")
+            self.log_TextEdit.append("Disconnected.")
         else:
             # 연결
             port = self.port_sel_ComboBox.currentData()
-            baud = self.baudrate_sel_ComboBox.currentData()
-            if not port or "No ports found" in port:
-                self.log_text.append("Error: No serial port selected.")
+
+            self.log_TextEdit.append(f"port{port}")
+
+            if not port or NO_PORT_FOUND in port:
+                self.log_TextEdit.append("Error: 선택된 포트가 없습니다.")
                 return
+            baud = self.baudrate_sel_ComboBox.currentData()
 
             self.uart_thread = UartWorker(port, baud)
-            self.uart_thread.log_message.connect(self.log_text.append)
-            self.uart_thread.new_data.connect(self.update_ui)
-            self.uart_thread.connection_status.connect(self.on_connection_status_changed)
+            # self.uart_thread.new_data.connect(self.update_ui)
+            # self.uart_thread.log_message.connect(self.log_TextEdit.append)
+            # self.uart_thread.connection_status.connect(self.on_connection_status_changed)
             self.uart_thread.start()
             
-            self.connect_button.setText("Connecting...")
-            self.connect_button.setEnabled(False) # Disable button while connecting
+            self.port_connect_PushButton.setText("Connecting...")
+            self.port_connect_PushButton.setEnabled(False) # Disable button while connecting
 
     # @pyqtSlot(object)
     # def update_ui(self, data: SensorData):
     #     """UI 업데이트: 로그, 그래프, 설정 표시"""
     #     # 1. 로그 텍스트 업데이트 (최대 500줄 제한)
     #     log_str = self._format_sensor_data_for_log(data)
-    #     self.log_text.append(log_str)
+    #     self.log_TextEdit.append(log_str)
         
     #     # 로그 줄 수 제한 (메모리 누수 방지)
     #     MAX_LOG_LINES = 500
-    #     doc = self.log_text.document()
+    #     doc = self.log_TextEdit.document()
     #     if doc.blockCount() > MAX_LOG_LINES:
-    #         cursor = self.log_text.textCursor()
+    #         cursor = self.log_TextEdit.textCursor()
     #         cursor.movePosition(cursor.MoveOperation.Start)
     #         cursor.movePosition(cursor.MoveOperation.Down, cursor.MoveMode.KeepAnchor, doc.blockCount() - MAX_LOG_LINES)
     #         cursor.removeSelectedText()
         
-    #     self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+    #     self.log_TextEdit.verticalScrollBar().setValue(self.log_TextEdit.verticalScrollBar().maximum())
 
     #     # 2. 그래프 업데이트
     #     if data.adc_buffer:
@@ -1209,7 +1322,7 @@ class MainWindow(QMainWindow):
     #     magnitudes[0] /= 2  # DC 성분 보정
         
     #     # 5. 주파수 축 생성
-    #     frequencies = np.fft.rfftfreq(n, d=1.0/self.sampling_rate)
+    #     frequencies = np.fft.rfftfreq(n, d=1.0/self.f_sampling_rate)
         
     #     return frequencies, magnitudes
 
@@ -1443,12 +1556,12 @@ class MainWindow(QMainWindow):
     #     tp1_value = self.tp1_spinbox.value()
         
     #     if self.command_sender.send_set_tp1(tp1_value):
-    #         self.log_text.append(f"[TX] TP1 설정 명령 전송: {tp1_value}")
+    #         self.log_TextEdit.append(f"[TX] TP1 설정 명령 전송: {tp1_value}")
     #         # 로컬 tp1_value 업데이트 및 그래프 임계선 업데이트
     #         self.tp1_value = tp1_value
     #         self._update_threshold_lines()
     #     else:
-    #         self.log_text.append("[TX] TP1 전송 실패 - 연결 상태를 확인하세요")
+    #         self.log_TextEdit.append("[TX] TP1 전송 실패 - 연결 상태를 확인하세요")
     #         QMessageBox.warning(self, "전송 실패", "TP1 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
     
     # def send_tp2_command(self):
@@ -1456,9 +1569,9 @@ class MainWindow(QMainWindow):
     #     tp2_value = self.tp2_spinbox.value()
         
     #     if self.command_sender.send_set_tp2(tp2_value):
-    #         self.log_text.append(f"[TX] TP2 설정 명령 전송: {tp2_value}")
+    #         self.log_TextEdit.append(f"[TX] TP2 설정 명령 전송: {tp2_value}")
     #     else:
-    #         self.log_text.append("[TX] TP2 전송 실패 - 연결 상태를 확인하세요")
+    #         self.log_TextEdit.append("[TX] TP2 전송 실패 - 연결 상태를 확인하세요")
     #         QMessageBox.warning(self, "전송 실패", "TP2 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
     
     # def send_tp1_recheck_command(self):
@@ -1466,28 +1579,28 @@ class MainWindow(QMainWindow):
     #     tp1_recheck_value = self.tp1_recheck_spinbox.value()
         
     #     if self.command_sender.send_set_tp1_recheck(tp1_recheck_value):
-    #         self.log_text.append(f"[TX] TP1_RECHECK 설정 명령 전송: {tp1_recheck_value}")
+    #         self.log_TextEdit.append(f"[TX] TP1_RECHECK 설정 명령 전송: {tp1_recheck_value}")
     #         # 로컬 tp1_recheck_value 업데이트 및 그래프 임계선 업데이트
     #         self.tp1_recheck_value = tp1_recheck_value
     #         self._update_threshold_lines()
     #     else:
-    #         self.log_text.append("[TX] TP1_RECHECK 전송 실패 - 연결 상태를 확인하세요")
+    #         self.log_TextEdit.append("[TX] TP1_RECHECK 전송 실패 - 연결 상태를 확인하세요")
     #         QMessageBox.warning(self, "전송 실패", "TP1_RECHECK 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
     
     # def send_get_settings_command(self):
     #     """ESP32에 현재 설정값을 요청"""
     #     if self.command_sender.send_get_settings():
-    #         self.log_text.append("[TX] 설정값 요청 명령 전송")
+    #         self.log_TextEdit.append("[TX] 설정값 요청 명령 전송")
     #     else:
-    #         self.log_text.append("[TX] 설정값 요청 실패 - 연결 상태를 확인하세요")
+    #         self.log_TextEdit.append("[TX] 설정값 요청 실패 - 연결 상태를 확인하세요")
 
     # def send_save_nvs_command(self):
     #     """현재 설정을 NVS(비휘발성 메모리)에 저장"""
     #     if self.command_sender.send_save_nvs():
-    #         self.log_text.append("[TX] 💾 NVS 저장 명령 전송")
+    #         self.log_TextEdit.append("[TX] 💾 NVS 저장 명령 전송")
     #         QMessageBox.information(self, "NVS 저장", "설정값이 NVS에 저장되었습니다.")
     #     else:
-    #         self.log_text.append("[TX] NVS 저장 실패 - 연결 상태를 확인하세요")
+    #         self.log_TextEdit.append("[TX] NVS 저장 실패 - 연결 상태를 확인하세요")
     #         QMessageBox.warning(self, "전송 실패", "NVS 저장 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
 
     # def send_reset_command(self):
@@ -1503,9 +1616,9 @@ class MainWindow(QMainWindow):
         
     #     if reply == QMessageBox.StandardButton.Yes:
     #         if self.command_sender.send_reset():
-    #             self.log_text.append("[TX] 🔄 ESP32 리셋 명령 전송 (1초 후 리셋됨)")
+    #             self.log_TextEdit.append("[TX] 🔄 ESP32 리셋 명령 전송 (1초 후 리셋됨)")
     #         else:
-    #             self.log_text.append("[TX] 리셋 실패 - 연결 상태를 확인하세요")
+    #             self.log_TextEdit.append("[TX] 리셋 실패 - 연결 상태를 확인하세요")
 
     # def apply_plot_range(self):
     #     """선택한 플롯의 Y축 범위를 적용"""
@@ -1516,9 +1629,9 @@ class MainWindow(QMainWindow):
     #     if plot_name in self.plot_widgets:
     #         plot_widget = self.plot_widgets[plot_name]
     #         plot_widget.setYRange(y_min, y_max, padding=0)
-    #         self.log_text.append(f"📊 {plot_name} Y축 범위 설정: {y_min} ~ {y_max}")
+    #         self.log_TextEdit.append(f"📊 {plot_name} Y축 범위 설정: {y_min} ~ {y_max}")
     #     else:
-    #         self.log_text.append(f"⚠️ 플롯 '{plot_name}'을 찾을 수 없습니다.")
+    #         self.log_TextEdit.append(f"⚠️ 플롯 '{plot_name}'을 찾을 수 없습니다.")
     
     # def reset_plot_range(self):
     #     """선택한 플롯의 Y축 범위를 자동으로 리셋"""
@@ -1527,9 +1640,9 @@ class MainWindow(QMainWindow):
     #     if plot_name in self.plot_widgets:
     #         plot_widget = self.plot_widgets[plot_name]
     #         plot_widget.enableAutoRange(axis='y')
-    #         self.log_text.append(f"🔄 {plot_name} Y축 자동 범위 활성화")
+    #         self.log_TextEdit.append(f"🔄 {plot_name} Y축 자동 범위 활성화")
     #     else:
-    #         self.log_text.append(f"⚠️ 플롯 '{plot_name}'을 찾을 수 없습니다.")
+    #         self.log_TextEdit.append(f"⚠️ 플롯 '{plot_name}'을 찾을 수 없습니다.")
 
     # def closeEvent(self, event):
     #     """윈도우 종료 이벤트"""

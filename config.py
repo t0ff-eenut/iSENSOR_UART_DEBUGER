@@ -6,6 +6,8 @@ WINDOW_WIDTH        = 1200
 WINDOW_HEIGHT       = 800
 LEFT_BOX_WIDTH      = 400
 
+
+
 # from typing import Final
 # # 멀티바이트 프레임 구분자 (데이터 충돌 방지)
 # # Final == 상수 (재할당이 발생하면 경고/오류)

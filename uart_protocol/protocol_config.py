@@ -4,7 +4,7 @@ UART 프로토콜 설정 및 상수 정의
 ESP32-C3 PIR 센서의 UART 프로토콜 관련 상수와 설정을 중앙 집중화
 """
 import enum
-from enum import IntEnum
+# from enum import IntEnum
 
 import config
 
@@ -49,7 +49,7 @@ class BaudRate(enum.IntEnum):
 #     except ValueError:
 #         return 0
 
-class UartCommandType(IntEnum):
+class UartCommandType(enum.IntEnum):
     """PC → ESP32 명령 타입 (ESP32 펌웨어의 CommandType_t와 동일)
     
     기존 데이터 타입(0x00~0x09)과 충돌하지 않도록 0x10부터 시작

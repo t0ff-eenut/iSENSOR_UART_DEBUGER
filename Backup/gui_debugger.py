@@ -522,6 +522,7 @@ class MainWindow(QMainWindow):
         else:
             # 연결
             port = self.port_combo.currentData()
+            print("port : ", port)
             baud = self.baud_combo.currentData()
             if not port or "No ports found" in port:
                 self.log_text.append("Error: No serial port selected.")
