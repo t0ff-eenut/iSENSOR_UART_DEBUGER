@@ -2,5 +2,6 @@
     "idf.portWin": "COM13",
     "idf.openOcdConfigs": [
         "board/esp32c3-builtin.cfg"
-    ]
+    ],
+    "idf.currentSetup": "C:\\Users\\iSEN\\esp\\v5.3.4\\esp-idf"
 }

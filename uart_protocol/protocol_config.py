@@ -3,11 +3,18 @@ UART 프로토콜 설정 및 상수 정의
 
 ESP32-C3 PIR 센서의 UART 프로토콜 관련 상수와 설정을 중앙 집중화
 """
-
+import enum
 from enum import IntEnum
 
+import config
+
+STX_PATTERN = config.START_SIGNAL
+ETX_PATTERN = config.END_SIGNAL
+STX_SIZE    = config.START_SIGNAL_SIZE
+ETX_SIZE    = config.END_SIGNAL_SIZE
+
 # ==================== Baud Rate 옵션 ====================
-class BaudRate(IntEnum):
+class BaudRate(enum.IntEnum):
     """지원하는 Baud Rate 옵션"""
     BAUD_115200 = 115200
     BAUD_230400 = 230400
@@ -41,3 +48,15 @@ class BaudRate(IntEnum):
 #         return PAYLOAD_SIZE_MAP.get(dt, 0)
 #     except ValueError:
 #         return 0
+
+class UartCommandType(IntEnum):
+    """PC → ESP32 명령 타입 (ESP32 펌웨어의 CommandType_t와 동일)
+    
+    기존 데이터 타입(0x00~0x09)과 충돌하지 않도록 0x10부터 시작
+    """
+    CMD_SET_TP1         = config.CMD_SETTING_TP1  # TP1 임계값 설정 (payload: uint16_t, 2 bytes)
+    CMD_SET_TP2         = config.CMD_SETTING_TP2  # TP2 카운트 설정 (payload: uint64_t, 8 bytes)
+    CMD_SET_TP1_RECHECK = config.CMD_SETTTING_TP1_RECHECK  # TP1 Recheck 임계값 설정 (payload: uint16_t, 2 bytes)
+    CMD_GET_SETTINGS    = config.CMD_GET_SETTINGS  # 현재 설정값 요청 (payload: 없음)
+    CMD_SAVE_NVS        = config.CMD_SAVE_NVS  # 현재 설정을 NVS에 저장 (payload: 없음)
+    CMD_RESET           = config.CMD_RESET  # ESP32 소프트 리셋 (payload: 없음)

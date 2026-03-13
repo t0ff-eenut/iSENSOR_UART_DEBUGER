@@ -12,19 +12,34 @@ from PyQt6.QtWidgets import (
     QSizePolicy
 )
 from PyQt6.QtCore import Qt
-# import pyqtgraph
-from pyqtgraph import (PlotWidget, mkPen, InfiniteLine, QtCore, TextItem)
+import pyqtgraph
+# from pyqtgraph import (PlotWidget, mkPen, InfiniteLine, QtCore, pyqtgraph.TextItem)
 
-from uart_protocol.protocol_config import (BaudRate)
+import enum
+# from enum import Enum, auto, IntEnum, Flag
+# class TabType(str, Enum):
+#     ADC_RAW = "adc_raw"
+#     ADC_FFT = "adc_fft"
+#     SW_FILTER = "sw_filter"
+# class Mode(Enum):
+#     OFF = auto()
+#     ON = auto()
+# class BaudRate(IntEnum):
+#     B115200 = 115200
+#     B230400 = 230400
+# class Perm(Flag):
+#     READ = auto()
+#     WRITE = auto()
+#     EXEC = auto()
+# p = Perm.READ | Perm.WRITE
+# if Perm.WRITE in p:
+#     ...
 
-
-
-WINDOW_POSITION_X = 100
-WINDOW_POSITION_Y = 100
-WINDOW_WIDTH = 1200
-WINDOW_HEIGHT = 800
-
-LEFT_BOX_WIDTH = 400
+import config
+import uart_protocol.protocol_config
+import uart_protocol.command_sender
+# from uart_protocol.protocol_config import (BaudRate)
+# from uart_protocol.command_sender import CommandSender
 
 
 
@@ -38,13 +53,27 @@ LEFT_BOX_WIDTH = 400
 # Nanum Gothic / Nanum Myeongjo: 한국에서 자주 쓰이는 산세리프/명조
 # Pretendard: 최근 인기 있는 깔끔한 한글 웹폰트 → 깔끔한 UI에 적합
 # Gulim / Dotum / Batang: 오래된 Windows 기본 한글 글꼴(레거시 호환용)
-SS_PT = "font-family: {};"
-SS_BOLD = "font-weight: bold;"
-SS_PT_SIZE = "font-size: {}pt;"
+FONT_NAME = "font-family: {};"
+FONT_BOLD = "font-weight: bold;"
+FONT_SIZE = "font-size: {}pt;"
 
+# Reusable CSS snippets for widgets
+BUTTON_HOVER_BG = "QPushButton:hover { background-color: %s; }"
+# print(BUTTON_HOVER_BG %'#3366ff')
+# print(
+#     """
+#     QPushButton:hover {
+#     background-color: #3366ff;
+#     }
+#     """
+#     )
 BORDER_RADIUS = "border-radius: {}px;"
 PADDING = "padding: {}px;"
-
+BACKGROUND_COLOR = "background-color: {};"
+BORDER_STYLE = "border-style: {};"
+BORDER_SIZE = "border: {}px;"
+BORDER_COLOR = "border-color: {};"
+TEXT_COLOR = "color: {};"
 # Fixed
 # 의미: 크기가 sizeHint()에 정확히 고정됩니다(늘어나거나 줄어들지 않음).
 # 사용처: 고정 아이콘, 고정 너비 버튼/라벨, 분할선 등.
@@ -75,44 +104,227 @@ PADDING = "padding: {}px;"
 
 # 각 데이터 타입별 플롯을 저장할 딕셔너리
 # self.plots = {}
-# self.plot_widgets = {}  # PlotWidget 저장용
+# self.plot_widgets = {}  # pyqtgraph.PlotWidget 저장용
 # self.threshold_lines = {}  # TP1 임계값 가로선 저장용
 # self.tp1_recheck_lines = {}  # TP1 Recheck 임계값 가로선 저장용
 # self.exceed_plots = {}  # TP1 초과 지점 표시용 ScatterPlot
-# self.exceed_labels = {}  # TP1 초과 개수 표시용 TextItem
-# self.stats_labels = {}  # 통계 정보 표시용 TextItem
+# self.exceed_labels = {}  # TP1 초과 개수 표시용 pyqtgraph.TextItem
+# self.stats_labels = {}  # 통계 정보 표시용 pyqtgraph.TextItem
 # self.tp1_value = 0  # TP1 값 저장
 # self.tp1_rck_value = 0  # TP1 Recheck 값 저장
-plots = {}
-plot_widgets = {}  # PlotWidget 저장용
-threshold_lines = {}  # TP1 임계값 가로선 저장용
-tp1_recheck_lines = {}  # TP1 Recheck 임계값 가로선 저장용
-exceed_plots = {}  # TP1 초과 지점 표시용 ScatterPlot
-exceed_labels = {}  # TP1 초과 개수 표시용 TextItem
-stats_labels = {}  # 통계 정보 표시용 TextItem
-tp1_value = 0  # TP1 값 저장
-tp1_rck_value = 0  # TP1 Recheck 값 저장
 
 
-adc_raw_plot_TabWidget_configs = [
-    # Tab Name, Range, OPT TP1 Show
-    ("ADC RAW [All Range]", (0, 4096)),   # TP1 선 및 초과점 표시
-    ("ADC RAW [Adaptive Range]", None),  # TP1 선 및 초과점 표시
-]
-adc_fft_plot_TabWidget_configs = [
-    # Tab Name, Range, OPT TP1 Show
-    ("ADC RAW [All Range]", (0, 4096)),   # TP1 선 및 초과점 표시
-    ("ADC RAW [Adaptive Range]", None),  # TP1 선 및 초과점 표시
-]
+
+class enum_graph_plot_num(enum.IntEnum):
+    ADC_RAW = 0
+    ADC_FFT = ADC_RAW + 1
+class enum_graph_plot_range_opt(enum.IntEnum):
+    ALL = 0
+    ADAPTIVE = ALL + 1
+class enum_graph_plot_index(enum.IntEnum):
+    STR_PLOT_NAME = 0
+    INT_GRAPH_X_RANGE = STR_PLOT_NAME + 1
+    STR_GRAPH_X_LABEL_POS = INT_GRAPH_X_RANGE + 1
+    STR_GRAPH_X_LABEL = STR_GRAPH_X_LABEL_POS + 1
+    INT_GRAPH_Y_RANGE = STR_GRAPH_X_LABEL + 1
+    STR_GRAPH_Y_LABEL_POS = INT_GRAPH_Y_RANGE + 1
+    STR_GRAPH_Y_LABEL = STR_GRAPH_Y_LABEL_POS + 1
+    STR_LINE_COLOR = STR_GRAPH_Y_LABEL + 1
+    STR_LEGEND_TEXT = STR_LINE_COLOR + 1
+
 
 class MainWindow(QMainWindow):
+
+    def adc_bit_2_range(self, input_i_bit):
+        return (1 << input_i_bit) - 1
+
+    # GUI Window
+    def adc_window_size_setting(self, input_i_adc_window_size):
+        self.i_adc_window_size = input_i_adc_window_size
+
+    # ADC
+    def adc_tp1_setting(self, input_i_tp1):
+        self.i_tp1 = input_i_tp1
+    def adc_tp1_rck_setting(self, input_i_tp1_rck):
+        self.i_tp1_rck = input_i_tp1_rck
+
+    # FFT
+    def adc_smapling_rate_setting(self, input_f_sampling_rate):
+        self.sampling_rate = input_f_sampling_rate
+
+    def value_init(self):
+
+        self.adc_window_size_setting(300)
+        self.adc_tp1_setting(10)
+        self.adc_tp1_rck_setting(1000)
+        self.adc_smapling_rate_setting(100)
+
+
+        # plots = {}
+        plot_widgets = {}  # pyqtgraph.PlotWidget 저장용
+        # threshold_lines = {}  # TP1 임계값 가로선 저장용
+        # tp1_recheck_lines = {}  # TP1 Recheck 임계값 가로선 저장용
+        # exceed_plots = {}  # TP1 초과 지점 표시용 ScatterPlot
+        # exceed_labels = {}  # TP1 초과 개수 표시용 pyqtgraph.TextItem
+        # stats_labels = {}  # 통계 정보 표시용 pyqtgraph.TextItem
+        # tp1_value = 0  # TP1 값 저장
+        # tp1_rck_value = 0  # TP1 Recheck 값 저장
+        
+        # 나중에 tabData로 찾기
+        # for i in range(self.adc_raw_plot_TabWidget.count()):
+        #     if self.adc_raw_plot_TabWidget.tabText(i) == graph_tab_name:
+        #     if self.adc_raw_plot_TabWidget.tabData(i) == graph_tab_name:
+        #         pw = self.adc_raw_plot_TabWidget.widget(i)
+        #         break
+# target_PlotWidget.setObjectName("plot_"+graph_tab_name)
+# pw = self.adc_raw_plot_TabWidget.findChild(pyqtgraph.PlotWidget, "plot_"+graph_tab_name)
+
+        self.A_graph_plot_value = []
+        """
+        STR_PLOT_NAME
+        INT_GRAPH_X_RANGE(x), INT_GRAPH_Y_RANGE(y)
+        STR_LINE_COLOR, STR_LEGEND_TEXT
+        """
+        self.A_adc_raw_plot_TabWidget_configs = [
+            [
+                "TEMP_PLOT_NAME - 0.0"
+                , 0, "POS", 'LABEL'
+                , 0, "POS", 'LABEL'
+                , "#000000", "TEMP_LEGEND"
+            ],
+            [
+                "TEMP_PLOT_NAME - 0.1"
+                , 0, "POS", 'LABEL'
+                , 0, "POS", 'LABEL'
+                , "#000000", "TEMP_LEGEND"
+            ],
+        ]
+        self.A_adc_fft_plot_TabWidget_configs = [
+            # PLOT_NAME_INDEX, INT_GRAPH_X_RANGE(x), INT_GRAPH_Y_RANGE(y)
+            [
+                "TEMP_PLOT_NAME - 1.0"
+                , 0, "POS", 'LABEL'
+                , 0, "POS", 'LABEL'
+                , "#000000", "TEMP_LEGEND"
+            ],
+            [
+                "TEMP_PLOT_NAME - 1.1"
+                , 0, "POS", 'LABEL'
+                , 0, "POS", 'LABEL'
+                , "#000000", "TEMP_LEGEND"
+            ],
+        ]
+
+        self.A_graph_plot_value.append(self.A_adc_raw_plot_TabWidget_configs)   # 0
+        self.A_graph_plot_value.append(self.A_adc_fft_plot_TabWidget_configs)   # 1
+
+    def graph_title_setting(self, input_s_graph_title, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+        for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
+            for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
+                if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
+                    if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
+                        self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_PLOT_NAME] = input_s_graph_title
+
+    def graph_x_range_setting(self, input_i_graph_x_range, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+        for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
+            for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
+                if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
+                    if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
+                        self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.INT_GRAPH_X_RANGE] = input_i_graph_x_range
+
+    def graph_x_label_pos_setting(self, input_s_graph_x_label_pos, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+        for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
+            for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
+                if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
+                    if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
+                        self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_GRAPH_X_LABEL_POS] = input_s_graph_x_label_pos
+
+    def graph_x_label_setting(self, input_s_graph_x_label, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+        for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
+            for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
+                if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
+                    if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
+                        self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_GRAPH_X_LABEL] = input_s_graph_x_label
+
+    def graph_y_range_setting(self, input_i_graph_y_range, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+        for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
+            for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
+                if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
+                    if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
+                        self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.INT_GRAPH_Y_RANGE] = input_i_graph_y_range
+
+    def graph_y_label_pos_setting(self, input_s_graph_y_label_pos, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+        for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
+            for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
+                if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
+                    if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
+                        self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_GRAPH_Y_LABEL_POS] = input_s_graph_y_label_pos
+
+    def graph_y_label_setting(self, input_s_graph_y_label, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+        for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
+            for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
+                if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
+                    if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
+                        self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_GRAPH_Y_LABEL] = input_s_graph_y_label
+
+    def graph_line_color_setting(self, input_s_graph_line_color, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+        for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
+            for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
+                if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
+                    if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
+                        self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_LINE_COLOR] = input_s_graph_line_color
+
+    def graph_legend_setting(self, input_s_graph_legend, input_enum_graph_plot_num = None, input_enum_graph_plot_range_opt = None):
+        for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
+            for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
+                if (input_enum_graph_plot_num is None) or (input_enum_graph_plot_num == enum_graph_plot_num_index):
+                    if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
+                        self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_LEGEND_TEXT] = input_s_graph_legend
+
+    # def adc_bit_refrash(self):
+    #     self.A_graph_plot_value[enum_graph_plot_num.ADC_RAW][enum_graph_plot_range_opt.ALL][enum_graph_plot_index.INT_GRAPH_Y_RANGE] = (1 << self.i_adc_bit) - 1
+    # def adc_bit_setting(self, input_i_adc_bit):
+    #     self.i_adc_bit = input_i_adc_bit
+    #     self.adc_bit_refrash()
+
+
+
     """메인 윈도우"""
     def __init__(self):
         super().__init__()
-        # self.setWindowTitle("iSENSOR PIR UART Debugger")
-        # self.setGeometry(100, 100, 1200, 800)
-        self.setWindowTitle("iSENSOR PIR UART Debugger")
-        self.setGeometry(WINDOW_POSITION_X, WINDOW_POSITION_Y, WINDOW_WIDTH, WINDOW_HEIGHT)
+
+        self.value_init()
+
+        self.graph_title_setting("ADC Full Scale", enum_graph_plot_num.ADC_RAW, enum_graph_plot_range_opt.ALL)
+        self.graph_title_setting("ADC Zoom Scale", enum_graph_plot_num.ADC_RAW, enum_graph_plot_range_opt.ADAPTIVE)
+        self.graph_x_range_setting(self.i_adc_window_size, enum_graph_plot_num.ADC_RAW)
+        self.graph_x_label_pos_setting("bottom", enum_graph_plot_num.ADC_RAW)
+        self.graph_x_label_setting("시간(10ms)", enum_graph_plot_num.ADC_RAW)
+        self.graph_y_range_setting(self.adc_bit_2_range(12), enum_graph_plot_num.ADC_RAW, enum_graph_plot_range_opt.ALL)
+        self.graph_y_label_pos_setting("left", enum_graph_plot_num.ADC_RAW)
+        self.graph_y_label_setting("ADC", enum_graph_plot_num.ADC_RAW)
+        self.graph_line_color_setting("#0000ff", enum_graph_plot_num.ADC_RAW)
+        self.graph_legend_setting('ADC', enum_graph_plot_num.ADC_RAW)
+
+        self.graph_title_setting("ADC FFT Full Scale", enum_graph_plot_num.ADC_FFT, enum_graph_plot_range_opt.ALL)
+        self.graph_title_setting("ADC FFT Zoom Scale", enum_graph_plot_num.ADC_FFT, enum_graph_plot_range_opt.ADAPTIVE)
+        self.graph_x_range_setting(100, enum_graph_plot_num.ADC_FFT)
+        self.graph_x_label_pos_setting("bottom", enum_graph_plot_num.ADC_FFT)
+        self.graph_x_label_setting("주파수(Hz)", enum_graph_plot_num.ADC_FFT)
+        # self.graph_y_range_setting(150, enum_graph_plot_num.ADC_FFT, enum_graph_plot_range_opt.ALL)
+        self.graph_y_label_pos_setting("left", enum_graph_plot_num.ADC_FFT)
+        self.graph_y_label_setting("강도", enum_graph_plot_num.ADC_FFT)
+        self.graph_line_color_setting("#eeff00", enum_graph_plot_num.ADC_FFT)
+        self.graph_legend_setting('FFT 분포', enum_graph_plot_num.ADC_FFT)
+
+
+        self.setWindowTitle(config.WINDOW_TITLE)
+        self.setGeometry(
+            config.WINDOW_POSITION_X
+            , config.WINDOW_POSITION_Y
+            , config.WINDOW_WIDTH
+            , config.WINDOW_HEIGHT
+            )
 
         # --- 메인 레이아웃 ---
         self.main_Widget = QWidget()                     # 1. 대상 위젯 생성
@@ -122,21 +334,21 @@ class MainWindow(QMainWindow):
         
         # --- 좌측 패널 (제어 + 설정) ---
         self.left_Widget = QWidget()                     # 1. 대상 위젯 생성
-        self.left_Widget.setFixedWidth(LEFT_BOX_WIDTH)              # * 위젯 가로 사이즈 설정
+        self.left_Widget.setFixedWidth(config.LEFT_BOX_WIDTH)              # * 위젯 가로 사이즈 설정
         # 5px = 테두리 두께(픽셀).
         # solid = 테두리 스타일 — 실선(draw a solid line). (dashed, dotted, none 등 가능)
         # #3366ff = 테두리 색상(HEX).
+
         self.left_Widget.setStyleSheet(""
-            + "background-color: #77aaff;"
-            + "border: 2px;"
-            + "border-style: solid;"
-            + "border-color: #3366ff;"
-            # + "border-radius: 6px;"
-            + BORDER_RADIUS.format(6)
-            + PADDING.format(2)
-            + "color: #bbeeff;"
-            )
-        self.main_HBoxLayout.addWidget(self.left_Widget)     # 1-1. 상위 레이아웃에 위젯 적용
+                                       + BORDER_RADIUS.format(6)
+                                       + PADDING.format(2)
+                                       + BACKGROUND_COLOR.format('#77aaff')
+                                       + BORDER_SIZE.format(2)
+                                       + BORDER_STYLE.format('solid')
+                                       + BORDER_COLOR.format('#3366ff')
+                                       + TEXT_COLOR.format("#FFFFFF")
+                                       )
+        self.main_HBoxLayout.addWidget(self.left_Widget, stretch=1)     # 1-1. 상위 레이아웃에 위젯 적용
 
 # --- 좌측 패널 구성 ---
         self.left_VBoxLayout = QVBoxLayout()            # 2. 세로 방향 레이아웃 생성
@@ -144,30 +356,14 @@ class MainWindow(QMainWindow):
 # --- 제어창 표시 설정 ---
         self.left_control_Label = QLabel("제어창")             # 1. 대상 위젯 생성
         self.left_control_Label.setStyleSheet(""
-            + SS_BOLD
-            + SS_PT_SIZE.format(14)
-            )  # * 위젯 폰트 설정
+                                              + FONT_BOLD
+                                              + FONT_SIZE.format(14)
+                                              )  # * 위젯 폰트 설정
         self.left_control_Label.setFixedHeight(30)             # * 위젯 가로 사이즈 설정
         self.left_VBoxLayout.addWidget(self.left_control_Label)    # 1-1. 상위 레이아웃에 위젯 적용
 # --- Connection 그룹 설정 ---
         self.connection_GroupBox = QGroupBox("Connection")             # 1. 대상 위젯 생성
-        # self.connection_GroupBox.setStyleSheet(""
-        #     + BORDER_RADIUS.format(6)
-            
-        #     )
-        self.connection_GroupBox.setFlat(True)
-        # self.connection_GroupBox.setStyleSheet("""
-        # QGroupBox {
-        # border: none;
-        # background-color: transparent;
-        # border-radius: 6px;
-        # }
-        # QGroupBox::title {
-        # subcontrol-origin: margin;
-        # left: 8px;
-        # padding: 2px 6px;
-        # }
-        # """)
+        # self.connection_GroupBox.setFlat(True)
         self.connection_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성 
         self.connection_GroupBox.setLayout(self.connection_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
         self.left_VBoxLayout.addWidget(self.connection_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
@@ -176,10 +372,10 @@ class MainWindow(QMainWindow):
         # --- 포트 라벨 설정 ---
         self.port_sel_Label = QLabel("📶포트: ")
         self.port_sel_Label.setStyleSheet(""
-            + SS_BOLD
-            # + BORDER_RADIUS.format(6)
-            + "border-style: none;"
-            )
+                                          + FONT_BOLD
+                                          # + BORDER_RADIUS.format(6)
+                                          + BORDER_STYLE.format('none')
+                                          )
         self.port_sel_Label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)    # 레이블은 텍스트 크기 위주, 늘어나지 않게
         self.connection_GridLayout.addWidget(self.port_sel_Label, 0, 0)         # 3. 위젯을 대상 레이아웃에 적용
         # --- 포트 목록 및 버튼 설정 ---
@@ -190,13 +386,11 @@ class MainWindow(QMainWindow):
 
         self.port_search_PushButton = QPushButton("🔍검색")     # 1. 대상 위젯 생성
         self.port_search_PushButton.setStyleSheet(""
-            + SS_BOLD
-            )  # * 위젯 폰트 설정
-        self.port_search_PushButton.setStyleSheet("""
-            QPushButton:hover {
-            background-color: #3366ff;
-            }
-            """)
+                                                  + FONT_BOLD 
+                                                  )
+        self.port_search_PushButton.setStyleSheet(""
+                                                  + BUTTON_HOVER_BG % '#3366ff'
+                                                  )
         self.port_search_PushButton.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)  # 레이블은 텍스트 크기 위주, 늘어나지 않게
         self.port_search_PushButton.clicked.connect(self.refresh_ports)
         self.port_sel_HBoxLayout.addWidget(self.port_search_PushButton)         # 3. 위젯을 대상 레이아웃에 적용
@@ -205,10 +399,10 @@ class MainWindow(QMainWindow):
         # --- 보드레이트 라벨 설정 ---
         self.baudrate_sel_Label = QLabel("⚡보드레이트: ")
         self.baudrate_sel_Label.setStyleSheet(""
-            + SS_BOLD
-            # + BORDER_RADIUS.format(6)
-            + "border-style: none;"
-            )
+                                              + FONT_BOLD
+                                              # + BORDER_RADIUS.format(6)
+                                              + BORDER_STYLE.format('none')
+                                              )
         self.baudrate_sel_Label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)    # 레이블은 텍스트 크기 위주, 늘어나지 않게
         self.connection_GridLayout.addWidget(self.baudrate_sel_Label, 1, 0)         # 3. 위젯을 대상 레이아웃에 적용
         # --- 보드레이트 목록 설정 ---
@@ -218,13 +412,11 @@ class MainWindow(QMainWindow):
         # --- 연결하기 버튼 설정 ---
         self.port_connect_PushButton = QPushButton("🔌연결하기")
         self.port_connect_PushButton.setStyleSheet(""
-            + SS_BOLD
-            )  # * 위젯 폰트 설정
-        self.port_connect_PushButton.setStyleSheet("""
-            QPushButton:hover {
-            background-color: #3366ff;
-            }
-            """)
+                                                  + FONT_BOLD 
+                                                  )
+        self.port_connect_PushButton.setStyleSheet(""
+                                                  + BUTTON_HOVER_BG % '#3366ff'
+                                                  )
         self.port_connect_PushButton.clicked.connect(self.port_connection) # 버튼 기능 구현
         # addWidget(..., row, col, rowSpan, colSpan)의
         # 2 = 배치할 행(row) 인덱스 (0부터 시작)
@@ -247,8 +439,8 @@ class MainWindow(QMainWindow):
 # --- Status 그룹 설정 ---
         self.status_GroupBox = QGroupBox("Setting")             # 1. 대상 위젯 생성
         self.status_GroupBox.setStyleSheet(""
-            + BORDER_RADIUS.format(6)
-            )
+                                           + BORDER_RADIUS.format(6)
+                                           )
         self.status_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성
         self.status_GroupBox.setLayout(self.status_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
         self.left_VBoxLayout.addWidget(self.status_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
@@ -256,34 +448,34 @@ class MainWindow(QMainWindow):
         # --- 제어창 표시 설정 ---
         self.connect_status_Label = QLabel("Not connected")
         self.connect_status_Label.setStyleSheet(""
-            + SS_BOLD
-            + SS_PT_SIZE.format(14)
-            + "border-style: none;"
-            )
+                                                + FONT_BOLD
+                                                + FONT_SIZE.format(14)
+                                                + BORDER_STYLE.format('none')
+                                                )
         self.connect_status_Label.setWordWrap(True)             # 자동 줄넘김
         self.status_GridLayout.addWidget(self.connect_status_Label)
 
         # --- 재실 여부 표시 설정 ---
         self.occupancy_Label = QLabel("⚪ 재실 상태: 대기 중")
         self.occupancy_Label.setStyleSheet(""
-            + SS_BOLD
-            + SS_PT_SIZE.format(14)
-            )  # * 위젯 폰트 설정
+                                           + FONT_BOLD
+                                           + FONT_SIZE.format(14)
+                                           )  # * 위젯 폰트 설정
         self.status_GridLayout.addWidget(self.occupancy_Label)
 
         # --- PIR 출력 표시 설정 ---
         self.pir_output_Label = QLabel("💤 PIR 출력: 대기 중")  # 👀
         self.pir_output_Label.setStyleSheet(""
-            + SS_BOLD
-            + SS_PT_SIZE.format(14)
-            )  # * 위젯 폰트 설정
+                                            + FONT_BOLD
+                                            + FONT_SIZE.format(14)
+                                            )  # * 위젯 폰트 설정
         self.status_GridLayout.addWidget(self.pir_output_Label)
 
 ############### NVS 설정 기능 구현하기 ###############################################################################
         # # --- 설정 값 불러오기 버튼 설정 ---
         # self.nvs_setting_read_PushButton = QPushButton("🔄 NVS 설정 값 불러오기")
         # self.nvs_setting_read_PushButton.setStyleSheet(""
-        #     + SS_BOLD
+        #     + FONT_BOLD
         #     )  # * 위젯 폰트 설정
         # self.nvs_setting_read_PushButton.setStyleSheet("""
         #     QPushButton:hover {
@@ -296,7 +488,7 @@ class MainWindow(QMainWindow):
         # # --- 설정 값 저장하기 버튼 설정 ---
         # self.nvs_setting_read_PushButton = QPushButton("🔄 NVS 설정 값 불러오기")
         # self.nvs_setting_read_PushButton.setStyleSheet(""
-        #     + SS_BOLD
+        #     + FONT_BOLD
         #     )  # * 위젯 폰트 설정
         # self.nvs_setting_read_PushButton.setStyleSheet("""
         #     QPushButton:hover {
@@ -310,8 +502,8 @@ class MainWindow(QMainWindow):
 # --- TP 제어 그룹 설정 ---
         self.tp_setting_GroupBox = QGroupBox("TP Setting")             # 1. 대상 위젯 생성
         self.tp_setting_GroupBox.setStyleSheet(""
-            + BORDER_RADIUS.format(6)
-            )
+                                               + BORDER_RADIUS.format(6)
+                                               )
         self.tp_setting_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성
         self.tp_setting_GroupBox.setLayout(self.tp_setting_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
         self.left_VBoxLayout.addWidget(self.tp_setting_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
@@ -320,10 +512,9 @@ class MainWindow(QMainWindow):
         # --- TP1 라벨 설정 ---
         self.tp1_Label = QLabel("TP1: ")
         self.tp1_Label.setStyleSheet(""
-            + SS_BOLD
-            # + BORDER_RADIUS.format(6)
-            + "border-style: none;"
-            )
+                                     + FONT_BOLD
+                                     + BORDER_STYLE.format('none')
+                                     )
         self.tp1_Label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)    # 레이블은 텍스트 크기 위주, 늘어나지 않게
         self.tp_setting_GridLayout.addWidget(self.tp1_Label, 0, 0)         # 3. 위젯을 대상 레이아웃에 적용
 
@@ -335,7 +526,6 @@ class MainWindow(QMainWindow):
         self.tp1_SpinBox.setValue(300)  # 기본값
         # 내장 버튼을 숨기고 외부 버튼으로 대체
         self.tp1_SpinBox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        # self.tp1_SpinBox.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.tp1_HBoxLayout.addWidget(self.tp1_SpinBox)
         # 별도 버튼: 상승 / 하강
         self.tp1_up_btn = QPushButton("▲")
@@ -353,10 +543,9 @@ class MainWindow(QMainWindow):
         # --- TP1 RCK 라벨 설정 ---
         self.tp1_rck_Label = QLabel("TP1 RCK: ")
         self.tp1_rck_Label.setStyleSheet(""
-            + SS_BOLD
-            # + BORDER_RADIUS.format(6)
-            + "border-style: none;"
-            )
+                                         + FONT_BOLD
+                                         + BORDER_STYLE.format('none')
+                                         )
         self.tp1_rck_Label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)    # 레이블은 텍스트 크기 위주, 늘어나지 않게
         self.tp_setting_GridLayout.addWidget(self.tp1_rck_Label, 1, 0)         # 3. 위젯을 대상 레이아웃에 적용
 
@@ -368,7 +557,6 @@ class MainWindow(QMainWindow):
         self.tp1_rck_SpinBox.setValue(2000)  # 기본값
         # 내장 버튼을 숨기고 외부 버튼으로 대체
         self.tp1_rck_SpinBox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        # self.tp1_SpinBox.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.tp1_rck_HBoxLayout.addWidget(self.tp1_rck_SpinBox)
         # 별도 버튼: 상승 / 하강
         self.tp1_rkc_up_btn = QPushButton("▲")
@@ -387,10 +575,9 @@ class MainWindow(QMainWindow):
         # --- TP2 라벨 설정 ---
         self.tp2_Label = QLabel("TP2: ")
         self.tp2_Label.setStyleSheet(""
-            + SS_BOLD
-            # + BORDER_RADIUS.format(6)
-            + "border-style: none;"
-            )
+                                     + FONT_BOLD
+                                     + BORDER_STYLE.format('none')
+                                     )
         self.tp2_Label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)    # 레이블은 텍스트 크기 위주, 늘어나지 않게
         self.tp_setting_GridLayout.addWidget(self.tp2_Label, 2, 0)         # 3. 위젯을 대상 레이아웃에 적용
 
@@ -418,14 +605,14 @@ class MainWindow(QMainWindow):
 
         # --- TP 값 저장하기 버튼 설정 ---
         self.tp_setting_PushButton = QPushButton("🔄 TP 값 전송하기")
+        # self.tp_setting_PushButton.setStyleSheet(FONT_BOLD + BUTTON_HOVER_BG.format('#3366ff'))
         self.tp_setting_PushButton.setStyleSheet(""
-            + SS_BOLD
-            )  # * 위젯 폰트 설정
-        self.tp_setting_PushButton.setStyleSheet("""
-            QPushButton:hover {
-            background-color: #3366ff;
-            }
-            """)
+                                                  + FONT_BOLD 
+                                                  )
+        self.tp_setting_PushButton.setStyleSheet(""
+                                                  + BUTTON_HOVER_BG % '#3366ff'
+                                                  )
+                                                  
         self.tp_setting_PushButton.clicked.connect(self.port_connection) # 버튼 기능 구현
         # addWidget(..., row, col, rowSpan, colSpan)의
         # 2 = 배치할 행(row) 인덱스 (0부터 시작)
@@ -434,252 +621,98 @@ class MainWindow(QMainWindow):
         # 2 = 몇 열(columnSpan)을 차지할지 (여기선 2열)
         self.tp_setting_GridLayout.addWidget(self.tp_setting_PushButton, 4, 0, 1, 2)
 
-
-        
-    #     # 6. Plot Range Control 그룹
-    #     range_control_group = QGroupBox("Plot Range Control")
-    #     range_control_layout = QVBoxLayout()
-    #     range_control_group.setLayout(range_control_layout)
-        
-    #     # 그래프 선택 콤보박스
-    #     range_control_layout.addWidget(QLabel("Select Plot:"))
-    #     self.plot_select_combo = QComboBox()
-    #     self.plot_select_combo.addItems([
-    #         "HW_HPF_BUFFER",
-    #         "HW_HPF_BUFFER (Zoom)",
-    #         "HW_BPF_BUFFER",
-    #         "HW_BPF_BUFFER (Zoom)",
-    #         "SW_HPF_BUFFER",
-    #         "SW_HPF_BUFFER (Zoom)",
-    #         "SW_BPF_BUFFER",
-    #         "SW_BPF_BUFFER (Zoom)",
-    #         "ADC_BUFFER",
-    #         "ADC_BUFFER (Adaptive)",
-    #     ])
-    #     range_control_layout.addWidget(self.plot_select_combo)
-        
-    #     # Y축 범위 설정
-    #     y_range_layout = QGridLayout()
-    #     y_range_layout.addWidget(QLabel("Y Min:"), 0, 0)
-    #     self.y_min_spinbox = QSpinBox()
-    #     self.y_min_spinbox.setMinimum(-10000)
-    #     self.y_min_spinbox.setMaximum(10000)
-    #     self.y_min_spinbox.setValue(0)
-    #     y_range_layout.addWidget(self.y_min_spinbox, 0, 1)
-        
-    #     y_range_layout.addWidget(QLabel("Y Max:"), 1, 0)
-    #     self.y_max_spinbox = QSpinBox()
-    #     self.y_max_spinbox.setMinimum(-10000)
-    #     self.y_max_spinbox.setMaximum(10000)
-    #     self.y_max_spinbox.setValue(4096)
-    #     y_range_layout.addWidget(self.y_max_spinbox, 1, 1)
-        
-    #     range_control_layout.addLayout(y_range_layout)
-        
-    #     # Apply 버튼
-    #     self.apply_range_button = QPushButton("Apply Y Range")
-    #     self.apply_range_button.clicked.connect(self.apply_plot_range)
-    #     range_control_layout.addWidget(self.apply_range_button)
-        
-    #     # Auto Range 버튼
-    #     self.auto_range_button = QPushButton("🔄 Auto Range")
-    #     self.auto_range_button.clicked.connect(self.reset_plot_range)
-    #     range_control_layout.addWidget(self.auto_range_button)
-        
-    #     self.left_VBoxLayout.addWidget(range_control_group)
-    #     self.left_VBoxLayout.addStretch(1)
-
-    #     # --- 우측 패널 구성 ---
-    #     # 1. 그래프 위젯 (3개의 탭 위젯으로 분리)
-        
-    #     # 상단: ADC RAW 그래프 (원본 신호)
-    #     adc_raw_graph_group = QGroupBox("ADC RAW Data Plot")
-    #     adc_raw_graph_layout = QVBoxLayout()
-    #     adc_raw_graph_group.setLayout(adc_raw_graph_layout)
-        
-    #     self.adc_raw_plot_tabs = QTabWidget()
-    #     self.adc_raw_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
-    #     adc_raw_graph_layout.addWidget(self.adc_raw_plot_tabs)
-        
-    #     # 중단: SW 필터 그래프 (ADC_HPF + ADC_BPF) - 비활성화
-    #     # sw_filter_graph_group = QGroupBox("SW Filter Data Plot (ADC_HPF, ADC_BPF)")
-    #     # sw_filter_graph_layout = QVBoxLayout()
-    #     # sw_filter_graph_group.setLayout(sw_filter_graph_layout)
-        
-    #     self.sw_filter_plot_tabs = QTabWidget()  # 참조용으로 유지
-    #     # self.sw_filter_plot_tabs.setMovable(True)
-    #     # sw_filter_graph_layout.addWidget(self.sw_filter_plot_tabs)
-        
-    #     # 3번째: HW 필터 채널 그래프 (HW_HPF + HW_BPF)
-    #     hw_filter_graph_group = QGroupBox("HW Filter Data Plot (HW_HPF, HW_BPF)")
-    #     hw_filter_graph_layout = QVBoxLayout()
-    #     hw_filter_graph_group.setLayout(hw_filter_graph_layout)
-        
-    #     self.hw_filter_plot_tabs = QTabWidget()
-    #     self.hw_filter_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
-    #     hw_filter_graph_layout.addWidget(self.hw_filter_plot_tabs)
-        
-    #     # 4번째: SW 필터 채널 그래프 (SW_HPF + SW_BPF)
-    #     sw_filter_2_graph_group = QGroupBox("SW Filter Data Plot (SW_HPF, SW_BPF)")
-    #     sw_filter_2_graph_layout = QVBoxLayout()
-    #     sw_filter_2_graph_group.setLayout(sw_filter_2_graph_layout)
-        
-    #     self.hw_filter_2_plot_tabs = QTabWidget()
-    #     self.hw_filter_2_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
-    #     sw_filter_2_graph_layout.addWidget(self.hw_filter_2_plot_tabs)
-        
-    #     # 2번째: FFT 스펙트럼 그래프 (주파수 분석)
-    #     fft_graph_group = QGroupBox("FFT Spectrum Analysis (ADC_BUFFER -> Frequency Domain)")
-    #     fft_graph_layout = QVBoxLayout()
-    #     fft_graph_group.setLayout(fft_graph_layout)
-        
-    #     self.fft_plot_tabs = QTabWidget()
-    #     self.fft_plot_tabs.setMovable(True)  # 탭 드래그로 순서 변경 가능
-    #     fft_graph_layout.addWidget(self.fft_plot_tabs)
-
-    #     # 각 데이터 타입별 플롯을 저장할 딕셔너리
-    #     self.plots = {}
-    #     self.plot_widgets = {}  # PlotWidget 저장용
-    #     self.threshold_lines = {}  # TP1 임계값 가로선 저장용
-    #     self.tp1_recheck_lines = {}  # TP1 Recheck 임계값 가로선 저장용
-    #     self.exceed_plots = {}  # TP1 초과 지점 표시용 ScatterPlot
-    #     self.exceed_labels = {}  # TP1 초과 개수 표시용 TextItem
-    #     self.stats_labels = {}  # 통계 정보 표시용 TextItem
-    #     self.tp1_value = 0  # TP1 값 저장
-    #     self.tp1_recheck_value = 0  # TP1 Recheck 값 저장
-
-    #     # ★ 탭을 미리 정해진 순서로 생성 (각 영역 내에서 드래그로 순서 변경 가능)
-    #     # 1. ADC RAW 탭 (원본 신호) - TP1 선 및 초과점 표시 포함
-    #     adc_raw_tab_configs = [
-    #         ("ADC_BUFFER", (0, 4096), True),   # TP1 선 및 초과점 표시
-    #         ("ADC_BUFFER (Adaptive)", None, True),  # TP1 선 및 초과점 표시
-    #     ]
-    #     for name, fixed_range, show_tp1 in adc_raw_tab_configs:
-    #         self._create_plot_tab(name, fixed_range, show_tp1, tab_type="adc_raw")
-        
-    #     # 2. FFT 스펙트럼 탭 (주파수 분석) - 별도 그룹박스
-    #     fft_tab_configs = [
-    #         ("ADC_FFT", None),              # 전체 주파수 (0~50Hz)
-    #         ("ADC_FFT (Zoom)", (0, 15)),    # 확대 (0~15Hz, PIR 관심 대역)
-    #     ]
-    #     for name, x_range in fft_tab_configs:
-    #         self._create_fft_plot_tab(name, x_range, y_max=150)
-        
-    #     # 2. SW 필터 탭 (ADC_HPF, ADC_BPF) - 비활성화
-    #     # sw_filter_tab_configs = [
-    #     #     ("ADC_HPF_BUFFER", (0, 3500), True),
-    #     #     ("ADC_HPF_BUFFER (Adaptive)", None, False),       # SW HPF
-    #     #     ("ADC_BPF_BUFFER", (0, 3500), True),
-    #     #     ("ADC_BPF_BUFFER (Adaptive)", None, False),       # SW BPF
-    #     # ]
-    #     # for name, fixed_range, show_tp1 in sw_filter_tab_configs:
-    #     #     self._create_plot_tab(name, fixed_range, show_tp1, tab_type="sw_filter")
-        
-    #     # 3. HW 필터 탭 (HW_HPF, HW_BPF 채널) - 비활성화
-    #     # hw_filter_tab_configs = [
-    #     #     ("HW_HPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
-    #     #     ("HW_HPF_BUFFER (Zoom)", (0, 300), True),        # HW HPF 확대 + TP1
-    #     #     ("HW_BPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
-    #     #     ("HW_BPF_BUFFER (Zoom)", (0, 300), True),        # HW BPF 확대 + TP1
-    #     # ]
-    #     # for name, fixed_range, show_tp1 in hw_filter_tab_configs:
-    #     #     self._create_plot_tab(name, fixed_range, show_tp1, tab_type="hw_filter")
-        
-    #     # 4. SW 필터 탭 (SW_HPF, SW_BPF 채널) - 비활성화
-    #     # sw_filter_2_tab_configs = [
-    #     #     ("SW_HPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
-    #     #     ("SW_HPF_BUFFER (Zoom)", (0, 300), True),        # SW HPF 확대 + TP1
-    #     #     ("SW_BPF_BUFFER", (0, 4096), True),  # TP1 선 및 초과점 표시
-    #     #     ("SW_BPF_BUFFER (Zoom)", (0, 300), True),        # SW BPF 확대 + TP1
-    #     # ]
-    #     # for name, fixed_range, show_tp1 in sw_filter_2_tab_configs:
-    #     #     self._create_plot_tab(name, fixed_range, show_tp1, tab_type="hw_filter_2")
-
-
-    #     # 2. 로그 위젯
-    #     log_group = QGroupBox("Log")
-    #     log_layout = QVBoxLayout()
-    #     log_group.setLayout(log_layout)
-        
-    #     self.log_text = QTextEdit()
-    #     self.log_text.setReadOnly(True)
-    #     log_layout.addWidget(self.log_text)
-
-    #     self.right_VBoxLayout.addWidget(adc_raw_graph_group, stretch=2)       # 1. 상단 그래프 (ADC RAW)
-    #     self.right_VBoxLayout.addWidget(fft_graph_group, stretch=2)            # 2. FFT 스펙트럼
-    #     # self.right_VBoxLayout.addWidget(sw_filter_graph_group, stretch=2)     # (SW 필터) - 비활성화
-    #     # self.right_VBoxLayout.addWidget(hw_filter_graph_group, stretch=2)     # 3. HW 필터 - 비활성화
-    #     # self.right_VBoxLayout.addWidget(sw_filter_2_graph_group, stretch=2)   # 4. SW 필터 (SW_HPF, SW_BPF) - 비활성화
-    #     self.right_VBoxLayout.addWidget(log_group, stretch=1)  # 3. 로그
-        
-    #     # FFT 관련 변수 초기화
-    #     self.sampling_rate = 100.0  # 100Hz (ADC_SPEED_MS = 10ms)
-
-
-
-    #     # --- 시그널/슬롯 연결 ---
-    #     self.connect_button.clicked.connect(self.port_connection)
-    #     self.tp1_send_button.clicked.connect(self.send_tp1_command)
-    #     self.tp2_send_button.clicked.connect(self.send_tp2_command)
-    #     self.tp1_recheck_send_button.clicked.connect(self.send_tp1_recheck_command)
-    #     self.get_settings_button.clicked.connect(self.send_get_settings_command)
-    #     self.save_nvs_button.clicked.connect(self.send_save_nvs_command)
-    #     self.reset_button.clicked.connect(self.send_reset_command)
-        
-    #     self.uart_thread = None
-    #     self.command_sender = CommandSender()  # 명령 송신 객체
-
-#################################################################################################################
         # --- 우측 패널 (그래프 + 로그) ---
         self.right_Widget = QWidget()                    # 1. 대상 위젯 생성
         self.right_Widget.setStyleSheet(""
-            + "background-color: #77aaff;"
-            + "border: 2px;"
-            + "border-style: solid;"
-            + "border-color: #3366ff;"
-            + BORDER_RADIUS.format(6)
-            + PADDING.format(10)
-            + "color: #bbeeff;"
-        )
-        self.main_HBoxLayout.addWidget(self.right_Widget)    # 1-1. 상위 레이아웃에 위젯 적용
+                                        + BORDER_RADIUS.format(6)
+                                        + PADDING.format(2)
+                                        + BACKGROUND_COLOR.format('#77aaff')
+                                        + BORDER_SIZE.format(2)
+                                        + BORDER_STYLE.format('solid')
+                                        + BORDER_COLOR.format('#3366ff')
+                                        + TEXT_COLOR.format("#FFFFFF")
+                                        )
+
+        self.main_HBoxLayout.addWidget(self.right_Widget, stretch=2)    # 1-1. 상위 레이아웃에 위젯 적용
         self.right_VBoxLayout = QVBoxLayout()           # 2. 세로 방향 레이아웃 생성
         self.right_Widget.setLayout(self.right_VBoxLayout)   # 3. 레이아웃을 대상 위젯에 적용
 
-        # self.right_Widget.setStyleSheet("background-color: #ffdbac; border: 1px solid #f1c27d;")
-        # right_placeholder = QLabel("그래프 및 로그")
-        # right_placeholder.setStyleSheet("font-size:16px; font-weight:bold; padding:12px; color: #e0ac69;")
-        # self.right_VBoxLayout.addWidget(right_placeholder)
-
         self.adc_raw_graph_GroupBox = QGroupBox("ADC RAW Data Plot")             # 1. 대상 위젯 생성
         self.adc_raw_graph_GroupBox.setStyleSheet(""
-            + PADDING.format(10)
-        )
-        self.right_VBoxLayout.addWidget(self.adc_raw_graph_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
+                                                  + PADDING.format(10)
+                                                  )
+        # self.right_VBoxLayout.addWidget(self.adc_raw_graph_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
+        self.right_VBoxLayout.addWidget(self.adc_raw_graph_GroupBox, stretch=2)           # 1-1. 상위 레이아웃에 위젯 적용
+
         self.adc_raw_graph_VBoxLayout = QVBoxLayout()                     # 2. 세로 방향 레이아웃 생성
         self.adc_raw_graph_GroupBox.setLayout(self.adc_raw_graph_VBoxLayout)            # 3. 레이아웃을 대상 위젯에 적용
 
         self.adc_raw_plot_TabWidget = QTabWidget()
         self.adc_raw_plot_TabWidget.setStyleSheet(""
-            + PADDING.format(2)
-        )
+                                                  + BORDER_STYLE.format('none')
+                                                  + PADDING.format(0)
+                                                  )
         self.adc_raw_plot_TabWidget.setMovable(True)  # 탭 드래그로 순서 변경 가능
+        # self.adc_raw_graph_VBoxLayout.addWidget(self.adc_raw_plot_TabWidget, stretch=2)
         self.adc_raw_graph_VBoxLayout.addWidget(self.adc_raw_plot_TabWidget)
         
+        self.adc_fft_graph_GroupBox = QGroupBox("ADC FFT Plot")             # 1. 대상 위젯 생성
+        self.adc_fft_graph_GroupBox.setStyleSheet(""
+                                                  + PADDING.format(10)
+                                                  )
+        # self.right_VBoxLayout.addWidget(self.adc_fft_graph_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
+        self.right_VBoxLayout.addWidget(self.adc_fft_graph_GroupBox, stretch=2)           # 1-1. 상위 레이아웃에 위젯 적용
+
+        self.adc_fft_graph_VBoxLayout = QVBoxLayout()                     # 2. 세로 방향 레이아웃 생성
+        self.adc_fft_graph_GroupBox.setLayout(self.adc_fft_graph_VBoxLayout)            # 3. 레이아웃을 대상 위젯에 적용
+        
+
         self.adc_fft_plot_TabWidget = QTabWidget()
         self.adc_fft_plot_TabWidget.setStyleSheet(""
-            + PADDING.format(2)
-        )
+                                                  + BORDER_STYLE.format('none')
+                                                  + PADDING.format(0)
+                                                  )
         self.adc_fft_plot_TabWidget.setMovable(True)  # 탭 드래그로 순서 변경 가능
-        self.adc_raw_graph_VBoxLayout.addWidget(self.adc_fft_plot_TabWidget)
+        # self.adc_fft_graph_VBoxLayout.addWidget(self.adc_fft_plot_TabWidget, stretch=2)
+        self.adc_fft_graph_VBoxLayout.addWidget(self.adc_fft_plot_TabWidget)
     
+        for plot_opt in enum_graph_plot_range_opt:
+            self.create_adc_plot_tab(self.A_graph_plot_value[enum_graph_plot_num.ADC_RAW][plot_opt])
+            self.create_fft_plot_tab(self.A_graph_plot_value[enum_graph_plot_num.ADC_FFT][plot_opt])
 
-        for graph_tab_name, graph_fixed_range in adc_raw_plot_TabWidget_configs:
-            # self.create_plot_tab(graph_tab_name, graph_fixed_range, opt_show_tp1, tab_type="adc_raw")
-            self.create_adc_plot_tab(graph_tab_name, graph_fixed_range)
+        # --- 로그 패널 (그래프 + 로그) ---
+        self.log_Widget = QWidget()                    # 1. 대상 위젯 생성
+        self.log_Widget.setStyleSheet(""
+                                        + BORDER_RADIUS.format(6)
+                                        + PADDING.format(2)
+                                        + BACKGROUND_COLOR.format('#77aaff')
+                                        + BORDER_SIZE.format(2)
+                                        + BORDER_STYLE.format('solid')
+                                        + BORDER_COLOR.format('#3366ff')
+                                        + TEXT_COLOR.format("#FFFFFF")
+                                        )
 
-        for name, x_range in adc_fft_plot_TabWidget_configs:
-            self.create_fft_plot_tab(name, x_range, y_max=150)
-#################################################################################################################
+        self.main_HBoxLayout.addWidget(self.log_Widget, stretch=1)    # 1-1. 상위 레이아웃에 위젯 적용
+        self.log_VBoxLayout = QVBoxLayout()           # 2. 세로 방향 레이아웃 생성
+        self.log_Widget.setLayout(self.log_VBoxLayout)   # 3. 레이아웃을 대상 위젯에 적용
+
+
+        self.log_GroupBox = QGroupBox("Log")
+        self.log_VBoxLayout.addWidget(self.log_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
+        self.log_VBoxLayout = QVBoxLayout()
+        self.log_GroupBox.setLayout(self.log_VBoxLayout)
+        
+        self.log_TextEdit = QTextEdit()
+        self.log_TextEdit.setReadOnly(True)
+        self.log_VBoxLayout.addWidget(self.log_TextEdit)
+
+        self.adc_fft_graph_VBoxLayout.addWidget(self.adc_fft_plot_TabWidget, stretch=1)  # 3. 로그
+        
+        # FFT 관련 변수 초기화
+        # self.sampling_rate = 100.0  # 100Hz (ADC_SPEED_MS = 10ms)
+
+        self.uart_thread = None
+        self.command_sender = uart_protocol.command_sender.CommandSender()  # 명령 송신 객체
 
     # @pyqtSlot(bool)
     # def on_connection_status_changed(self, is_connected):
@@ -717,7 +750,6 @@ class MainWindow(QMainWindow):
         self.port_sel_ComboBox.clear()
         ports = list_ports.comports()
         for port in ports:
-            # self.port_sel_ComboBox.addItem(f"{port.device} : {port.description}", port.device)
             self.port_sel_ComboBox.addItem(f"{port.description}")
         if not ports:
             self.port_sel_ComboBox.addItem("No ports found")
@@ -734,9 +766,9 @@ class MainWindow(QMainWindow):
     def insert_baudrates_to_ComboBox(self):
         """Baud Rate 목록 채우기"""
         self.baudrate_sel_ComboBox.clear()
-        for rate in BaudRate:
+        for rate in uart_protocol.protocol_config.BaudRate:
             self.baudrate_sel_ComboBox.addItem(str(rate.value), rate.value)
-        self.baudrate_sel_ComboBox.setCurrentText(str(BaudRate.BAUD_1152000.value))
+        self.baudrate_sel_ComboBox.setCurrentText(str(uart_protocol.protocol_config.BaudRate.BAUD_1152000.value))
 
     def port_connection(self):
         """연결/해제 토글"""
@@ -1038,38 +1070,22 @@ class MainWindow(QMainWindow):
     #     return "\n".join(log_lines)
 
     # def create_plot_tab(self, graph_tab_name, graph_fixed_range=None, opt_show_tp1=False, tab_type="adc_raw"):
-    def create_adc_plot_tab(self, graph_tab_name, graph_fixed_range=None):
 
-        """플롯 탭을 미리 생성 (초기화 시 호출)
-        Args:
-            name: 플롯 이름
-            fixed_range: Y축 고정 범위 (튜플) 또는 None (자동)
-            show_tp1_line: TP1 임계선 표시 여부
-            # tab_type: 탭 타입 ("adc_raw", "sw_filter", "hw_filter")
-        """
-        self.target_PlotWidget = PlotWidget()
-        
-        # 마우스 드래그(팬) 및 휠 줌 비활성화
-        self.target_PlotWidget.setMouseEnabled(x=False, y=False)
-        self.target_PlotWidget.setMenuEnabled(False)
-    
-        if graph_fixed_range:
-            self.target_PlotWidget.setYRange(graph_fixed_range[0], graph_fixed_range[1], padding=0)
-        self.target_PlotWidget.setTitle(f"{graph_tab_name}")
 
+    def create_line(self, target_PlotWidget, i_value, s_label, s_color_code):
         # TP1 임계값 가로선 추가 (빨간색)
-        self.tp1_InfiniteLine = InfiniteLine(
-            pos=tp1_value, 
+        self.tp_InfiniteLine = pyqtgraph.InfiniteLine(
+            pos=i_value, 
             angle=0,                                    # 선의 기울기(도 단위). 0은 수평(가로), 90은 수직(세로). 양수 값은 반시계 방향으로 회전합니다. 예: angle=0(가로), angle=45(대각선 위로 기울어진 선).
-            pen=mkPen(
-                color='#ff0000'                       # 선 색 (문자열 'r', 색 이름, 16진 문자열 '#ff0000', (R,G,B) 또는 (R,G,B,A) 튜플, 또는 QtGui.QColor 가능).
+            pen=pyqtgraph.mkPen(
+                color=s_color_code                       # 선 색 (문자열 'r', 색 이름, 16진 문자열 '#ff0000', (R,G,B) 또는 (R,G,B,A) 튜플, 또는 QtGui.QColor 가능).
                 , width=2                               # 선 굵기(픽셀)
-                , style=QtCore.Qt.PenStyle.DashLine     # 선 스타일(점선/실선 등). SolidLine (실선), DashLine (대시선), DotLine (점선), DashDotLine, DashDotDotLine, NoPen (그리지 않음)
+                , style=pyqtgraph.QtCore.Qt.PenStyle.DashLine     # 선 스타일(점선/실선 등). SolidLine (실선), DashLine (대시선), DotLine (점선), DashDotLine, DashDotDotLine, NoPen (그리지 않음)
                 ),
-            label=f'TP1={tp1_value}',              # 이 그래프에서 어디에 보이는지:
+            label=s_label,              # 이 그래프에서 어디에 보이는지:
             labelOpts={
                 'position': 0.95                        # 0.0 ~ 1.0, 선을 따라 텍스트가 놓일 상대 위치 (예: 0.95). 0.95는 그래프의 하
-                , 'color': '#ff0000'                  # 텍스트 색 (문자열/튜플/Qt color). 예: 'r' 또는 (255,0,0).
+                , 'color': s_color_code                  # 텍스트 색 (문자열/튜플/Qt color). 예: 'r' 또는 (255,0,0).
                 , 'fill': (200, 200, 200, 100)          # 텍스트 배경 채우기 색 — RGBA 튜플 (R,G,B,A) 또는 QColor. A는 투명도(0~255). 예: (200,200,200,100).
                                                         # anchor: (옵션) 텍스트 정렬/앵커를 튜플로 지정할 수 있음(사용법은 약간 복잡).
                                                         # rotateAxis / angle: (환경/버전마다 이름이 다를 수 있음) 텍스트를 선과 함께 회전시킬 수 있는 옵션(선과 평행하게 표시).
@@ -1077,127 +1093,91 @@ class MainWindow(QMainWindow):
                                                         # 구체적 사용 가능한 키와 동작은 설치된 pyqtgraph 버전 문서를 참조하세요.
                 }
         )
-        self.target_PlotWidget.addItem(self.tp1_InfiniteLine)
-        threshold_lines[graph_tab_name] = self.tp1_InfiniteLine
-        
-        # TP1 Recheck 임계값 가로선 추가 (주황색)
-        self.tp1_rck_InfiniteLine = InfiniteLine(
-            pos=tp1_rck_value, 
-            angle=0,
-            pen=mkPen(
-                color=(255, 165, 0)
-                , width=2
-                , style=QtCore.Qt.PenStyle.DashLine
-                ),  # Orange
-            label=f'TP1_RCK={tp1_rck_value}',
-            labelOpts={
-                'position': 0.85
-                , 'color': (255, 165, 0)
-                , 'fill': (200, 200, 200, 100)
-                }
-        )
-        self.target_PlotWidget.addItem(self.tp1_rck_InfiniteLine)
-        tp1_recheck_lines[graph_tab_name] = self.tp1_rck_InfiniteLine
-            
-        # plot_item = self.target_PlotWidget.plot(
-        #     pen='y'
-        #     , name=graph_tab_name
-        #     )
-        
-        # 탭 타입에 따라 해당 탭 위젯에 추가
-        # if tab_type == "adc_raw":
-        #     self.adc_raw_plot_TabWidget.addTab(self.target_PlotWidget, graph_tab_name)
-        # elif tab_type == "adc_fft":
-        #     self.adc_fft_plot_TabWidget.addTab(self.target_PlotWidget, graph_tab_name)
-        # elif tab_type == "sw_filter":
-        #     self.sw_filter_plot_tabs.addTab(self.target_PlotWidget, name)
-        # elif tab_type == "hw_filter":
-        #     self.hw_filter_plot_tabs.addTab(self.target_PlotWidget, name)
-        # elif tab_type == "hw_filter_2":
-        #     self.hw_filter_2_plot_tabs.addTab(self.target_PlotWidget, name)
+        target_PlotWidget.addItem(self.tp_InfiniteLine)
+        # self.tp_InfiniteLine.label.setPos(self.tp_InfiniteLine.label.pos() + pyqtgraph.QtCore.QPointF(-100, 0))
+        # self.tp_InfiniteLine.label.setPos(self.tp_InfiniteLine.label.pos() - pyqtgraph.QtCore.QPointF(-100, 0))
 
-        self.adc_raw_plot_TabWidget.addTab(self.target_PlotWidget, graph_tab_name)
+    # def create_adc_plot_tab(self, graph_tab_name=None, graph_range_x=None, graph_range_y=None):
+    def create_adc_plot_tab(self, graph_plot_value):
 
-        
-        # self.plot_widgets[graph_tab_name] = self.target_PlotWidget
-        # self.adc_raw_plot_TabWigdet.addTab(self.plot_widgets[graph_tab_name], graph_tab_name)
-        # plot_item = self.plot_widgets[graph_tab_name].plot(
-        #     pen='y'
-        #     , name=graph_tab_name
-        #     )
-        # self.plots[graph_tab_name] = plot_item
-
-        # plot_item = self.target_PlotWidget.plot(
-        #     pen='y'
-        #     , name=graph_tab_name
-        #     )
-        # self.plots[graph_tab_name] = plot_item
-        # self.plot_widgets[graph_tab_name] = self.target_PlotWidget
-
-        # print("name : ", graph_tab_name, "\tself.plots[graph_tab_name] : ", self.plots[graph_tab_name], "\tself.plot_widgets[graph_tab_name] : ", self.plot_widgets[graph_tab_name])
-
-    def create_fft_plot_tab(self, name, x_range=None, y_max=150):
-        
-        """FFT 스펙트럼 플롯 탭 생성
-        Args:
-            name: 플롯 이름 (예: "ADC_FFT", "ADC_FFT (Zoom)")
-            x_range: X축 범위 (주파수 Hz) - 튜플 또는 None
-            y_max: Y축 최대값 (진폭) - 기본값 150
-        """
-
-        # """플롯 탭을 미리 생성 (초기화 시 호출)
-        # Args:
-        #     name: 플롯 이름
-        #     fixed_range: Y축 고정 범위 (튜플) 또는 None (자동)
-        #     show_tp1_line: TP1 임계선 표시 여부
-        #     tab_type: 탭 타입 ("adc_raw", "sw_filter", "hw_filter")
-        # """
-
-        self.target_PlotWidget = PlotWidget()
-        
+        target_PlotWidget = pyqtgraph.PlotWidget()
         # 마우스 드래그(팬) 및 휠 줌 비활성화
-        self.target_PlotWidget.setMouseEnabled(x=False, y=False)
-        self.target_PlotWidget.setMenuEnabled(False)
-        
-        # X축 라벨 설정 (주파수)
-        self.target_PlotWidget.setLabel('bottom', 'Frequency', units='Hz')
-        self.target_PlotWidget.setLabel('left', 'Magnitude')
-        self.target_PlotWidget.setTitle(name)
-        
-        # X축 범위 설정
-        if x_range:
-            self.target_PlotWidget.setXRange(x_range[0], x_range[1], padding=0)
-        
-        # Y축 범위 고정 설정
-        if y_max:
-            self.target_PlotWidget.setYRange(0, y_max, padding=0)
-        
-        # 바 그래프 스타일로 그리기 (stepMode)
-        plot_item = self.target_PlotWidget.plot(
-            pen=mkPen(
-                color=(0, 255, 255)
-                , width=1
-                ),  # Cyan
-            fillLevel=0,
-            fillBrush=(0, 255, 255, 80),  # 반투명 Cyan
-            name=name
+        target_PlotWidget.setMouseEnabled(x=False, y=False)
+        target_PlotWidget.setMenuEnabled(False)
+    
+        target_PlotWidget.setTitle(f"{graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME]}")
+        target_PlotWidget.setLabel(f"{graph_plot_value[enum_graph_plot_index.STR_GRAPH_X_LABEL_POS]}", f"{graph_plot_value[enum_graph_plot_index.STR_GRAPH_X_LABEL]}", **{'font-size': '14pt'})
+        if graph_plot_value[enum_graph_plot_index.INT_GRAPH_X_RANGE]:
+            target_PlotWidget.setXRange(0, graph_plot_value[enum_graph_plot_index.INT_GRAPH_X_RANGE], padding=0)
+        target_PlotWidget.setLabel(graph_plot_value[enum_graph_plot_index.STR_GRAPH_Y_LABEL_POS], graph_plot_value[enum_graph_plot_index.STR_GRAPH_Y_LABEL], **{'font-size': '14pt'})
+        if graph_plot_value[enum_graph_plot_index.INT_GRAPH_Y_RANGE]:
+            target_PlotWidget.setYRange(0, graph_plot_value[enum_graph_plot_index.INT_GRAPH_Y_RANGE], padding=0)
+        target_PlotWidget.getPlotItem().getViewBox().setLimits(yMin=0) # 하한 0 고정
+
+        target_PlotWidget.addLegend(offset=(10,10))            # 범례 추가(옵션: offset)
+        target_PlotWidget.plot(
+            pen=pyqtgraph.mkPen(
+                color=graph_plot_value[enum_graph_plot_index.STR_LINE_COLOR]                       # 선 색 (문자열 'r', 색 이름, 16진 문자열 '#ff0000', (R,G,B) 또는 (R,G,B,A) 튜플, 또는 QtGui.QColor 가능).
+                , width=1                               # 선 굵기(픽셀)
+                , style=pyqtgraph.QtCore.Qt.PenStyle.DashLine     # 선 스타일(점선/실선 등). SolidLine (실선), DashLine (대시선), DotLine (점선), DashDotLine, DashDotDotLine, NoPen (그리지 않음)
+                )
+            , fillLevel=0
+            , fillBrush=(0, 255, 255, 80)
+            , name=graph_plot_value[enum_graph_plot_index.STR_LEGEND_TEXT]
         )
         
+        self.create_line(target_PlotWidget, self.i_tp1, f'TP1={self.i_tp1}', "#ff0000")
+        self.create_line(target_PlotWidget, self.i_tp1_rck, f'TP1_RCK={self.i_tp1_rck}', "#ffa500")
+
+        # tp1_recheck_lines[graph_tab_name] = self.tp1_rck_InfiniteLine
+        self.adc_raw_plot_TabWidget.addTab(target_PlotWidget, graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME])
+
+    def create_fft_plot_tab(self, graph_plot_value):
+
+        target_PlotWidget = pyqtgraph.PlotWidget()
+        # 마우스 드래그(팬) 및 휠 줌 비활성화
+        target_PlotWidget.setMouseEnabled(x=False, y=False)
+        target_PlotWidget.setMenuEnabled(False)
+    
+        target_PlotWidget.setTitle(f"{graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME]}")
+        target_PlotWidget.setLabel(f"{graph_plot_value[enum_graph_plot_index.STR_GRAPH_X_LABEL_POS]}", f"{graph_plot_value[enum_graph_plot_index.STR_GRAPH_X_LABEL]}", **{'font-size': '14pt'})
+        if graph_plot_value[enum_graph_plot_index.INT_GRAPH_X_RANGE]:
+            target_PlotWidget.setXRange(0, graph_plot_value[enum_graph_plot_index.INT_GRAPH_X_RANGE], padding=0)
+        target_PlotWidget.setLabel(f"{graph_plot_value[enum_graph_plot_index.STR_GRAPH_Y_LABEL_POS]}", graph_plot_value[enum_graph_plot_index.STR_GRAPH_Y_LABEL], **{'font-size': '14pt'})
+        if graph_plot_value[enum_graph_plot_index.INT_GRAPH_Y_RANGE]:
+            target_PlotWidget.setYRange(0, graph_plot_value[enum_graph_plot_index.INT_GRAPH_Y_RANGE], padding=0)
+        target_PlotWidget.getPlotItem().getViewBox().setLimits(yMin=0) # 하한 0 고정
+
+        target_PlotWidget.addLegend(offset=(10,10))            # 범례 추가(옵션: offset)
+        target_PlotWidget.plot(
+            pen=pyqtgraph.mkPen(
+                color=graph_plot_value[enum_graph_plot_index.STR_LINE_COLOR]                       # 선 색 (문자열 'r', 색 이름, 16진 문자열 '#ff0000', (R,G,B) 또는 (R,G,B,A) 튜플, 또는 QtGui.QColor 가능).
+                , width=1                               # 선 굵기(픽셀)
+                , style=pyqtgraph.QtCore.Qt.PenStyle.DashLine     # 선 스타일(점선/실선 등). SolidLine (실선), DashLine (대시선), DotLine (점선), DashDotLine, DashDotDotLine, NoPen (그리지 않음)
+                )
+            , fillLevel=0
+            , fillBrush=(0, 255, 255, 80)
+            , name=graph_plot_value[enum_graph_plot_index.STR_LEGEND_TEXT]
+        )
+
         # 피크 주파수 표시용 텍스트 아이템
-        peak_label = TextItem(anchor=(0, 1), color='y')
-        self.target_PlotWidget.addItem(peak_label)
+        peak_TextItem = pyqtgraph.TextItem(anchor=(0, 1), color='y')
+        target_PlotWidget.addItem(peak_TextItem)
+
+        # tp1_recheck_lines[graph_tab_name] = self.tp1_rck_InfiniteLine
+        self.adc_fft_plot_TabWidget.addTab(target_PlotWidget, graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME])
+
+        # # 피크 라벨 저장용 딕셔너리
+        # if not hasattr(self, 'fft_peak_labels'):
+        #     self.fft_peak_labels = {}
+        # self.fft_peak_labels[graph_tab_name] = peak_label
+
+
+
+
+
+
         
-        # FFT 전용 탭에 추가
-        self.target_PlotWidget.addTab(self.target_PlotWidget, name)
-        
-        # 저장
-        self.plots[name] = plot_item
-        self.plot_widgets[name] = self.target_PlotWidget
-        
-        # 피크 라벨 저장용 딕셔너리
-        if not hasattr(self, 'fft_peak_labels'):
-            self.fft_peak_labels = {}
-        self.fft_peak_labels[name] = peak_label
 
     # def _compute_fft(self, adc_buffer, apply_window=True):
     #     """ADC 버퍼에 FFT 적용
@@ -1334,7 +1314,7 @@ class MainWindow(QMainWindow):
         
     #     # 통계 라벨이 없으면 생성
     #     if plot_name not in self.stats_labels:
-    #         label = pg.TextItem(
+    #         label = pg.pyqtgraph.TextItem(
     #             text='',
     #             color=(200, 200, 200),  # 연한 회색
     #             anchor=(1, 0)  # 우측 상단 기준
@@ -1417,9 +1397,9 @@ class MainWindow(QMainWindow):
     #         plot_widget.addItem(scatter_recheck)
     #         self.exceed_plots[recheck_key] = scatter_recheck
         
-    #     # 초과 개수 표시용 TextItem 생성
+    #     # 초과 개수 표시용 pyqtgraph.TextItem 생성
     #     if plot_name not in self.exceed_labels:
-    #         label = pg.TextItem(
+    #         label = pg.pyqtgraph.TextItem(
     #             text='TP1 초과: 0 / TP1_RCK 초과: 0',
     #             color='r',
     #             anchor=(1, 0)  # 우측 상단 기준
