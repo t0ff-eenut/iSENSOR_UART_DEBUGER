@@ -41,12 +41,14 @@ import enum
 # if Perm.WRITE in p:
 #     ...
 
-import config
-import uart_protocol.protocol_config
-import uart_protocol.command_sender
-import uart_protocol.frame_parser
-# from uart_protocol.protocol_config import (BaudRate)
-# from uart_protocol.command_sender import CommandSender
+import config   as cfg
+import uart_protocol.uart_protocol_config   as upcfg
+import uart_protocol.uart_receive_parser    as upurp
+import uart_protocol.payload_parser         as uppp
+import uart_protocol.command_sender         as upcs
+
+# from upcfg import (BaudRate)
+# from upcs import CommandSender
 
 
 
@@ -60,9 +62,9 @@ import uart_protocol.frame_parser
 # Nanum Gothic / Nanum Myeongjo: 한국에서 자주 쓰이는 산세리프/명조
 # Pretendard: 최근 인기 있는 깔끔한 한글 웹폰트 → 깔끔한 UI에 적합
 # Gulim / Dotum / Batang: 오래된 Windows 기본 한글 글꼴(레거시 호환용)
-FONT_NAME = "font-family: {};"
-FONT_BOLD = "font-weight: bold;"
-FONT_SIZE = "font-size: {}pt;"
+MACRO_FONT_NAME = "font-family: {};"
+MACRO_FONT_BOLD = "font-weight: bold;"
+MACRO_FONT_SIZE = "font-size: {}pt;"
 
 # Reusable CSS snippets for widgets
 BUTTON_HOVER_BG = "QPushButton:hover { background-color: %s; }"
@@ -74,13 +76,13 @@ BUTTON_HOVER_BG = "QPushButton:hover { background-color: %s; }"
 #     }
 #     """
 #     )
-BORDER_RADIUS = "border-radius: {}px;"
-PADDING = "padding: {}px;"
-BACKGROUND_COLOR = "background-color: {};"
-BORDER_STYLE = "border-style: {};"
-BORDER_SIZE = "border: {}px;"
-BORDER_COLOR = "border-color: {};"
-TEXT_COLOR = "color: {};"
+MACRO_BORDER_RADIUS = "border-radius: {}px;"
+MACRO_PADDING = "padding: {}px;"
+MACRO_BACKGROUND_COLOR = "background-color: {};"
+MACRO_BORDER_STYLE = "border-style: {};"
+MACRO_BORDER_SIZE = "border: {}px;"
+MACRO_BORDER_COLOR = "border-color: {};"
+MACRO_TEXT_COLOR = "color: {};"
 # Fixed
 # 의미: 크기가 sizeHint()에 정확히 고정됩니다(늘어나거나 줄어들지 않음).
 # 사용처: 고정 아이콘, 고정 너비 버튼/라벨, 분할선 등.
@@ -167,12 +169,12 @@ class UartWorker(PyQt6.QtCore.QThread):
 
     def __init__(self, intput_i_port_num:int, input_i_baud_rate:int):
         super().__init__()
-        self.i_port_num:int                                 = intput_i_port_num
-        self.i_baud_rate:int                                = input_i_baud_rate
+        self.i_port_num:int             = intput_i_port_num
+        self.i_baud_rate:int            = input_i_baud_rate
 
-        self.serial_port                                    = None
-        self.b_uart_thread_running:bool                     = False
-        self.parser:uart_protocol.frame_parser.FrameParser  = uart_protocol.frame_parser.FrameParser()
+        self.serial_port                = None
+        self.b_uart_thread_running:bool = False
+        self.UartReceiveParser_handle:upurp.UartReceiveParser = upurp.UartReceiveParser()
 
     def run(self):
         """스레드 실행"""
@@ -198,23 +200,29 @@ class UartWorker(PyQt6.QtCore.QThread):
 
         while self.b_uart_thread_running:
             try:
-                if self.serial_port.in_waiting > 0: # 시리얼 포트 수신 버퍼에 현재 들어와 있는 바이트 수
-                    byte_data:bytes = self.serial_port.read(self.serial_port.in_waiting)
-                    # ★ 디버그: 수신 바이트 수 출력 (비활성화)
-                    print(f"[UART RX] {len(byte_data)} bytes received")
+                if self.serial_port.in_waiting > 0:
 
+                    byte_data:bytes = self.serial_port.read(self.serial_port.in_waiting)
+                    # print(f"debugger_start.py | [UART RX] {len(byte_data)} bytes received") # debugger_start.py | [UART RX] 32 bytes received
+                    # print(f"debugger_start.py | byte_data : {byte_data}")                   # debugger_start.py | byte_data : b'\xaaU\xcc\t-\x00\x0f\xa0\x0f\xa0\x00\x00\x00\x00\x00\x00\x00\x14d\x00\x14\x00\x00\x00\x05\x00\x00\x01\xf4\x00\x00\x01'
+                    
                     for byte in byte_data:
-                        frame = self.parser.feed_byte(byte)
-                        # if frame:
-                        #     # ★ 디버그: 프레임 파싱 완료 (비활성화)
-                        #     # print(f"[UART RX] Frame parsed! Type: {frame.data_type}, Payload: {frame.data_length} bytes")
-                        #     sensor_data = PayloadParser.parse(frame)
-                        #     if sensor_data:
-                        #         # ★ 디버그: 센서 데이터 파싱 완료 (비활성화)
-                        #         # print(f"[UART RX] SensorData ready! Data type: {sensor_data.data_type}")
-                        #         self.new_data.emit(sensor_data)
-                        #     else:
-                        #         print(f"[UART RX] ⚠ PayloadParser returned None for type {frame.data_type}")
+                        # print(f"debugger_start.py | byte : {byte}")                         # debugger_start.py | byte : 170
+                        complete_receive_data = self.UartReceiveParser_handle.feed_byte(byte)
+                        print(f"debugger_start.py | feed_byte_return : {feed_byte_return}")     # debugger_start.py | frame : None
+
+                        if complete_receive_data:
+                            # ★ 디버그: 프레임 파싱 완료 (비활성화)
+                            # print(f"[UART RX] Frame parsed! Type: {frame.data_type}, Payload: {frame.data_length} bytes")
+
+                            sensor_data = uppp.data_parser(complete_receive_data)
+
+                            # if sensor_data:
+                            #     # ★ 디버그: 센서 데이터 파싱 완료 (비활성화)
+                            #     # print(f"[UART RX] SensorData ready! Data type: {sensor_data.data_type}")
+                            #     self.new_data.emit(sensor_data)
+                            # else:
+                            #     print(f"[UART RX] ⚠ PayloadParser returned None for type {feed_byte_return.data_type}")
 
             except serial.SerialException as e:
                 self.log_message.emit(f"✗ Serial error: {e}")
@@ -322,7 +330,7 @@ class MainWindow(QMainWindow):
         self.A_graph_plot_value.append(self.A_adc_fft_plot_TabWidget_configs)   # 1
 
         self.uart_thread = None
-        self.command_sender = uart_protocol.command_sender.CommandSender()  # 명령 송신 객체
+        self.command_sender = upcs.CommandSender()  # 명령 송신 객체
         
 
     def graph_title_setting(self, input_s_graph_title:str, input_enum_graph_plot_num:enum_graph_plot_num = None, input_enum_graph_plot_range_opt:enum_graph_plot_range_opt = None):
@@ -411,7 +419,7 @@ class MainWindow(QMainWindow):
         self.graph_y_range_setting(self.adc_bit_2_range(12), enum_graph_plot_num.ADC_RAW, enum_graph_plot_range_opt.ALL)
         self.graph_y_label_pos_setting("left", enum_graph_plot_num.ADC_RAW)
         self.graph_y_label_setting("ADC", enum_graph_plot_num.ADC_RAW)
-        self.graph_line_color_setting("#0000ff", enum_graph_plot_num.ADC_RAW)
+        self.graph_line_color_setting(cfg.ADC_RAW_LINE_COLOR, enum_graph_plot_num.ADC_RAW)
         self.graph_legend_setting('ADC', enum_graph_plot_num.ADC_RAW)
 
         self.graph_title_setting("ADC FFT Full Scale", enum_graph_plot_num.ADC_FFT, enum_graph_plot_range_opt.ALL)
@@ -422,15 +430,15 @@ class MainWindow(QMainWindow):
         # self.graph_y_range_setting(150, enum_graph_plot_num.ADC_FFT, enum_graph_plot_range_opt.ALL)
         self.graph_y_label_pos_setting("left", enum_graph_plot_num.ADC_FFT)
         self.graph_y_label_setting("강도", enum_graph_plot_num.ADC_FFT)
-        self.graph_line_color_setting("#eeff00", enum_graph_plot_num.ADC_FFT)
+        self.graph_line_color_setting(cfg.ADC_FFT_LINE_COLOR, enum_graph_plot_num.ADC_FFT)
         self.graph_legend_setting('FFT 분포', enum_graph_plot_num.ADC_FFT)
 
-        self.setWindowTitle(config.WINDOW_TITLE)
+        self.setWindowTitle(cfg.WINDOW_TITLE)
         self.setGeometry(
-            config.WINDOW_POSITION_X
-            , config.WINDOW_POSITION_Y
-            , config.WINDOW_WIDTH
-            , config.WINDOW_HEIGHT
+            cfg.WINDOW_POSITION_X
+            , cfg.WINDOW_POSITION_Y
+            , cfg.WINDOW_WIDTH
+            , cfg.WINDOW_HEIGHT
             )
 
         # --- 메인 레이아웃 ---
@@ -441,19 +449,19 @@ class MainWindow(QMainWindow):
         
         # --- 좌측 패널 (제어 + 설정) ---
         self.left_Widget = QWidget()                     # 1. 대상 위젯 생성
-        self.left_Widget.setFixedWidth(config.LEFT_BOX_WIDTH)              # * 위젯 가로 사이즈 설정
+        self.left_Widget.setFixedWidth(cfg.LEFT_BOX_WIDTH)              # * 위젯 가로 사이즈 설정
         # 5px = 테두리 두께(픽셀).
         # solid = 테두리 스타일 — 실선(draw a solid line). (dashed, dotted, none 등 가능)
         # #3366ff = 테두리 색상(HEX).
 
         self.left_Widget.setStyleSheet(""
-                                       + BORDER_RADIUS.format(6)
-                                       + PADDING.format(2)
-                                       + BACKGROUND_COLOR.format('#77aaff')
-                                       + BORDER_SIZE.format(2)
-                                       + BORDER_STYLE.format('solid')
-                                       + BORDER_COLOR.format('#3366ff')
-                                       + TEXT_COLOR.format("#FFFFFF")
+                                       + MACRO_BORDER_RADIUS.format(6)
+                                       + MACRO_PADDING.format(2)
+                                       + MACRO_BACKGROUND_COLOR.format(cfg.BACKGROUND_COLOR)
+                                       + MACRO_BORDER_SIZE.format(2)
+                                       + MACRO_BORDER_STYLE.format('solid')
+                                       + MACRO_BORDER_COLOR.format(cfg.LINE_COLOR)
+                                       + MACRO_TEXT_COLOR.format(cfg.TEXT_COLOR)
                                        )
         self.main_HBoxLayout.addWidget(self.left_Widget, stretch=1)     # 1-1. 상위 레이아웃에 위젯 적용
 
@@ -463,8 +471,8 @@ class MainWindow(QMainWindow):
 # --- 제어창 표시 설정 ---
         self.left_control_Label = QLabel("제어창")             # 1. 대상 위젯 생성
         self.left_control_Label.setStyleSheet(""
-                                              + FONT_BOLD
-                                              + FONT_SIZE.format(14)
+                                              + MACRO_FONT_BOLD
+                                              + MACRO_FONT_SIZE.format(14)
                                               )  # * 위젯 폰트 설정
         self.left_control_Label.setFixedHeight(30)             # * 위젯 가로 사이즈 설정
         self.left_VBoxLayout.addWidget(self.left_control_Label)    # 1-1. 상위 레이아웃에 위젯 적용
@@ -479,9 +487,9 @@ class MainWindow(QMainWindow):
         # --- 포트 라벨 설정 ---
         self.port_sel_Label = QLabel("📶포트: ")
         self.port_sel_Label.setStyleSheet(""
-                                          + FONT_BOLD
-                                          # + BORDER_RADIUS.format(6)
-                                          + BORDER_STYLE.format('none')
+                                          + MACRO_FONT_BOLD
+                                          # + MACRO_BORDER_RADIUS.format(6)
+                                          + MACRO_BORDER_STYLE.format('none')
                                           )
         self.port_sel_Label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)    # 레이블은 텍스트 크기 위주, 늘어나지 않게
         self.connection_GridLayout.addWidget(self.port_sel_Label, 0, 0)         # 3. 위젯을 대상 레이아웃에 적용
@@ -493,10 +501,10 @@ class MainWindow(QMainWindow):
 
         self.port_search_PushButton = QPushButton("🔍검색")     # 1. 대상 위젯 생성
         self.port_search_PushButton.setStyleSheet(""
-                                                  + FONT_BOLD 
+                                                  + MACRO_FONT_BOLD 
                                                   )
         self.port_search_PushButton.setStyleSheet(""
-                                                  + BUTTON_HOVER_BG % '#3366ff'
+                                                  + BUTTON_HOVER_BG % cfg.LINE_COLOR
                                                   )
         self.port_search_PushButton.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)  # 레이블은 텍스트 크기 위주, 늘어나지 않게
         self.port_search_PushButton.clicked.connect(self.refresh_ports)
@@ -506,9 +514,9 @@ class MainWindow(QMainWindow):
         # --- 보드레이트 라벨 설정 ---
         self.baudrate_sel_Label = QLabel("⚡보드레이트: ")
         self.baudrate_sel_Label.setStyleSheet(""
-                                              + FONT_BOLD
-                                              # + BORDER_RADIUS.format(6)
-                                              + BORDER_STYLE.format('none')
+                                              + MACRO_FONT_BOLD
+                                              # + MACRO_BORDER_RADIUS.format(6)
+                                              + MACRO_BORDER_STYLE.format('none')
                                               )
         self.baudrate_sel_Label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)    # 레이블은 텍스트 크기 위주, 늘어나지 않게
         self.connection_GridLayout.addWidget(self.baudrate_sel_Label, 1, 0)         # 3. 위젯을 대상 레이아웃에 적용
@@ -519,10 +527,10 @@ class MainWindow(QMainWindow):
         # --- 연결하기 버튼 설정 ---
         self.port_connect_PushButton = QPushButton("🔌연결하기")
         self.port_connect_PushButton.setStyleSheet(""
-                                                  + FONT_BOLD 
+                                                  + MACRO_FONT_BOLD 
                                                   )
         self.port_connect_PushButton.setStyleSheet(""
-                                                  + BUTTON_HOVER_BG % '#3366ff'
+                                                  + BUTTON_HOVER_BG % cfg.LINE_COLOR
                                                   )
         self.port_connect_PushButton.clicked.connect(self.port_connection) # 버튼 기능 구현
         # addWidget(..., row, col, rowSpan, colSpan)의
@@ -546,7 +554,7 @@ class MainWindow(QMainWindow):
 # --- Status 그룹 설정 ---
         self.status_GroupBox = QGroupBox("Setting")             # 1. 대상 위젯 생성
         self.status_GroupBox.setStyleSheet(""
-                                           + BORDER_RADIUS.format(6)
+                                           + MACRO_BORDER_RADIUS.format(6)
                                            )
         self.status_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성
         self.status_GroupBox.setLayout(self.status_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
@@ -555,9 +563,9 @@ class MainWindow(QMainWindow):
         # --- 제어창 표시 설정 ---
         self.connect_status_Label = QLabel("Not connected")
         self.connect_status_Label.setStyleSheet(""
-                                                + FONT_BOLD
-                                                + FONT_SIZE.format(14)
-                                                + BORDER_STYLE.format('none')
+                                                + MACRO_FONT_BOLD
+                                                + MACRO_FONT_SIZE.format(14)
+                                                + MACRO_BORDER_STYLE.format('none')
                                                 )
         self.connect_status_Label.setWordWrap(True)             # 자동 줄넘김
         self.status_GridLayout.addWidget(self.connect_status_Label)
@@ -565,16 +573,16 @@ class MainWindow(QMainWindow):
         # --- 재실 여부 표시 설정 ---
         self.occupancy_Label = QLabel("⚪ 재실 상태: 대기 중")
         self.occupancy_Label.setStyleSheet(""
-                                           + FONT_BOLD
-                                           + FONT_SIZE.format(14)
+                                           + MACRO_FONT_BOLD
+                                           + MACRO_FONT_SIZE.format(14)
                                            )  # * 위젯 폰트 설정
         self.status_GridLayout.addWidget(self.occupancy_Label)
 
         # --- PIR 출력 표시 설정 ---
         self.pir_output_Label = QLabel("💤 PIR 출력: 대기 중")  # 👀
         self.pir_output_Label.setStyleSheet(""
-                                            + FONT_BOLD
-                                            + FONT_SIZE.format(14)
+                                            + MACRO_FONT_BOLD
+                                            + MACRO_FONT_SIZE.format(14)
                                             )  # * 위젯 폰트 설정
         self.status_GridLayout.addWidget(self.pir_output_Label)
 
@@ -582,7 +590,7 @@ class MainWindow(QMainWindow):
         # # --- 설정 값 불러오기 버튼 설정 ---
         # self.nvs_setting_read_PushButton = QPushButton("🔄 NVS 설정 값 불러오기")
         # self.nvs_setting_read_PushButton.setStyleSheet(""
-        #     + FONT_BOLD
+        #     + MACRO_FONT_BOLD
         #     )  # * 위젯 폰트 설정
         # self.nvs_setting_read_PushButton.setStyleSheet("""
         #     QPushButton:hover {
@@ -595,7 +603,7 @@ class MainWindow(QMainWindow):
         # # --- 설정 값 저장하기 버튼 설정 ---
         # self.nvs_setting_read_PushButton = QPushButton("🔄 NVS 설정 값 불러오기")
         # self.nvs_setting_read_PushButton.setStyleSheet(""
-        #     + FONT_BOLD
+        #     + MACRO_FONT_BOLD
         #     )  # * 위젯 폰트 설정
         # self.nvs_setting_read_PushButton.setStyleSheet("""
         #     QPushButton:hover {
@@ -609,7 +617,7 @@ class MainWindow(QMainWindow):
 # --- TP 제어 그룹 설정 ---
         self.tp_setting_GroupBox = QGroupBox("TP Setting")             # 1. 대상 위젯 생성
         self.tp_setting_GroupBox.setStyleSheet(""
-                                               + BORDER_RADIUS.format(6)
+                                               + MACRO_BORDER_RADIUS.format(6)
                                                )
         self.tp_setting_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성
         self.tp_setting_GroupBox.setLayout(self.tp_setting_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
@@ -619,8 +627,8 @@ class MainWindow(QMainWindow):
         # --- TP1 라벨 설정 ---
         self.tp1_Label = QLabel("TP1: ")
         self.tp1_Label.setStyleSheet(""
-                                     + FONT_BOLD
-                                     + BORDER_STYLE.format('none')
+                                     + MACRO_FONT_BOLD
+                                     + MACRO_BORDER_STYLE.format('none')
                                      )
         self.tp1_Label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)    # 레이블은 텍스트 크기 위주, 늘어나지 않게
         self.tp_setting_GridLayout.addWidget(self.tp1_Label, 0, 0)         # 3. 위젯을 대상 레이아웃에 적용
@@ -650,8 +658,8 @@ class MainWindow(QMainWindow):
         # --- TP1 RCK 라벨 설정 ---
         self.tp1_rck_Label = QLabel("TP1 RCK: ")
         self.tp1_rck_Label.setStyleSheet(""
-                                         + FONT_BOLD
-                                         + BORDER_STYLE.format('none')
+                                         + MACRO_FONT_BOLD
+                                         + MACRO_BORDER_STYLE.format('none')
                                          )
         self.tp1_rck_Label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)    # 레이블은 텍스트 크기 위주, 늘어나지 않게
         self.tp_setting_GridLayout.addWidget(self.tp1_rck_Label, 1, 0)         # 3. 위젯을 대상 레이아웃에 적용
@@ -682,8 +690,8 @@ class MainWindow(QMainWindow):
         # --- TP2 라벨 설정 ---
         self.tp2_Label = QLabel("TP2: ")
         self.tp2_Label.setStyleSheet(""
-                                     + FONT_BOLD
-                                     + BORDER_STYLE.format('none')
+                                     + MACRO_FONT_BOLD
+                                     + MACRO_BORDER_STYLE.format('none')
                                      )
         self.tp2_Label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)    # 레이블은 텍스트 크기 위주, 늘어나지 않게
         self.tp_setting_GridLayout.addWidget(self.tp2_Label, 2, 0)         # 3. 위젯을 대상 레이아웃에 적용
@@ -712,12 +720,12 @@ class MainWindow(QMainWindow):
 
         # --- TP 값 저장하기 버튼 설정 ---
         self.tp_setting_PushButton = QPushButton("🔄 TP 값 전송하기")
-        # self.tp_setting_PushButton.setStyleSheet(FONT_BOLD + BUTTON_HOVER_BG.format('#3366ff'))
+        # self.tp_setting_PushButton.setStyleSheet(MACRO_FONT_BOLD + BUTTON_HOVER_BG.format('#3366ff'))
         self.tp_setting_PushButton.setStyleSheet(""
-                                                  + FONT_BOLD 
+                                                  + MACRO_FONT_BOLD 
                                                   )
         self.tp_setting_PushButton.setStyleSheet(""
-                                                  + BUTTON_HOVER_BG % '#3366ff'
+                                                  + BUTTON_HOVER_BG % cfg.LINE_COLOR
                                                   )
                                                   
         self.tp_setting_PushButton.clicked.connect(self.port_connection) # 버튼 기능 구현
@@ -731,13 +739,13 @@ class MainWindow(QMainWindow):
         # --- 우측 패널 (그래프 + 로그) ---
         self.right_Widget = QWidget()                    # 1. 대상 위젯 생성
         self.right_Widget.setStyleSheet(""
-                                        + BORDER_RADIUS.format(6)
-                                        + PADDING.format(2)
-                                        + BACKGROUND_COLOR.format('#77aaff')
-                                        + BORDER_SIZE.format(2)
-                                        + BORDER_STYLE.format('solid')
-                                        + BORDER_COLOR.format('#3366ff')
-                                        + TEXT_COLOR.format("#FFFFFF")
+                                        + MACRO_BORDER_RADIUS.format(6)
+                                        + MACRO_PADDING.format(2)
+                                        + MACRO_BACKGROUND_COLOR.format(cfg.BACKGROUND_COLOR)
+                                        + MACRO_BORDER_SIZE.format(2)
+                                        + MACRO_BORDER_STYLE.format('solid')
+                                        + MACRO_BORDER_COLOR.format(cfg.LINE_COLOR)
+                                        + MACRO_TEXT_COLOR.format(cfg.TEXT_COLOR)
                                         )
 
         self.main_HBoxLayout.addWidget(self.right_Widget, stretch=2)    # 1-1. 상위 레이아웃에 위젯 적용
@@ -746,7 +754,7 @@ class MainWindow(QMainWindow):
 
         self.adc_raw_graph_GroupBox = QGroupBox("ADC RAW Data Plot")             # 1. 대상 위젯 생성
         self.adc_raw_graph_GroupBox.setStyleSheet(""
-                                                  + PADDING.format(10)
+                                                  + MACRO_PADDING.format(10)
                                                   )
         # self.right_VBoxLayout.addWidget(self.adc_raw_graph_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
         self.right_VBoxLayout.addWidget(self.adc_raw_graph_GroupBox, stretch=2)           # 1-1. 상위 레이아웃에 위젯 적용
@@ -756,8 +764,8 @@ class MainWindow(QMainWindow):
 
         self.adc_raw_plot_TabWidget = QTabWidget()
         self.adc_raw_plot_TabWidget.setStyleSheet(""
-                                                  + BORDER_STYLE.format('none')
-                                                  + PADDING.format(0)
+                                                  + MACRO_BORDER_STYLE.format('none')
+                                                  + MACRO_PADDING.format(0)
                                                   )
         self.adc_raw_plot_TabWidget.setMovable(True)  # 탭 드래그로 순서 변경 가능
         # self.adc_raw_graph_VBoxLayout.addWidget(self.adc_raw_plot_TabWidget, stretch=2)
@@ -765,7 +773,7 @@ class MainWindow(QMainWindow):
         
         self.adc_fft_graph_GroupBox = QGroupBox("ADC FFT Plot")             # 1. 대상 위젯 생성
         self.adc_fft_graph_GroupBox.setStyleSheet(""
-                                                  + PADDING.format(10)
+                                                  + MACRO_PADDING.format(10)
                                                   )
         # self.right_VBoxLayout.addWidget(self.adc_fft_graph_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
         self.right_VBoxLayout.addWidget(self.adc_fft_graph_GroupBox, stretch=2)           # 1-1. 상위 레이아웃에 위젯 적용
@@ -776,8 +784,8 @@ class MainWindow(QMainWindow):
 
         self.adc_fft_plot_TabWidget = QTabWidget()
         self.adc_fft_plot_TabWidget.setStyleSheet(""
-                                                  + BORDER_STYLE.format('none')
-                                                  + PADDING.format(0)
+                                                  + MACRO_BORDER_STYLE.format('none')
+                                                  + MACRO_PADDING.format(0)
                                                   )
         self.adc_fft_plot_TabWidget.setMovable(True)  # 탭 드래그로 순서 변경 가능
         # self.adc_fft_graph_VBoxLayout.addWidget(self.adc_fft_plot_TabWidget, stretch=2)
@@ -790,13 +798,13 @@ class MainWindow(QMainWindow):
         # --- 로그 패널 (그래프 + 로그) ---
         self.log_Widget = QWidget()                    # 1. 대상 위젯 생성
         self.log_Widget.setStyleSheet(""
-                                        + BORDER_RADIUS.format(6)
-                                        + PADDING.format(2)
-                                        + BACKGROUND_COLOR.format('#77aaff')
-                                        + BORDER_SIZE.format(2)
-                                        + BORDER_STYLE.format('solid')
-                                        + BORDER_COLOR.format('#3366ff')
-                                        + TEXT_COLOR.format("#FFFFFF")
+                                        + MACRO_BORDER_RADIUS.format(6)
+                                        + MACRO_PADDING.format(2)
+                                        + MACRO_BACKGROUND_COLOR.format(cfg.BACKGROUND_COLOR)
+                                        + MACRO_BORDER_SIZE.format(2)
+                                        + MACRO_BORDER_STYLE.format('solid')
+                                        + MACRO_BORDER_COLOR.format(cfg.LINE_COLOR)
+                                        + MACRO_TEXT_COLOR.format(cfg.TEXT_COLOR)
                                         )
 
         self.main_HBoxLayout.addWidget(self.log_Widget, stretch=1)    # 1-1. 상위 레이아웃에 위젯 적용
@@ -819,7 +827,7 @@ class MainWindow(QMainWindow):
         # self.f_sampling_rate = 100.0  # 100Hz (ADC_SPEED_MS = 10ms)
 
         # self.uart_thread = None
-        # self.command_sender = uart_protocol.command_sender.CommandSender(None)  # 명령 송신 객체
+        # self.command_sender = upcs.CommandSender(None)  # 명령 송신 객체
 
     # @pyqtSlot(bool)
     # def on_connection_status_changed(self, is_connected):
@@ -875,9 +883,9 @@ class MainWindow(QMainWindow):
     def insert_baudrates_to_ComboBox(self):
         """Baud Rate 목록 채우기"""
         self.baudrate_sel_ComboBox.clear()
-        for rate in uart_protocol.protocol_config.BaudRate:
+        for rate in upcfg.BaudRate:
             self.baudrate_sel_ComboBox.addItem(str(rate.value), rate.value)
-        self.baudrate_sel_ComboBox.setCurrentText(str(uart_protocol.protocol_config.BaudRate.BAUD_1152000.value))
+        self.baudrate_sel_ComboBox.setCurrentText(str(upcfg.BaudRate.BAUD_1152000.value))
 
     def port_connection(self):
         """연결/해제 토글"""
@@ -1076,7 +1084,7 @@ class MainWindow(QMainWindow):
     #                 QLabel {
     #                     font-size: 14px;
     #                     font-weight: bold;
-    #                     padding: 8px;
+    #                     MACRO_PADDING: 8px;
     #                     border-radius: 5px;
     #                     background-color: #3a3a3a;
     #                     color: #888888;
@@ -1239,8 +1247,8 @@ class MainWindow(QMainWindow):
             , name=graph_plot_value[enum_graph_plot_index.STR_LEGEND_TEXT]
         )
         
-        self.create_line(target_PlotWidget, self.i_tp1, f'TP1={self.i_tp1}', "#ff0000")
-        self.create_line(target_PlotWidget, self.i_tp1_rck, f'TP1_RCK={self.i_tp1_rck}', "#ffa500")
+        self.create_line(target_PlotWidget, self.i_tp1, f'TP1={self.i_tp1}', cfg.TP1_COLOR)
+        self.create_line(target_PlotWidget, self.i_tp1_rck, f'TP1_RCK={self.i_tp1_rck}', cfg.TP1_RCK_COLOR)
 
         # tp1_recheck_lines[graph_tab_name] = self.tp1_rck_InfiniteLine
         self.adc_raw_plot_TabWidget.addTab(target_PlotWidget, graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME])
@@ -1628,7 +1636,7 @@ class MainWindow(QMainWindow):
         
     #     if plot_name in self.plot_widgets:
     #         plot_widget = self.plot_widgets[plot_name]
-    #         plot_widget.setYRange(y_min, y_max, padding=0)
+    #         plot_widget.setYRange(y_min, y_max, MACRO_PADDING=0)
     #         self.log_TextEdit.append(f"📊 {plot_name} Y축 범위 설정: {y_min} ~ {y_max}")
     #     else:
     #         self.log_TextEdit.append(f"⚠️ 플롯 '{plot_name}'을 찾을 수 없습니다.")

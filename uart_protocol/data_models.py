@@ -4,40 +4,43 @@
 UART 프레임 및 센서 데이터 구조
 """
 
-# from dataclasses import dataclass, field
-# from typing import Optional, List, Any
-# from datetime import datetime
+from dataclasses import dataclass, field
+from typing import Optional, List, Any
+from datetime import datetime
 
 
-# @dataclass
-# class UartFrame:
-#     """
-#     UART 프레임 데이터 모델
+@dataclass
+class UartReceiveData:
+    """
+    UART Receive Data Frame Model
+
+    멀티바이트 STX/ETX 프레임 구조:
+    | STX(3) | DATA_TYPE | DATA_LENGTH | PAYLOAD | CHECKSUM | ETX(3) |
+
+    uart_receive_parser.py
+    data_parser.py
+    """
+    stx: bytes                  # AA 55 CC (3 bytes)
+    data_type: bytes              # 0~9 (UartDataType)
+    data_length: bytes            # 페이로드 길이 (Little Endian)
+    payload: bytes              # 실제 데이터
+    checksum: bytes               # Sum 체크섬 (Little Endian)
+    etx: bytes                  # DD 55 AA (3 bytes)
     
-#     멀티바이트 STX/ETX 프레임 구조:
-#     | STX(3) | DATA_TYPE | DATA_LENGTH | PAYLOAD | CHECKSUM | ETX(3) |
-#     """
-#     stx: bytes                  # AA 55 CC (3 bytes)
-#     data_type: int              # 0~9 (UartDataType)
-#     data_length: int            # 페이로드 길이 (Little Endian)
-#     payload: bytes              # 실제 데이터
-#     checksum: int               # Sum 체크섬 (Little Endian)
-#     etx: bytes                  # DD 55 AA (3 bytes)
+    # 메타데이터
+    timestamp: datetime = field(default_factory=datetime.now)
+    is_valid: bool = True       # 체크섬 검증 결과
+    error_message: Optional[str] = None
     
-#     # 메타데이터
-#     timestamp: datetime = field(default_factory=datetime.now)
-#     is_valid: bool = True       # 체크섬 검증 결과
-#     error_message: Optional[str] = None
-    
-#     def __repr__(self) -> str:
-#         return (
-#             f"UartFrame("
-#             f"type={self.data_type}, "
-#             f"length={self.data_length}, "
-#             f"valid={self.is_valid}, "
-#             f"time={self.timestamp.strftime('%H:%M:%S.%f')[:-3]}"
-#             f")"
-#         )
+    def __repr__(self) -> str:
+        return (
+            f"UartFrame("
+            f"type={self.data_type}, "
+            f"length={self.data_length}, "
+            f"valid={self.is_valid}, "
+            f"time={self.timestamp.strftime('%H:%M:%S.%f')[:-3]}"
+            f")"
+        )
 
 
 # @dataclass
@@ -137,33 +140,67 @@ UART 프레임 및 센서 데이터 구조
 
 # @dataclass
 class ParserState:
-    """
-    프레임 파서 상태
-    """
-    # 통계
-    total_frames:int        = 0
-    valid_frames:int        = 0
-    invalid_frames:int      = 0
-    checksum_errors:int     = 0
-    sync_errors:int         = 0
+
+
+    def __init__(self):
+        """
+        프레임 파서 상태
+        """
+        # 통계
+        self.i_sync_errors:int       = 0
+        self.i_stx_found_count:int   = 0
+
+        self.total_frames:int        = 0
+        self.valid_frames:int        = 0
+        self.invalid_frames:int      = 0
+        self.checksum_errors:int     = 0
+        
+        
+        # 디버그용 카운터
+        # self.stx_found_count        = 0
+        self.i_header_parsed_count    = 0
+        self.i_etx_check_count        = 0
+
+        # 최근 프레임
+        self.last_frame: Optional[UartFrame] = None
+        self.last_valid_time: Optional[datetime] = None
+        self.last_error_time: Optional[datetime] = None
+
+    # """
+    # 프레임 파서 상태
+    # """
+    # # 통계
+    # i_sync_errors:int       = 0
+    # i_stx_found_count:int   = 0
+
+    # total_frames:int        = 0
+    # valid_frames:int        = 0
+    # invalid_frames:int      = 0
+    # checksum_errors:int     = 0
     
-    # 최근 프레임
-    last_frame: Optional[UartFrame] = None
-    last_valid_time: Optional[datetime] = None
-    last_error_time: Optional[datetime] = None
     
-    def success_rate(self) -> float:
-        """체크섬 검증 성공률 반환 (0.0 ~ 1.0)"""
-        if self.total_frames == 0:
-            return 0.0
-        return self.valid_frames / self.total_frames
+    #     # # 디버그용 카운터
+    #     # self.stx_found_count        = 0
+    #     # self.header_parsed_count    = 0
+    #     # self.etx_check_count        = 0
+
+    # # 최근 프레임
+    # last_frame: Optional[UartFrame] = None
+    # last_valid_time: Optional[datetime] = None
+    # last_error_time: Optional[datetime] = None
     
-    def __repr__(self) -> str:
-        return (
-            f"ParserState("
-            f"total={self.total_frames}, "
-            f"valid={self.valid_frames}, "
-            f"invalid={self.invalid_frames}, "
-            f"rate={self.success_rate():.1%}"
-            f")"
-        )
+    # def success_rate(self) -> float:
+    #     """체크섬 검증 성공률 반환 (0.0 ~ 1.0)"""
+    #     if self.total_frames == 0:
+    #         return 0.0
+    #     return self.valid_frames / self.total_frames
+    
+    # def __repr__(self) -> str:
+    #     return (
+    #         f"ParserState("
+    #         f"total={self.total_frames}, "
+    #         f"valid={self.valid_frames}, "
+    #         f"invalid={self.invalid_frames}, "
+    #         f"rate={self.success_rate():.1%}"
+    #         f")"
+    #     )
