@@ -17,7 +17,7 @@
 
 # # 디버그 플래그
 # DEBUG_PARSER = False  # ★ 디버그 비활성화
-
+from typing import List, Optional
 import enum
 
 import config                               as cfg
@@ -33,7 +33,7 @@ class enum_parse_state(enum.IntEnum):
     """프레임 파서 상태"""
     WAIT_STX        = enum.auto()   # STX 대기 (3 bytes)
     READ_HEADER     = enum.auto()   # 헤더 읽기 (data_type, data_length)
-    READ_PAYLOAD    = enum.auto()   # 페이로드 읽기
+    READ_DATA       = enum.auto()   # 데이턴 읽기
     READ_CHECKSUM   = enum.auto()   # 체크섬 읽기
     READ_ETX        = enum.auto()   # ETX 읽기 (3 bytes)
     FRAME_COMPLETE  = enum.auto()   # 프레임 완성
@@ -51,46 +51,50 @@ class UartReceiveParser:
         # self.ParserState_handle:updm.ParserState    = updm.ParserState()
         
         # 현재 파싱 중인 프레임 정보
-        # self.receive_stx: Optional[bytes] = None
-        # self.receive_data_type: Optional[int] = None
-        # self.receive_data_length: Optional[int] = None
-        # self.receive_payload: Optional[bytes] = None
-        # self.receive_checksum: Optional[int] = None
-        self.receive_stx:bytes          = None
-        self.receive_data_type:bytes    = None
-        self.receive_data_length:bytes  = None
-        self.receive_payload:bytes      = None
-        self.receive_checksum:bytes     = None
-        self.receive_etx:bytes          = None
+        # self.bytes_receive_stx: Optional[bytes] = None
+        # self.bytes_receive_data_type: Optional[int] = None
+        # self.bytes_receive_data_length: Optional[int] = None
+        # self.bytes_receive_data: Optional[bytes] = None
+        # self.bytes_receive_checksum: Optional[int] = None
+        self.bytes_receive_stx:bytes            = None
+        self.bytes_receive_data_type:bytes      = None
+        self.bytes_receive_data_length:bytes    = None
+        self.bytes_receive_data:bytes           = None
+        self.bytes_receive_checksum:bytes       = None
+        self.bytes_receive_etx:bytes            = None
+
+        self.b_chksum_pass:bool                 = False
 
         
     def reset(self):
         """파서 상태 초기화"""
         self.enum_parse_state = enum_parse_state.WAIT_STX
         self.A_receive_byte_buffer.clear()
-        self.receive_stx:bytes          = None
-        self.receive_data_type:bytes    = None
-        self.receive_data_length:bytes  = None
-        self.receive_payload:bytes      = None
-        self.receive_checksum:bytes     = None
-        self.receive_etx:bytes          = None
+        self.bytes_receive_stx:bytes            = None
+        self.bytes_receive_data_type:bytes      = None
+        self.bytes_receive_data_length:bytes    = None
+        self.bytes_receive_data:bytes           = None
+        self.bytes_receive_checksum:bytes       = None
+        self.bytes_receive_etx:bytes            = None
+        
+        self.b_chksum_pass:bool                 = False
     
     # def feed_byte(self, byte: int) -> Optional[UartFrame]:
-    def feed_byte(self, input_i_byte:int) -> Optional[UartFrame]: # UartFrame 객체 또는 None을 반환
+    def feed_byte(self, input_i_byte:int) -> Optional[updm.UartReceiveData]: # UartFrame 객체 또는 None을 반환
 
-        # print(f"frame_parser.py | feed_byte() | input_i_byte : {input_i_byte}")   # frame_parser.py | input_i_byte : 192
+        # print(f"uart_receive_parser.py | feed_byte() | input_i_byte : {input_i_byte}")   # uart_receive_parser.py | input_i_byte : 192
 
         """바이트를 파서에 공급"""
         self.A_receive_byte_buffer.append(input_i_byte)
-        # print(f"frame_parser.py | feed_byte() | self.A_receive_byte_buffer : {self.A_receive_byte_buffer}")   # frame_parser.py | input_i_byte : 192
-        # print(f"frame_parser.py | feed_byte() | self.enum_parse_state : {self.enum_parse_state}")   # frame_parser.py | input_i_byte : 192
+        # print(f"uart_receive_parser.py | feed_byte() | self.A_receive_byte_buffer : {self.A_receive_byte_buffer}")   # uart_receive_parser.py | input_i_byte : 192
+        # print(f"uart_receive_parser.py | feed_byte() | self.enum_parse_state : {self.enum_parse_state}")   # uart_receive_parser.py | input_i_byte : 192
 
         if self.enum_parse_state == enum_parse_state.WAIT_STX:
             return self.parse_stx()
         elif self.enum_parse_state == enum_parse_state.READ_HEADER:
             return self.parse_header()
-        elif self.enum_parse_state == enum_parse_state.READ_PAYLOAD:
-            return self.parse_payload()
+        elif self.enum_parse_state == enum_parse_state.READ_DATA:
+            return self.parse_data()
         elif self.enum_parse_state == enum_parse_state.READ_CHECKSUM:
             return self.parse_checksum()
         elif self.enum_parse_state == enum_parse_state.READ_ETX:
@@ -98,21 +102,21 @@ class UartReceiveParser:
         
         return None
     
-    def parse_stx(self):
+    def parse_stx(self) -> None:
         """STX 패턴 파싱 (3 bytes)"""
         while len(self.A_receive_byte_buffer) >= upcfg.RECEIVE_STX_LENGTH:
             if bytes(self.A_receive_byte_buffer[:upcfg.RECEIVE_STX_LENGTH]) == bytes(upcfg.RECEIVE_STX):
                 
-                # print(f"frame_parser.py | parse_stx() | bytes(self.A_receive_byte_buffer[:upcfg.RECEIVE_STX_LENGTH]) : {bytes(self.A_receive_byte_buffer[:upcfg.RECEIVE_STX_LENGTH])}")   # 
-                # print(f"frame_parser.py | parse_stx() | bytes(upcfg.RECEIVE_STX) : {bytes(upcfg.RECEIVE_STX)}")
+                # print(f"uart_receive_parser.py | parse_stx() | bytes(self.A_receive_byte_buffer[:upcfg.RECEIVE_STX_LENGTH]) : {bytes(self.A_receive_byte_buffer[:upcfg.RECEIVE_STX_LENGTH])}")   # 
+                # print(f"uart_receive_parser.py | parse_stx() | bytes(upcfg.RECEIVE_STX) : {bytes(upcfg.RECEIVE_STX)}")
 
-                self.receive_stx = bytes(self.A_receive_byte_buffer[:upcfg.RECEIVE_STX_LENGTH])
+                self.bytes_receive_stx = bytes(self.A_receive_byte_buffer[:upcfg.RECEIVE_STX_LENGTH])
                 self.enum_parse_state = enum_parse_state.READ_HEADER
 
                 # self.ParserState_handle.i_stx_found_count += 1
                 # if DEBUG_PARSER and self.stx_found_count <= 5:
                 #     print(f"\n[DEBUG] STX 발견! (#{self.stx_found_count})")
-                # print(f"frame_parser.py | parse_stx() | STX 발견! (#{self.ParserState_handle.i_stx_found_count}번째)")
+                # print(f"uart_receive_parser.py | parse_stx() | STX 발견! (#{self.ParserState_handle.i_stx_found_count}번째)")
 
                 # 왜 여기선 pop을 안하지?
 
@@ -121,128 +125,130 @@ class UartReceiveParser:
             else:
                 # self.ParserState_handle.i_sync_errors += 1
                 self.A_receive_byte_buffer.pop(0)
-                # print(f"frame_parser.py | parse_stx() | self.ParserState_handle.i_sync_errors : {self.ParserState_handle.i_sync_errors}")
+                # print(f"uart_receive_parser.py | parse_stx() | self.ParserState_handle.i_sync_errors : {self.ParserState_handle.i_sync_errors}")
 
         return None # buffer 내용이 부족한 경우 return
         
     
-    def parse_header(self):
+    def parse_header(self) -> None:
 
         """헤더 파싱 (STX(3) + data_type + data_length)"""
         if len(self.A_receive_byte_buffer) < upcfg.RECEIVE_HEADER_LENGTH:
             # buffer 내용이 부족한 경우 return
-            # print(f"frame_parser.py | parse_header() | read byte")
+            # print(f"uart_receive_parser.py | parse_header() | read byte")
             return None
         
-        # self.receive_data_type = self.A_receive_byte_buffer[upcfg.RECEIVE_STX_LENGTH]    # DATA_TYPE
-        self.receive_data_type = bytes(self.A_receive_byte_buffer[upcfg.RECEIVE_STX_LENGTH])    # DATA_TYPE
+        # self.bytes_receive_data_type = self.A_receive_byte_buffer[upcfg.RECEIVE_STX_LENGTH]    # DATA_TYPE
+        # print(f"uart_receive_parser.py | parse_header() | self.A_receive_byte_buffer[upcfg.RECEIVE_STX_LENGTH] : {self.A_receive_byte_buffer[upcfg.RECEIVE_STX_LENGTH]}")
+        # self.bytes_receive_data_type = bytes(self.A_receive_byte_buffer[upcfg.RECEIVE_STX_LENGTH])    # DATA_TYPE
+        # print(f"uart_receive_parser.py | parse_header() | self.bytes_receive_data_type : {self.bytes_receive_data_type}")
+        # self.bytes_receive_data_type = econv.bytes_to_uint64_le(self.bytes_receive_data_type)
+        # print(f"uart_receive_parser.py | parse_header() | self.bytes_receive_data_type : {self.bytes_receive_data_type}")
+
+        self.bytes_receive_data_type = self.A_receive_byte_buffer[upcfg.RECEIVE_STX_LENGTH]    # DATA_TYPE
 
         i_data_length_start = upcfg.RECEIVE_STX_LENGTH + upcfg.RECEIVE_DATA_TYPE_LENGTH
         i_data_length_end = i_data_length_start + upcfg.RECEIVE_DATA_TYPE_SIZE_LENGTH
         # little edian 
-        self.receive_data_length = econv.bytes_to_uint16_le(bytes(self.A_receive_byte_buffer[i_data_length_start:i_data_length_end]))
-        # print(f"frame_parser.py | parse_header() | self.receive_data_length : {self.receive_data_length}")
+        self.bytes_receive_data_length = econv.bytes_to_uint16_le(bytes(self.A_receive_byte_buffer[i_data_length_start:i_data_length_end]))
+        # print(f"uart_receive_parser.py | parse_header() | self.bytes_receive_data_length : {self.bytes_receive_data_length}")
 
         # self.ParserState_handle.i_header_parsed_count += 1
         # if DEBUG_PARSER and updm.i_header_parsed_count <= 5:
-        #     print(f"[DEBUG] 헤더 파싱: type={self.receive_data_type}, length={self.receive_data_length}")
-        # print(f"frame_parser.py | parse_header() | 헤더 파싱: type={self.receive_data_type}, length={self.receive_data_length}")
+        #     print(f"[DEBUG] 헤더 파싱: type={self.bytes_receive_data_type}, length={self.bytes_receive_data_length}")
+        # print(f"uart_receive_parser.py | parse_header() | 헤더 파싱: type={self.bytes_receive_data_type}, length={self.bytes_receive_data_length}")
         
-        if self.receive_data_length > upcfg.RECEIVE_MAX_PAYLOAD_LENGTH:
+        if self.bytes_receive_data_length > upcfg.RECEIVE_MAX_PAYLOAD_LENGTH:
             # if DEBUG_PARSER:
-            #     print(f"[DEBUG] ❌ 페이로드 크기 초과: {self.receive_data_length} > {RECEIVE_MAX_PAYLOAD_LENGTH}")
-            print(f"frame_parser.py | parse_header() | ❌ 페이로드 크기 초과: {self.receive_data_length} > {upcfg.RECEIVE_MAX_PAYLOAD_LENGTH}")
+            #     print(f"[DEBUG] ❌ 페이로드 크기 초과: {self.bytes_receive_data_length} > {RECEIVE_MAX_PAYLOAD_LENGTH}")
+            print(f"uart_receive_parser.py | parse_header() | ❌ 페이로드 크기 초과: {self.bytes_receive_data_length} > {upcfg.RECEIVE_MAX_PAYLOAD_LENGTH}")
             # self.ParserState_handle.i_sync_errors += 1
             self.reset()
             return None
         
-        self.enum_parse_state = enum_parse_state.READ_PAYLOAD
+        self.enum_parse_state = enum_parse_state.READ_DATA
 
         return None
     
-    def parse_payload(self):
-        """페이로드 파싱"""
-        expected_length = upcfg.RECEIVE_HEADER_LENGTH + self.receive_data_length
-        if len(self.A_receive_byte_buffer) < expected_length:
+    def parse_data(self) -> None:        
+        """data 파싱 (STX(3) + data_type + data_length + data)"""
+        if len(self.A_receive_byte_buffer) < upcfg.RECEIVE_HEADER_LENGTH + self.bytes_receive_data_length:
+            # buffer 내용이 부족한 경우 return
+            # print(f"uart_receive_parser.py | parse_header() | read byte")
             return None
-        
-        i_payload_start = upcfg.RECEIVE_HEADER_LENGTH
-        i_payload_end = i_payload_start + self.receive_data_length
-        self.receive_payload = bytes(self.A_receive_byte_buffer[i_payload_start:i_payload_end])
+
+
+        i_data_start = upcfg.RECEIVE_HEADER_LENGTH
+        i_data_end = i_data_start + self.bytes_receive_data_length
+        self.bytes_receive_data = bytes(self.A_receive_byte_buffer[i_data_start:i_data_end])
         
         self.enum_parse_state = enum_parse_state.READ_CHECKSUM
         return None
     
-    def parse_checksum(self):
-        """체크섬 파싱"""
-        expected_length = upcfg.RECEIVE_HEADER_LENGTH + self.receive_data_length + 2
-        
-        if len(self.A_receive_byte_buffer) < expected_length:
+    def parse_checksum(self) -> None:
+        """체크섬 파싱 (STX(3) + data_type + data_length + data + checksum)"""
+        if len(self.A_receive_byte_buffer) < upcfg.RECEIVE_HEADER_LENGTH + self.bytes_receive_data_length + upcfg.RECEIVE_CHECKSUM_LENGTH:
             return None
         
-        checksum_pos = upcfg.RECEIVE_HEADER_LENGTH + self.receive_data_length
-        i_checksum_start = upcfg.RECEIVE_HEADER_LENGTH + self.receive_data_length
-        i_checksum_end = i_checksum_start + self.receive_checksum
-        self.receive_checksum = econv.bytes_to_uint16_le(bytes(self.A_receive_byte_buffer[i_checksum_start:i_checksum_end]))
+        # checksum_pos = upcfg.RECEIVE_HEADER_LENGTH + self.bytes_receive_data_length
+        i_checksum_start = upcfg.RECEIVE_HEADER_LENGTH + self.bytes_receive_data_length
+        i_checksum_end = i_checksum_start + upcfg.RECEIVE_CHECKSUM_LENGTH
+        self.bytes_receive_checksum = econv.bytes_to_uint16_le(bytes(self.A_receive_byte_buffer[i_checksum_start:i_checksum_end]))
         
         self.enum_parse_state = enum_parse_state.READ_ETX
         return None
     
-    def parse_etx(self) -> UartFrame:
+    def parse_etx(self) -> Optional[updm.UartFrame]:
         """ETX 패턴 파싱 및 프레임 완성 (3 bytes)"""
-        expected_length = upcfg.RECEIVE_HEADER_LENGTH + self.receive_data_length + 2 + upcfg.UART_RECEIVE_ETX_SIZE
-        
-        if len(self.A_receive_byte_buffer) < expected_length:
+        if len(self.A_receive_byte_buffer) < upcfg.RECEIVE_HEADER_LENGTH + self.bytes_receive_data_length + upcfg.RECEIVE_CHECKSUM_LENGTH + upcfg.UART_RECEIVE_ETX_SIZE:
             return None
-        
-        # self.etx_check_count += 1
-        # self.ParserState_handle.i_etx_check_count += 1
 
-        etx_pos = upcfg.RECEIVE_HEADER_LENGTH + self.receive_data_length + 2
-        self.receive_etx = bytes(self.A_receive_byte_buffer[etx_pos:etx_pos+upcfg.UART_RECEIVE_ETX_SIZE])
+        # etx_pos = upcfg.RECEIVE_HEADER_LENGTH + self.bytes_receive_data_length + 2
+        i_etx_start = upcfg.RECEIVE_HEADER_LENGTH + self.bytes_receive_data_length + upcfg.RECEIVE_CHECKSUM_LENGTH
+        i_etx_end = i_etx_start + upcfg.UART_RECEIVE_ETX_SIZE
+        self.bytes_receive_etx = bytes(self.A_receive_byte_buffer[i_etx_start:i_etx_end])
         
         # if DEBUG_PARSER and self.etx_check_count <= 5:
         # print(f"[DEBUG] ETX 체크 #{self.etx_check_count}:")
-        print(f"frame_parser.py | parse_etx() | 예상 ETX 위치: {etx_pos}")
-        print(f"frame_parser.py | parse_etx() | 수신된 ETX: {self.receive_etx.hex().upper()}")
-        
-        # print(f"  기대 ETX: {upcfg.UART_RECEIVE_ETX_PATTERN.hex().upper()}")
-        print(f"frame_parser.py | parse_etx() | 기대 ETX: {bytes(upcfg.UART_RECEIVE_ETX_PATTERN).hex().upper()}")
+        # print(f"uart_receive_parser.py | parse_etx() | 예상 ETX 위치: {i_etx_start}")
+        # print(f"uart_receive_parser.py | parse_etx() | 수신된 ETX: {self.bytes_receive_etx.hex().upper()}")
+        # print(f"uart_receive_parser.py | parse_etx() | 기대 ETX: {bytes(upcfg.UART_RECEIVE_ETX_PATTERN).hex().upper()}")
 
         
-        # if self.receive_etx != upcfg.UART_RECEIVE_ETX_PATTERN:
-        if self.receive_etx != bytes(upcfg.UART_RECEIVE_ETX_PATTERN):
+        # if self.bytes_receive_etx != upcfg.UART_RECEIVE_ETX_PATTERN:
+        if self.bytes_receive_etx != bytes(upcfg.UART_RECEIVE_ETX_PATTERN):
             # if DEBUG_PARSER and self.etx_check_count <= 5:
-            print(f"frame_parser.py | parse_etx() | ❌ ETX 불일치!")
+            print(f"uart_receive_parser.py | parse_etx() | ❌ ETX 불일치!")
             # self.ParserState_handle.i_sync_errors += 1
             self.reset()
             return None
         
         # 체크섬 검증
-        receive_data = bytes(self.A_receive_byte_buffer[0:upcfg.RECEIVE_HEADER_LENGTH + self.receive_data_length])
-        is_valid = upc.verify_checksum(receive_data, self.receive_checksum)
+        receive_data = bytes(self.A_receive_byte_buffer[0:upcfg.RECEIVE_HEADER_LENGTH + self.bytes_receive_data_length])
+        self.b_chksum_pass = upc.verify_checksum(receive_data, self.bytes_receive_checksum)
         
         # if DEBUG_PARSER:
-        print(f"frame_parser.py | parse_etx() | ✓ 프레임 완성! 체크섬: {'OK' if is_valid else 'FAIL'}")
+        # print(f"uart_receive_parser.py | parse_etx() | ✓ 프레임 완성! 체크섬: {'OK' if self.b_chksum_pass else 'FAIL'}")
         
 
         # self.reset()
         # return None
     
         receive_data = updm.UartReceiveData(
-            stx=self.receive_stx,
-            data_type=self.receive_data_type,
-            data_length=self.receive_data_length,
-            payload=self.receive_payload,
-            checksum=self.receive_checksum,
-            etx=self.receive_etx,
+            bytes_stx=self.bytes_receive_stx,
+            bytes_data_type=self.bytes_receive_data_type,
+            bytes_data_length=self.bytes_receive_data_length,
+            bytes_data=self.bytes_receive_data,
+            bytes_checksum=self.bytes_receive_checksum,
+            bytes_etx=self.bytes_receive_etx,
 
-            is_valid=is_valid,
-            error_message=None if is_valid else "Checksum mismatch"
+            b_chksum_pass=self.b_chksum_pass,
+
+            error_message=None if self.b_chksum_pass else "Checksum mismatch"
         )
         
         # self.ParserState_handle.total_frames += 1
-        # if is_valid:
+        # if self.b_chksum_pass:
         #     self.ParserState_handle.valid_frames += 1
         #     self.ParserState_handle.last_valid_time = receive_data.timestamp
         # else:

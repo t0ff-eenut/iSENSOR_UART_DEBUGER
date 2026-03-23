@@ -41,10 +41,10 @@ import enum
 # if Perm.WRITE in p:
 #     ...
 
-import config   as cfg
+import config                               as cfg
 import uart_protocol.uart_protocol_config   as upcfg
 import uart_protocol.uart_receive_parser    as upurp
-import uart_protocol.payload_parser         as uppp
+import uart_protocol.data_parser            as updp
 import uart_protocol.command_sender         as upcs
 
 # from upcfg import (BaudRate)
@@ -162,9 +162,9 @@ class UartWorker(PyQt6.QtCore.QThread):
     UART 통신을 처리하는 워커 스레드
     """
 
-    new_data            = PyQt6.QtCore.pyqtSignal(object)      # 파싱된 SensorData 객체
-    log_message         = PyQt6.QtCore.pyqtSignal(str)       # 로그 메시지 (텍스트)
-    connection_status   = PyQt6.QtCore.pyqtSignal(bool)  # 연결 상태 (True: 성공, False: 실패)
+    new_data            = PyQt6.QtCore.pyqtSignal(object)       # 파싱된 SensorData 객체
+    log_message         = PyQt6.QtCore.pyqtSignal(str)          # 로그 메시지 (텍스트)
+    event_connection_status   = PyQt6.QtCore.pyqtSignal(bool)         # 연결 상태 (True: 성공, False: 실패)   # emit 이벤트 함수
 
 
     def __init__(self, intput_i_port_num:int, input_i_baud_rate:int):
@@ -174,7 +174,8 @@ class UartWorker(PyQt6.QtCore.QThread):
 
         self.serial_port                = None
         self.b_uart_thread_running:bool = False
-        self.UartReceiveParser_handle:upurp.UartReceiveParser = upurp.UartReceiveParser()
+        self.UartReceiveParser_handle:upurp.UartReceiveParser   = upurp.UartReceiveParser()
+        self.DataParser_handle:updp.DataParser                  = updp.DataParser()
 
     def run(self):
         """스레드 실행"""
@@ -189,13 +190,16 @@ class UartWorker(PyQt6.QtCore.QThread):
                 stopbits    = serial.STOPBITS_ONE,
                 timeout     = 1.0
             )
-            self.connection_status.emit(True)
+            self.event_connection_status.emit(True)
             self.log_message.emit(f"✓ Connected to {self.i_port_num} at {self.i_baud_rate} bps.")
 
         except serial.SerialException as e:
             self.log_message.emit(f"✗ Connection failed: {e}")
-            self.connection_status.emit(False)
+            self.event_connection_status.emit(False)
             self.b_uart_thread_running = False
+                    
+            print(f"Payload parsing error: {e}")
+            
             return
 
         while self.b_uart_thread_running:
@@ -209,20 +213,33 @@ class UartWorker(PyQt6.QtCore.QThread):
                     for byte in byte_data:
                         # print(f"debugger_start.py | byte : {byte}")                         # debugger_start.py | byte : 170
                         complete_receive_data = self.UartReceiveParser_handle.feed_byte(byte)
-                        print(f"debugger_start.py | feed_byte_return : {feed_byte_return}")     # debugger_start.py | frame : None
+                        # print(f"debugger_start.py | complete_receive_data : {complete_receive_data}")     # debugger_start.py | frame : None
 
                         if complete_receive_data:
                             # ★ 디버그: 프레임 파싱 완료 (비활성화)
                             # print(f"[UART RX] Frame parsed! Type: {frame.data_type}, Payload: {frame.data_length} bytes")
 
-                            sensor_data = uppp.data_parser(complete_receive_data)
+                            sensor_data = self.DataParser_handle.data_parser(complete_receive_data)
 
                             # if sensor_data:
                             #     # ★ 디버그: 센서 데이터 파싱 완료 (비활성화)
                             #     # print(f"[UART RX] SensorData ready! Data type: {sensor_data.data_type}")
                             #     self.new_data.emit(sensor_data)
                             # else:
-                            #     print(f"[UART RX] ⚠ PayloadParser returned None for type {feed_byte_return.data_type}")
+                            #     print(f"[UART RX] ⚠ PayloadParser returned None for type {complete_receive_data.data_type}")
+
+                            # bytes_stx:bytes           # AA 55 CC (3 bytes)
+                            # bytes_data_type:bytes     # 0~9 (UartDataType)
+                            # bytes_data_length:bytes   # 데이터 길이 (Little Endian)
+                            # bytes_data:bytes          # 실제 데이터
+                            # bytes_checksum:bytes      # Sum 체크섬 (Little Endian)
+                            # bytes_etx:bytes           # DD 55 AA (3 bytes)
+
+                            if sensor_data == None:
+                                # ★ 디버그: 센서 데이터 파싱 완료 (비활성화)
+                                # print(f"[UART RX] SensorData ready! Data type: {sensor_data.data_type}")
+                                print(f"debugger_start.py | run() | sensor_data = None for type {complete_receive_data.bytes_data_type}")
+                            
 
             except serial.SerialException as e:
                 self.log_message.emit(f"✗ Serial error: {e}")
@@ -232,7 +249,7 @@ class UartWorker(PyQt6.QtCore.QThread):
             self.serial_port.close()
             self.log_message.emit("Port closed.")
         
-        self.connection_status.emit(False)
+        self.event_connection_status.emit(False)
 
     def stop(self):
         """스레드 종료"""
@@ -829,37 +846,54 @@ class MainWindow(QMainWindow):
         # self.uart_thread = None
         # self.command_sender = upcs.CommandSender(None)  # 명령 송신 객체
 
+############################################################################################################
     # @pyqtSlot(bool)
-    # def on_connection_status_changed(self, is_connected):
-    #     """워커의 연결 상태 변경 시 UI 업데이트"""
-    #     self.connect_button.setEnabled(True)
-    #     if is_connected:
-    #         self.connect_button.setText("Disconnect")
-    #         # 모든 컨트롤 버튼 활성화
-    #         self.tp1_send_button.setEnabled(True)
-    #         self.tp2_send_button.setEnabled(True)
-    #         self.tp1_recheck_send_button.setEnabled(True)
-    #         self.get_settings_button.setEnabled(True)
-    #         self.save_nvs_button.setEnabled(True)
-    #         self.reset_button.setEnabled(True)
-    #         # CommandSender에 시리얼 포트 설정
-    #         if self.uart_thread and self.uart_thread.serial_port:
-    #             self.command_sender.set_serial(self.uart_thread.serial_port)
-    #     else:
-    #         self.connect_button.setText("Connect")
-    #         # 모든 컨트롤 버튼 비활성화
-    #         self.tp1_send_button.setEnabled(False)
-    #         self.tp2_send_button.setEnabled(False)
-    #         self.tp1_recheck_send_button.setEnabled(False)
-    #         self.get_settings_button.setEnabled(False)
-    #         self.save_nvs_button.setEnabled(False)
-    #         self.reset_button.setEnabled(False)
-    #         self.command_sender.set_serial(None)
-    #         # Clean up the thread object
-    #         if self.uart_thread:
-    #             self.uart_thread.deleteLater()
-    #             self.uart_thread = None
+    def on_connection_status_changed(self, b_is_connected):
+        """워커의 연결 상태 변경 시 UI 업데이트"""
+        self.port_connect_PushButton.setEnabled(True)
+        if b_is_connected:
+            self.port_connect_PushButton.setText("Disconnect")
+            # 모든 컨트롤 버튼 활성화
+            # self.tp1_send_button.setEnabled(True)
+            # self.tp2_send_button.setEnabled(True)
+            # self.tp1_recheck_send_button.setEnabled(True)
+            # self.get_settings_button.setEnabled(True)
+            # self.save_nvs_button.setEnabled(True)
+            # self.reset_button.setEnabled(True)
 
+            self.tp_setting_PushButton.setEnabled(True)
+            # CommandSender에 시리얼 포트 설정
+
+            # self.serial_port:serial.Serial = serial.Serial(
+            #     port        = self.i_port_num,
+            #     baudrate    = self.i_baud_rate,
+            #     bytesize    = serial.EIGHTBITS,
+            #     parity      = serial.PARITY_NONE,
+            #     stopbits    = serial.STOPBITS_ONE,
+            #     timeout     = 1.0
+            # )
+
+            # PC -> Chip 명령 송신
+            if self.uart_thread and self.uart_thread.serial_port:
+                self.command_sender.set_serial(self.uart_thread.serial_port)
+        else:
+            self.port_connect_PushButton.setText("Connect")
+            # 모든 컨트롤 버튼 비활성화
+            # self.tp1_send_button.setEnabled(False)
+            # self.tp2_send_button.setEnabled(False)
+            # self.tp1_recheck_send_button.setEnabled(False)
+            # self.get_settings_button.setEnabled(False)
+            # self.save_nvs_button.setEnabled(False)
+            # self.reset_button.setEnabled(False)
+            self.tp_setting_PushButton.setEnabled(True)
+
+            self.command_sender.set_serial(None)
+
+            # Clean up the thread object
+            if self.uart_thread:
+                self.uart_thread.deleteLater()
+                self.uart_thread = None
+############################################################################################################
 
     def insert_ports_to_ComboBox(self):
         """사용 가능한 시리얼 포트 목록 채우기"""
@@ -899,7 +933,7 @@ class MainWindow(QMainWindow):
             # 연결
             port = self.port_sel_ComboBox.currentData()
 
-            self.log_TextEdit.append(f"port{port}")
+            self.log_TextEdit.append(f"Connected port {port}")
 
             if not port or NO_PORT_FOUND in port:
                 self.log_TextEdit.append("Error: 선택된 포트가 없습니다.")
@@ -909,7 +943,10 @@ class MainWindow(QMainWindow):
             self.uart_thread = UartWorker(port, baud)
             # self.uart_thread.new_data.connect(self.update_ui)
             # self.uart_thread.log_message.connect(self.log_TextEdit.append)
-            # self.uart_thread.connection_status.connect(self.on_connection_status_changed)
+
+            # emit 연결
+            self.uart_thread.event_connection_status.connect(self.on_connection_status_changed)
+
             self.uart_thread.start()
             
             self.port_connect_PushButton.setText("Connecting...")

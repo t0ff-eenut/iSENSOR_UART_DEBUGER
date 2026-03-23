@@ -24,9 +24,9 @@ class CommandSender:
         """
         self.serial_port = input_serial_port
     
-    # def set_serial(self, serial_port: serial.Serial):
-    #     """시리얼 포트 설정"""
-    #     self.serial_port = serial_port
+    def set_serial(self, input_serial_port:serial.Serial):
+        """시리얼 포트 설정"""
+        self.serial_port = input_serial_port
     
     # def calculate_checksum(self, data: bytes) -> int:
     #     """체크섬 계산 (Sum 방식, 16bit)

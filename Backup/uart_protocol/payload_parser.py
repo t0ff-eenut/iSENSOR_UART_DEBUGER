@@ -30,6 +30,10 @@ class PayloadParser:
             SensorData 또는 None (파싱 실패 시)
         """
         try:
+            
+            print(f"payload_parser.py | parse() | frame.data_type: {frame.data_type}")
+            print(f"payload_parser.py | parse() | UartDataType.ADC_BUFFER: {UartDataType.ADC_BUFFER}")
+
             data_type = frame.data_type
             payload = frame.payload
             
