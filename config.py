@@ -7,8 +7,8 @@ WINDOW_HEIGHT:int       = 800
 LEFT_BOX_WIDTH:int      = 400
 
 
-BACKGROUND_COLOR:str    = "#00567E"
-LINE_COLOR:str          = "#909091"
+BACKGROUND_COLOR:str    = "#003D83"
+LINE_COLOR:str          = "#7F7F7F"
 TEXT_COLOR:str          = "#FFFFFF"
 # LINE_RADIUS         = 6
 
@@ -20,6 +20,8 @@ ADC_FFT_LINE_COLOR:str  = "#eeff00"
 
 TP1_COLOR:str           = "#FF0000"
 TP1_RCK_COLOR:str       = "#FFA500"
+
+MAX_LOG_LINES:int           = 500
 
 # from typing import Final
 # # 멀티바이트 프레임 구분자 (데이터 충돌 방지)

@@ -103,6 +103,7 @@ def get_data_type_name(data_type: int) -> str:
 #     except ValueError:
 #         return 0
 
+# custom_esp_uart_thread.h -> uart_tx_data_type_enum
 class UartDataType(enum.IntEnum):
     RAW_VALUE = 0                # UART_TX_ADC_RAW_VALUE
     ADC_BUFFER = 1               # UART_TX_ADC_RAW_BUFFER

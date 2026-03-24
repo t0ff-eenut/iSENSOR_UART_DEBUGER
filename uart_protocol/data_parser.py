@@ -45,13 +45,13 @@ class DataParser:
             # sensor_data = updm.SensorData(
             #     data_type=data_type,
             #     timestamp=complete_receive_data.timestamp,
-            #     UartFrame_raw=complete_receive_data
+            #     UartReceiveData_raw=complete_receive_data
             # )
 
             # print(f"data_parser.py | data_parser() | complete_receive_data: {complete_receive_data}")
             
             sensor_data = updm.SensorData(
-                UartFrame_raw=complete_receive_data,
+                UartReceiveData_raw=complete_receive_data,
                 i_data_type=complete_receive_data.bytes_data_type,
 
                 timestamp=complete_receive_data.timestamp,
@@ -177,93 +177,126 @@ class DataParser:
             SettingsData
         """
 
-
-
-
         if len(bytes_data) != upcfg.RECEIVE_SETTINGS_TOTAL_SIZE:
-            raise ValueError(f"Expected {upcfg.RECEIVE_SETTINGS_TOTAL_SIZE} bytes, got {len(bytes_data)}")
+            # error 코드 출력
+            raise ValueError(f"Expected {upcfg.RECEIVE_SETTINGS_TOTAL_SIZE} bytes, got {len(bytes_data)}") 
         
+        SettingData_handle = updm.SettingsData()
+
         # TP1 Occupancy (uint16 BE)
         i_tp1_start = 0
         i_tp1_end = i_tp1_start + upcfg.RECEIVE_SETTINGS_TP1_LENGTH
-        tp1 = econv.bytes_to_uint16_be(bytes_data[i_pointer:i_tp1_end])
-        
+        SettingData_handle.i_tp1 = econv.bytes_to_uint16_be(bytes_data[i_tp1_start:i_tp1_end])
         i_tp1_rck_start = i_tp1_end
         i_tp1_rck_end = i_tp1_rck_start + upcfg.RECEIVE_SETTINGS_TP1_RECHECK_LENGTH
         # TP1 Recheck (uint16 BE)
-        tp1_recheck = econv.bytes_to_uint16_be(bytes_data[i_tp1_rck_start:i_tp1_rck_end])
-
-        i_tp2_start = i_tp1_end
-        i_tp2_end = i_tp1_rck_start + upcfg.RECEIVE_SETTINGS_TP2_LENGTH
+        SettingData_handle.i_tp1_recheck = econv.bytes_to_uint16_be(bytes_data[i_tp1_rck_start:i_tp1_rck_end])
+        i_tp2_start = i_tp1_rck_end
+        i_tp2_end = i_tp2_start + upcfg.RECEIVE_SETTINGS_TP2_LENGTH
         # TP2 (uint64 BE)
-        tp2 = econv.bytes_to_uint64_be(bytes_data[i_tp2_start:i_tp2_end])
+        SettingData_handle.i_tp2 = econv.bytes_to_uint64_be(bytes_data[i_tp2_start:i_tp2_end])
         
+        i_led_max_per_start = i_tp2_end
+        i_led_max_per_end = i_led_max_per_start + upcfg.RECEIVE_SETTINGS_LED_MAX_PER_LENGTH
+        # 
+        SettingData_handle.i_led_max_per = bytes_data[i_led_max_per_start:i_led_max_per_end]
+        i_led_min_per_start = i_led_max_per_end
+        i_led_min_per_end = i_led_min_per_start + upcfg.RECEIVE_SETTINGS_LED_MIN_PER_LENGTH
+        # 
+        SettingData_handle.i_led_min_per = bytes_data[i_led_min_per_start:i_led_min_per_end]
+        i_led_dim_per_start = i_led_min_per_end
+        i_led_dim_per_end = i_led_dim_per_start + upcfg.RECEIVE_SETTINGS_LED_DIM_PER_LENGTH
+        # 
+        SettingData_handle.i_led_dim_per = bytes_data[i_led_dim_per_start:i_led_dim_per_end]
+
+        i_led_work_ms_start = i_led_dim_per_end
+        i_led_work_ms_end = i_led_work_ms_start + upcfg.RECEIVE_SETTINGS_LED_WORK_MS_LENGTH
+        # 
+        SettingData_handle.i_led_work_ms = econv.bytes_to_uint32_be(bytes_data[i_led_work_ms_start:i_led_work_ms_end])
+        i_led_step_ms_start = i_led_work_ms_end
+        i_led_step_ms_end = i_led_step_ms_start + upcfg.RECEIVE_SETTINGS_LED_STEP_MS_LENGTH
+        # 
+        SettingData_handle.i_led_step_ms = econv.bytes_to_uint32_be(bytes_data[i_led_step_ms_start:i_led_step_ms_end])
+        i_led_delay_ms_start = i_led_step_ms_end
+        i_led_delay_ms_end = i_led_delay_ms_start + upcfg.RECEIVE_SETTINGS_LED_DELAY_MS_LENGTH
+        # 
+        SettingData_handle.i_led_delay_ms = econv.bytes_to_uint32_be(bytes_data[i_led_delay_ms_start:i_led_delay_ms_end])
+
+        i_occu_chk_timeout_start = i_led_delay_ms_end
+        i_occu_chk_timeout_end = i_occu_chk_timeout_start + upcfg.RECEIVE_SETTINGS_OCCU_CHK_TIMEOUT_LENGTH
+        # 
+        SettingData_handle.i_occu_chk_timeout = econv.bytes_to_uint64_be(bytes_data[i_occu_chk_timeout_start:i_occu_chk_timeout_end])
+        i_sleep_time_start = i_occu_chk_timeout_end
+        i_sleep_time_end = i_sleep_time_start + upcfg.RECEIVE_SETTINGS_SLEEP_TIME_LENGTH
+        # 
+        SettingData_handle.i_sleep_time = econv.bytes_to_uint64_be(bytes_data[i_sleep_time_start:i_sleep_time_end])
+
+        b_occu_status_start = i_sleep_time_end
+        b_occu_status_end = b_occu_status_start + upcfg.RECEIVE_SETTINGS_OCCUPANCY_STATUS_LENGTH
+        # 
+        SettingData_handle.b_occu_status = bytes_data[b_occu_status_start:b_occu_status_end]
+        b_pir_status_start = b_occu_status_end
+        b_pir_status_end = b_pir_status_start + upcfg.RECEIVE_SETTINGS_PIR_STATUS_LENGTH
+        # 
+        SettingData_handle.b_pir_status = bytes_data[b_pir_status_start:b_pir_status_end]
+
+        return SettingData_handle
 
 
-
-
-
-
-
-
-
-
-
+        # # LED_MAX (uint8)
+        # led_max = bytes_data[i_pointer]
+        # i_pointer += 1
         
-        # LED_MAX (uint8)
-        led_max = bytes_data[i_pointer]
-        i_pointer += 1
+        # # LED_MIN (uint8)
+        # led_min = bytes_data[i_pointer]
+        # i_pointer += 1
         
-        # LED_MIN (uint8)
-        led_min = bytes_data[i_pointer]
-        i_pointer += 1
+        # # LED_IND (uint8)
+        # led_ind = bytes_data[i_pointer]
+        # i_pointer += 1
         
-        # LED_IND (uint8)
-        led_ind = bytes_data[i_pointer]
-        i_pointer += 1
+        # # LED_DIMMING_STEP_TIME_MS (uint32 BE)
+        # led_dimming_step_time_ms = econv.bytes_to_uint32_be(bytes_data[i_pointer:i_pointer+4])
+        # i_pointer += 4
         
-        # LED_DIMMING_STEP_TIME_MS (uint32 BE)
-        led_dimming_step_time_ms = econv.bytes_to_uint32_be(bytes_data[i_pointer:i_pointer+4])
-        i_pointer += 4
+        # # LED_DIMMING_WORK_TIME_MS (uint32 BE)
+        # led_dimming_work_time_ms = econv.bytes_to_uint32_be(bytes_data[i_pointer:i_pointer+4])
+        # i_pointer += 4
         
-        # LED_DIMMING_WORK_TIME_MS (uint32 BE)
-        led_dimming_work_time_ms = econv.bytes_to_uint32_be(bytes_data[i_pointer:i_pointer+4])
-        i_pointer += 4
+        # # LED_DIMMING_DELAY_TIME_MS (uint32 BE)
+        # led_dimming_delay_time_ms = econv.bytes_to_uint32_be(bytes_data[i_pointer:i_pointer+4])
+        # i_pointer += 4
         
-        # LED_DIMMING_DELAY_TIME_MS (uint32 BE)
-        led_dimming_delay_time_ms = econv.bytes_to_uint32_be(bytes_data[i_pointer:i_pointer+4])
-        i_pointer += 4
+        # # OCCU_TO (uint64 BE)
+        # occu_to = econv.bytes_to_uint64_be(bytes_data[i_pointer:i_pointer+8])
+        # i_pointer += 8
         
-        # OCCU_TO (uint64 BE)
-        occu_to = econv.bytes_to_uint64_be(bytes_data[i_pointer:i_pointer+8])
-        i_pointer += 8
+        # # SLEEP (uint64 BE)
+        # sleep_time = econv.bytes_to_uint64_be(bytes_data[i_pointer:i_pointer+8])
+        # i_pointer += 8
         
-        # SLEEP (uint64 BE)
-        sleep_time = econv.bytes_to_uint64_be(bytes_data[i_pointer:i_pointer+8])
-        i_pointer += 8
+        # # OCCUPANCY (bool, uint8)
+        # occupancy = bool(bytes_data[i_pointer])
+        # i_pointer += 1
         
-        # OCCUPANCY (bool, uint8)
-        occupancy = bool(bytes_data[i_pointer])
-        i_pointer += 1
+        # # PIR_OUTPUT (bool, uint8)
+        # pir_output = bool(bytes_data[i_pointer])
         
-        # PIR_OUTPUT (bool, uint8)
-        pir_output = bool(bytes_data[i_pointer])
-        
-        return SettingsData(
-            tp1=tp1,
-            tp1_recheck=tp1_recheck,
-            tp2=tp2,
-            led_max_percentage=led_max,
-            led_min_percentage=led_min,
-            led_dimming_percentage=led_ind,
-            led_dimming_step_time_ms=led_dimming_step_time_ms,
-            led_dimming_work_time_ms=led_dimming_work_time_ms,
-            led_dimming_delay_time_ms=led_dimming_delay_time_ms,
-            occupancy_timeout_us=occu_to,
-            sleep_time=sleep_time,
-            occupancy=occupancy,
-            pir_output=pir_output
-        )
+        # return updm.SettingsData(
+        #     tp1=tp1,
+        #     tp1_recheck=tp1_recheck,
+        #     tp2=tp2,
+        #     led_max_percentage=led_max,
+        #     led_min_percentage=led_min,
+        #     led_dimming_percentage=led_ind,
+        #     led_dimming_step_time_ms=led_dimming_step_time_ms,
+        #     led_dimming_work_time_ms=led_dimming_work_time_ms,
+        #     led_dimming_delay_time_ms=led_dimming_delay_time_ms,
+        #     occupancy_timeout_us=occu_to,
+        #     sleep_time=sleep_time,
+        #     occupancy=occupancy,
+        #     pir_output=pir_output
+        # )
     
     # @staticmethod
     # def _parse_all_buffers(bytes_data: bytes) -> dict:

@@ -46,6 +46,7 @@ import uart_protocol.uart_protocol_config   as upcfg
 import uart_protocol.uart_receive_parser    as upurp
 import uart_protocol.data_parser            as updp
 import uart_protocol.command_sender         as upcs
+import uart_protocol.data_models            as updm
 
 # from upcfg import (BaudRate)
 # from upcs import CommandSender
@@ -162,7 +163,7 @@ class UartWorker(PyQt6.QtCore.QThread):
     UART 통신을 처리하는 워커 스레드
     """
 
-    new_data            = PyQt6.QtCore.pyqtSignal(object)       # 파싱된 SensorData 객체
+    event_new_data            = PyQt6.QtCore.pyqtSignal(object)       # 파싱된 SensorData 객체    # emit 이벤트 함수
     log_message         = PyQt6.QtCore.pyqtSignal(str)          # 로그 메시지 (텍스트)
     event_connection_status   = PyQt6.QtCore.pyqtSignal(bool)         # 연결 상태 (True: 성공, False: 실패)   # emit 이벤트 함수
 
@@ -212,33 +213,34 @@ class UartWorker(PyQt6.QtCore.QThread):
                     
                     for byte in byte_data:
                         # print(f"debugger_start.py | byte : {byte}")                         # debugger_start.py | byte : 170
-                        complete_receive_data = self.UartReceiveParser_handle.feed_byte(byte)
-                        # print(f"debugger_start.py | complete_receive_data : {complete_receive_data}")     # debugger_start.py | frame : None
+                        complete_receive_data:updm.UartReceiveData = self.UartReceiveParser_handle.feed_byte(byte)
+                        # print(f"debugger_start.py | run() | complete_receive_data(UartReceiveData) : {complete_receive_data}")     # debugger_start.py | frame : None
 
                         if complete_receive_data:
                             # ★ 디버그: 프레임 파싱 완료 (비활성화)
                             # print(f"[UART RX] Frame parsed! Type: {frame.data_type}, Payload: {frame.data_length} bytes")
 
                             sensor_data = self.DataParser_handle.data_parser(complete_receive_data)
+                            # print(f"debugger_start.py | run() | sensor_data(SensorData) : {sensor_data}")     # debugger_start.py | frame : None
 
-                            # if sensor_data:
+                            if sensor_data:
+                                # ★ 디버그: 센서 데이터 파싱 완료 (비활성화)
+                                print(f"debugger_start.py | run() | SensorData ready! Data type: {sensor_data.i_data_type}")
+                                self.event_new_data.emit(sensor_data)
+                            else:
+                                print(f"debugger_start.py | run() | sensor_data = None for type {complete_receive_data.bytes_data_type}")
+
+                            # # bytes_stx:bytes           # AA 55 CC (3 bytes)
+                            # # bytes_data_type:bytes     # 0~9 (UartDataType)
+                            # # bytes_data_length:bytes   # 데이터 길이 (Little Endian)
+                            # # bytes_data:bytes          # 실제 데이터
+                            # # bytes_checksum:bytes      # Sum 체크섬 (Little Endian)
+                            # # bytes_etx:bytes           # DD 55 AA (3 bytes)
+
+                            # if sensor_data == None:
                             #     # ★ 디버그: 센서 데이터 파싱 완료 (비활성화)
                             #     # print(f"[UART RX] SensorData ready! Data type: {sensor_data.data_type}")
-                            #     self.new_data.emit(sensor_data)
-                            # else:
-                            #     print(f"[UART RX] ⚠ PayloadParser returned None for type {complete_receive_data.data_type}")
-
-                            # bytes_stx:bytes           # AA 55 CC (3 bytes)
-                            # bytes_data_type:bytes     # 0~9 (UartDataType)
-                            # bytes_data_length:bytes   # 데이터 길이 (Little Endian)
-                            # bytes_data:bytes          # 실제 데이터
-                            # bytes_checksum:bytes      # Sum 체크섬 (Little Endian)
-                            # bytes_etx:bytes           # DD 55 AA (3 bytes)
-
-                            if sensor_data == None:
-                                # ★ 디버그: 센서 데이터 파싱 완료 (비활성화)
-                                # print(f"[UART RX] SensorData ready! Data type: {sensor_data.data_type}")
-                                print(f"debugger_start.py | run() | sensor_data = None for type {complete_receive_data.bytes_data_type}")
+                            #     print(f"debugger_start.py | run() | sensor_data = None for type {complete_receive_data.bytes_data_type}")
                             
 
             except serial.SerialException as e:
@@ -941,7 +943,7 @@ class MainWindow(QMainWindow):
             baud = self.baudrate_sel_ComboBox.currentData()
 
             self.uart_thread = UartWorker(port, baud)
-            # self.uart_thread.new_data.connect(self.update_ui)
+            self.uart_thread.event_new_data.connect(self.update_ui)
             # self.uart_thread.log_message.connect(self.log_TextEdit.append)
 
             # emit 연결
@@ -952,208 +954,218 @@ class MainWindow(QMainWindow):
             self.port_connect_PushButton.setText("Connecting...")
             self.port_connect_PushButton.setEnabled(False) # Disable button while connecting
 
+
     # @pyqtSlot(object)
-    # def update_ui(self, data: SensorData):
-    #     """UI 업데이트: 로그, 그래프, 설정 표시"""
-    #     # 1. 로그 텍스트 업데이트 (최대 500줄 제한)
-    #     log_str = self._format_sensor_data_for_log(data)
-    #     self.log_TextEdit.append(log_str)
+    # data_parser
+    # sensor_data
+    # data -> input_sensor_parser_data
+    def update_ui(self, input_sensor_parser_data:updm.SensorData):
+        """UI 업데이트: 로그, 그래프, 설정 표시"""
+        # 1. 로그 텍스트 업데이트 (최대 500줄 제한)
+        log_str = self.log_TextEdit_print_sensor_data(input_sensor_parser_data)
+        self.log_TextEdit.append(log_str)
         
-    #     # 로그 줄 수 제한 (메모리 누수 방지)
-    #     MAX_LOG_LINES = 500
-    #     doc = self.log_TextEdit.document()
-    #     if doc.blockCount() > MAX_LOG_LINES:
-    #         cursor = self.log_TextEdit.textCursor()
-    #         cursor.movePosition(cursor.MoveOperation.Start)
-    #         cursor.movePosition(cursor.MoveOperation.Down, cursor.MoveMode.KeepAnchor, doc.blockCount() - MAX_LOG_LINES)
-    #         cursor.removeSelectedText()
+        # 로그 줄 수 제한 (메모리 누수 방지)
+        # MAX_LOG_LINES = 500
+        # doc.blockCount() — 줄(블록) 개수 반환 (코드에서 로그 줄 제한에 사용됨).
+        # doc.toPlainText() / doc.setPlainText(...) — 순수 텍스트 읽기/쓰기.
+        # doc.find(...), doc.undo() 등 검색·편집 기능 제공.
+        log_TextEdit_doc = self.log_TextEdit.document()
+        if log_TextEdit_doc.blockCount() > cfg.MAX_LOG_LINES:
+            cursor = self.log_TextEdit.textCursor() # 내부 편집 커서(QTextCursor) 객체
+            cursor.movePosition(cursor.MoveOperation.Start) # 커서를 문서의 맨 앞으로 이동
+            # 아래로 N번 이동하면서(세 번째 인자가 N) 이동 중인 범위를 선택(두번째 인자 KeepAnchor가 선택 상태 유지).
+            # 여기서 N = blockCount() - MAX_LOG_LINES (총 블록(줄) 수에서 허용 최대줄을 뺀 값) — 즉, 초과한 만큼의 첫 N줄을 선택함.
+            cursor.movePosition(cursor.MoveOperation.Down, cursor.MoveMode.KeepAnchor, log_TextEdit_doc.blockCount() - cfg.MAX_LOG_LINES)
+            # 택된 텍스트(즉 문서 맨 앞부터 초과분까지)를 삭제
+            cursor.removeSelectedText()
         
-    #     self.log_TextEdit.verticalScrollBar().setValue(self.log_TextEdit.verticalScrollBar().maximum())
+        self.log_TextEdit.verticalScrollBar().setValue(self.log_TextEdit.verticalScrollBar().maximum())
 
-    #     # 2. 그래프 업데이트
-    #     if data.adc_buffer:
-    #         self._get_or_create_plot("ADC_BUFFER (Adaptive)", show_tp1_line=True).setData(data.adc_buffer)
-    #         self._update_stats("ADC_BUFFER (Adaptive)", data.adc_buffer)
-    #         self._update_exceed_points("ADC_BUFFER (Adaptive)", data.adc_buffer, y_max=4096)  # TP1 초과점 표시
-    #         self._get_or_create_plot("ADC_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_buffer)
-    #         self._update_stats("ADC_BUFFER", data.adc_buffer, y_max=3900)
-    #         self._update_exceed_points("ADC_BUFFER", data.adc_buffer, y_max=3900)  # TP1 초과점 표시
+        # 2. 그래프 업데이트
+        if input_sensor_parser_data.A_adc_buffer:
+            self._get_or_create_plot("ADC_BUFFER (Adaptive)", show_tp1_line=True).setData(input_sensor_parser_data.A_adc_buffer)
+            self._update_stats("ADC_BUFFER (Adaptive)", input_sensor_parser_data.A_adc_buffer)
+            self._update_exceed_points("ADC_BUFFER (Adaptive)", input_sensor_parser_data.A_adc_buffer, y_max=4096)  # TP1 초과점 표시
+            self._get_or_create_plot("ADC_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(input_sensor_parser_data.A_adc_buffer)
+            self._update_stats("ADC_BUFFER", input_sensor_parser_data.A_adc_buffer, y_max=3900)
+            self._update_exceed_points("ADC_BUFFER", input_sensor_parser_data.A_adc_buffer, y_max=3900)  # TP1 초과점 표시
             
-    #         # ★ FFT 분석 및 그래프 업데이트
-    #         self._update_fft_plot(data.adc_buffer)
-    #     # 델타 버퍼는 비활성화됨
-    #     # elif data.adc_delta_buffer:
-    #     #     self._get_or_create_plot("ADC_DELTA_BUFFER").setData(data.adc_delta_buffer)
-    #     #     self._update_stats("ADC_DELTA_BUFFER", data.adc_delta_buffer)
-    #     #     self._get_or_create_plot("ADC_DELTA_BUFFER (Fixed)", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_delta_buffer)
-    #     #     self._update_stats("ADC_DELTA_BUFFER (Fixed)", data.adc_delta_buffer, y_max=3900)
-    #     #     self._update_exceed_points("ADC_DELTA_BUFFER (Fixed)", data.adc_delta_buffer, y_max=3900)
-    #     # VOLTAGE_BUFFER 삭제됨
-    #     elif data.adc_hpf_buffer:  # SW HPF 버퍼
-    #         self._get_or_create_plot("ADC_HPF_BUFFER (Adaptive)").setData(data.adc_hpf_buffer)
-    #         self._update_stats("ADC_HPF_BUFFER (Adaptive)", data.adc_hpf_buffer)
-    #         self._get_or_create_plot("ADC_HPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.adc_hpf_buffer)
-    #         self._update_stats("ADC_HPF_BUFFER", data.adc_hpf_buffer, y_max=3300, positive_only=True)
+            # ★ FFT 분석 및 그래프 업데이트
+            self._update_fft_plot(input_sensor_parser_data.A_adc_buffer)
+        # # 델타 버퍼는 비활성화됨
+        # # elif data.adc_delta_buffer:
+        # #     self._get_or_create_plot("ADC_DELTA_BUFFER").setData(data.adc_delta_buffer)
+        # #     self._update_stats("ADC_DELTA_BUFFER", data.adc_delta_buffer)
+        # #     self._get_or_create_plot("ADC_DELTA_BUFFER (Fixed)", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_delta_buffer)
+        # #     self._update_stats("ADC_DELTA_BUFFER (Fixed)", data.adc_delta_buffer, y_max=3900)
+        # #     self._update_exceed_points("ADC_DELTA_BUFFER (Fixed)", data.adc_delta_buffer, y_max=3900)
+        # # VOLTAGE_BUFFER 삭제됨
+        # elif data.adc_hpf_buffer:  # SW HPF 버퍼
+        #     self._get_or_create_plot("ADC_HPF_BUFFER (Adaptive)").setData(data.adc_hpf_buffer)
+        #     self._update_stats("ADC_HPF_BUFFER (Adaptive)", data.adc_hpf_buffer)
+        #     self._get_or_create_plot("ADC_HPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.adc_hpf_buffer)
+        #     self._update_stats("ADC_HPF_BUFFER", data.adc_hpf_buffer, y_max=3300, positive_only=True)
             
-    #         # ★ TP1 초과 지점 빨간색으로 표시
-    #         self._update_exceed_points("ADC_HPF_BUFFER", data.adc_hpf_buffer, y_max=3300)
+        #     # ★ TP1 초과 지점 빨간색으로 표시
+        #     self._update_exceed_points("ADC_HPF_BUFFER", data.adc_hpf_buffer, y_max=3300)
             
-    #         # ★ SW Filter Plot (4번째 그래프)에도 표시
-    #         self._get_or_create_plot("SW_HPF_BUFFER (Zoom)").setData(data.adc_hpf_buffer)
-    #         self._update_stats("SW_HPF_BUFFER (Zoom)", data.adc_hpf_buffer, y_max=300)
-    #         self._update_exceed_points("SW_HPF_BUFFER (Zoom)", data.adc_hpf_buffer, y_max=300)
-    #         self._get_or_create_plot("SW_HPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_hpf_buffer)
-    #         self._update_stats("SW_HPF_BUFFER", data.adc_hpf_buffer, y_max=3900)
-    #         self._update_exceed_points("SW_HPF_BUFFER", data.adc_hpf_buffer, y_max=3900)
-    #     # hpf_buffer (하위 호환성 - adc_hpf_buffer 별칭)
-    #     elif data.hpf_buffer:
-    #         self._get_or_create_plot("ADC_HPF_BUFFER (Adaptive)").setData(data.hpf_buffer)
-    #         self._update_stats("ADC_HPF_BUFFER (Adaptive)", data.hpf_buffer)
-    #         self._get_or_create_plot("ADC_HPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.hpf_buffer)
-    #         self._update_stats("ADC_HPF_BUFFER", data.hpf_buffer, y_max=3300, positive_only=True)
-    #         self._update_exceed_points("ADC_HPF_BUFFER", data.hpf_buffer, y_max=3300)
+        #     # ★ SW Filter Plot (4번째 그래프)에도 표시
+        #     self._get_or_create_plot("SW_HPF_BUFFER (Zoom)").setData(data.adc_hpf_buffer)
+        #     self._update_stats("SW_HPF_BUFFER (Zoom)", data.adc_hpf_buffer, y_max=300)
+        #     self._update_exceed_points("SW_HPF_BUFFER (Zoom)", data.adc_hpf_buffer, y_max=300)
+        #     self._get_or_create_plot("SW_HPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_hpf_buffer)
+        #     self._update_stats("SW_HPF_BUFFER", data.adc_hpf_buffer, y_max=3900)
+        #     self._update_exceed_points("SW_HPF_BUFFER", data.adc_hpf_buffer, y_max=3900)
+        # # hpf_buffer (하위 호환성 - adc_hpf_buffer 별칭)
+        # elif data.hpf_buffer:
+        #     self._get_or_create_plot("ADC_HPF_BUFFER (Adaptive)").setData(data.hpf_buffer)
+        #     self._update_stats("ADC_HPF_BUFFER (Adaptive)", data.hpf_buffer)
+        #     self._get_or_create_plot("ADC_HPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.hpf_buffer)
+        #     self._update_stats("ADC_HPF_BUFFER", data.hpf_buffer, y_max=3300, positive_only=True)
+        #     self._update_exceed_points("ADC_HPF_BUFFER", data.hpf_buffer, y_max=3300)
         
-    #     # SW BPF 버퍼 (Band-Pass Filter 적용값)
-    #     elif data.adc_bpf_buffer:
-    #         self._get_or_create_plot("ADC_BPF_BUFFER (Adaptive)").setData(data.adc_bpf_buffer)
-    #         self._update_stats("ADC_BPF_BUFFER (Adaptive)", data.adc_bpf_buffer)
-    #         self._get_or_create_plot("ADC_BPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.adc_bpf_buffer)
-    #         self._update_stats("ADC_BPF_BUFFER", data.adc_bpf_buffer, y_max=3300, positive_only=True)
-    #         self._update_exceed_points("ADC_BPF_BUFFER", data.adc_bpf_buffer, y_max=3300)
+        # # SW BPF 버퍼 (Band-Pass Filter 적용값)
+        # elif data.adc_bpf_buffer:
+        #     self._get_or_create_plot("ADC_BPF_BUFFER (Adaptive)").setData(data.adc_bpf_buffer)
+        #     self._update_stats("ADC_BPF_BUFFER (Adaptive)", data.adc_bpf_buffer)
+        #     self._get_or_create_plot("ADC_BPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.adc_bpf_buffer)
+        #     self._update_stats("ADC_BPF_BUFFER", data.adc_bpf_buffer, y_max=3300, positive_only=True)
+        #     self._update_exceed_points("ADC_BPF_BUFFER", data.adc_bpf_buffer, y_max=3300)
             
-    #         # ★ SW Filter Plot (4번째 그래프)에도 표시
-    #         self._get_or_create_plot("SW_BPF_BUFFER (Zoom)").setData(data.adc_bpf_buffer)
-    #         self._update_stats("SW_BPF_BUFFER (Zoom)", data.adc_bpf_buffer, y_max=300)
-    #         self._update_exceed_points("SW_BPF_BUFFER (Zoom)", data.adc_bpf_buffer, y_max=300)
-    #         self._get_or_create_plot("SW_BPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_bpf_buffer)
-    #         self._update_stats("SW_BPF_BUFFER", data.adc_bpf_buffer, y_max=3900)
-    #         self._update_exceed_points("SW_BPF_BUFFER", data.adc_bpf_buffer, y_max=3900)
+        #     # ★ SW Filter Plot (4번째 그래프)에도 표시
+        #     self._get_or_create_plot("SW_BPF_BUFFER (Zoom)").setData(data.adc_bpf_buffer)
+        #     self._update_stats("SW_BPF_BUFFER (Zoom)", data.adc_bpf_buffer, y_max=300)
+        #     self._update_exceed_points("SW_BPF_BUFFER (Zoom)", data.adc_bpf_buffer, y_max=300)
+        #     self._get_or_create_plot("SW_BPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_bpf_buffer)
+        #     self._update_stats("SW_BPF_BUFFER", data.adc_bpf_buffer, y_max=3900)
+        #     self._update_exceed_points("SW_BPF_BUFFER", data.adc_bpf_buffer, y_max=3900)
         
-    #     # HW HPF 버퍼 (하드웨어 HPF 채널 RAW ADC)
-    #     elif data.hw_hpf_buffer:
-    #         # 3번째 그래프 (HW Filter)
-    #         self._get_or_create_plot("HW_HPF_BUFFER (Zoom)").setData(data.hw_hpf_buffer)
-    #         self._update_stats("HW_HPF_BUFFER (Zoom)", data.hw_hpf_buffer, y_max=300)
-    #         self._update_exceed_points("HW_HPF_BUFFER (Zoom)", data.hw_hpf_buffer, y_max=300)
-    #         self._get_or_create_plot("HW_HPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_hpf_buffer)
-    #         self._update_stats("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
-    #         # ★ TP1 초과 지점 표시
-    #         self._update_exceed_points("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
+        # # HW HPF 버퍼 (하드웨어 HPF 채널 RAW ADC)
+        # elif data.hw_hpf_buffer:
+        #     # 3번째 그래프 (HW Filter)
+        #     self._get_or_create_plot("HW_HPF_BUFFER (Zoom)").setData(data.hw_hpf_buffer)
+        #     self._update_stats("HW_HPF_BUFFER (Zoom)", data.hw_hpf_buffer, y_max=300)
+        #     self._update_exceed_points("HW_HPF_BUFFER (Zoom)", data.hw_hpf_buffer, y_max=300)
+        #     self._get_or_create_plot("HW_HPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_hpf_buffer)
+        #     self._update_stats("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
+        #     # ★ TP1 초과 지점 표시
+        #     self._update_exceed_points("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
             
-    #         # 4번째 그래프 (SW Filter) - HW HPF 데이터가 있으면 SW 플롯은 업데이트하지 않음 (SW 데이터가 별도로 전송됨)
+        #     # 4번째 그래프 (SW Filter) - HW HPF 데이터가 있으면 SW 플롯은 업데이트하지 않음 (SW 데이터가 별도로 전송됨)
         
-    #     # HW BPF 버퍼 (하드웨어 BPF 채널 RAW ADC)
-    #     elif data.hw_bpf_buffer:
-    #         # 3번째 그래프 (HW Filter)
-    #         self._get_or_create_plot("HW_BPF_BUFFER (Zoom)").setData(data.hw_bpf_buffer)
-    #         self._update_stats("HW_BPF_BUFFER (Zoom)", data.hw_bpf_buffer, y_max=300)
-    #         self._update_exceed_points("HW_BPF_BUFFER (Zoom)", data.hw_bpf_buffer, y_max=300)
-    #         self._get_or_create_plot("HW_BPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_bpf_buffer)
-    #         self._update_stats("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
-    #         # ★ TP1 초과 지점 표시
-    #         self._update_exceed_points("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
+        # # HW BPF 버퍼 (하드웨어 BPF 채널 RAW ADC)
+        # elif data.hw_bpf_buffer:
+        #     # 3번째 그래프 (HW Filter)
+        #     self._get_or_create_plot("HW_BPF_BUFFER (Zoom)").setData(data.hw_bpf_buffer)
+        #     self._update_stats("HW_BPF_BUFFER (Zoom)", data.hw_bpf_buffer, y_max=300)
+        #     self._update_exceed_points("HW_BPF_BUFFER (Zoom)", data.hw_bpf_buffer, y_max=300)
+        #     self._get_or_create_plot("HW_BPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_bpf_buffer)
+        #     self._update_stats("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
+        #     # ★ TP1 초과 지점 표시
+        #     self._update_exceed_points("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
             
-    #         # 4번째 그래프 (SW Filter) - HW BPF 데이터가 있으면 SW 플롯은 업데이트하지 않음 (SW 데이터가 별도로 전송됨)
+        #     # 4번째 그래프 (SW Filter) - HW BPF 데이터가 있으면 SW 플롯은 업데이트하지 않음 (SW 데이터가 별도로 전송됨)
         
-    #     # 델타 버퍼는 비활성화됨
-    #     # elif data.voltage_delta_buffer:
-    #     #     self._get_or_create_plot("VOLTAGE_DELTA_BUFFER").setData(data.voltage_delta_buffer)
-    #     #     self._update_stats("VOLTAGE_DELTA_BUFFER", data.voltage_delta_buffer)
-    #     # elif data.hpf_delta_buffer:
-    #     #     self._get_or_create_plot("HPF_DELTA_BUFFER").setData(data.hpf_delta_buffer)
-    #     #     self._update_stats("HPF_DELTA_BUFFER", data.hpf_delta_buffer)
-    #     #     self._get_or_create_plot("HPF_DELTA_BUFFER (Fixed)", fixed_range=(-50, 2500), show_tp1_line=True).setData(data.hpf_delta_buffer)
-    #     #     self._update_stats("HPF_DELTA_BUFFER (Fixed)", data.hpf_delta_buffer, y_max=2300)
-    #     #     self._update_exceed_points("HPF_DELTA_BUFFER (Fixed)", data.hpf_delta_buffer, y_max=2400)
+        # 델타 버퍼는 비활성화됨
+        # elif data.voltage_delta_buffer:
+        #     self._get_or_create_plot("VOLTAGE_DELTA_BUFFER").setData(data.voltage_delta_buffer)
+        #     self._update_stats("VOLTAGE_DELTA_BUFFER", data.voltage_delta_buffer)
+        # elif data.hpf_delta_buffer:
+        #     self._get_or_create_plot("HPF_DELTA_BUFFER").setData(data.hpf_delta_buffer)
+        #     self._update_stats("HPF_DELTA_BUFFER", data.hpf_delta_buffer)
+        #     self._get_or_create_plot("HPF_DELTA_BUFFER (Fixed)", fixed_range=(-50, 2500), show_tp1_line=True).setData(data.hpf_delta_buffer)
+        #     self._update_stats("HPF_DELTA_BUFFER (Fixed)", data.hpf_delta_buffer, y_max=2300)
+        #     self._update_exceed_points("HPF_DELTA_BUFFER (Fixed)", data.hpf_delta_buffer, y_max=2400)
 
 
-    #     # 3. 설정값 업데이트
-    #     if data.settings:
-    #         s = data.settings
-    #         self.tp1_value = s.tp1  # TP1 값 저장
-    #         self.tp1_recheck_value = s.tp1_recheck  # TP1 Recheck 값 저장
+        # 3. 설정값 업데이트
+        if input_sensor_parser_data.settings:
+            SettingsData_handle = input_sensor_parser_data.settings
+            self.tp1_value = SettingsData_handle.i_tp1  # TP1 값 저장
+            self.tp1_recheck_value = SettingsData_handle.i_tp1_recheck  # TP1 Recheck 값 저장
             
-    #         # TP1 가로선 업데이트
-    #         self._update_threshold_lines()
+            # TP1 가로선 업데이트
+            self._update_threshold_lines()
             
-    #         # 재실 상태 라벨 업데이트 (눈에 띄게!)
-    #         if s.occupancy:
-    #             self.occupancy_label.setText("🟢 재실 상태: 재실")
-    #             self.occupancy_label.setStyleSheet("""
-    #                 QLabel {
-    #                     font-size: 14px;
-    #                     font-weight: bold;
-    #                     padding: 8px;
-    #                     border-radius: 5px;
-    #                     background-color: #1a4d1a;
-    #                     color: #66ff66;
-    #                 }
-    #             """)
-    #         else:
-    #             self.occupancy_label.setText("⚪ 재실 상태: 없음")
-    #             self.occupancy_label.setStyleSheet("""
-    #                 QLabel {
-    #                     font-size: 14px;
-    #                     font-weight: bold;
-    #                     padding: 8px;
-    #                     border-radius: 5px;
-    #                     background-color: #3a3a3a;
-    #                     color: #888888;
-    #                 }
-    #             """)
+            # 재실 상태 라벨 업데이트 (눈에 띄게!)
+            if SettingsData_handle.occupancy:
+                self.occupancy_label.setText("🟢 재실 상태: 재실")
+                self.occupancy_label.setStyleSheet("""
+                    QLabel {
+                        font-size: 14px;
+                        font-weight: bold;
+                        padding: 8px;
+                        border-radius: 5px;
+                        background-color: #1a4d1a;
+                        color: #66ff66;
+                    }
+                """)
+            else:
+                self.occupancy_label.setText("⚪ 재실 상태: 없음")
+                self.occupancy_label.setStyleSheet("""
+                    QLabel {
+                        font-size: 14px;
+                        font-weight: bold;
+                        padding: 8px;
+                        border-radius: 5px;
+                        background-color: #3a3a3a;
+                        color: #888888;
+                    }
+                """)
             
-    #         # PIR 출력 상태 라벨 업데이트
-    #         if s.pir_output:
-    #             self.pir_output_label.setText("📡 PIR 출력: ON")
-    #             self.pir_output_label.setStyleSheet("""
-    #                 QLabel {
-    #                     font-size: 14px;
-    #                     font-weight: bold;
-    #                     padding: 8px;
-    #                     border-radius: 5px;
-    #                     background-color: #4d4d1a;
-    #                     color: #ffff66;
-    #                 }
-    #             """)
-    #         else:
-    #             self.pir_output_label.setText("📡 PIR 출력: OFF")
-    #             self.pir_output_label.setStyleSheet("""
-    #                 QLabel {
-    #                     font-size: 14px;
-    #                     font-weight: bold;
-    #                     MACRO_PADDING: 8px;
-    #                     border-radius: 5px;
-    #                     background-color: #3a3a3a;
-    #                     color: #888888;
-    #                 }
-    #             """)
+            # PIR 출력 상태 라벨 업데이트
+            if SettingsData_handle.pir_output:
+                self.pir_output_label.setText("📡 PIR 출력: ON")
+                self.pir_output_label.setStyleSheet("""
+                    QLabel {
+                        font-size: 14px;
+                        font-weight: bold;
+                        padding: 8px;
+                        border-radius: 5px;
+                        background-color: #4d4d1a;
+                        color: #ffff66;
+                    }
+                """)
+            else:
+                self.pir_output_label.setText("📡 PIR 출력: OFF")
+                self.pir_output_label.setStyleSheet("""
+                    QLabel {
+                        font-size: 14px;
+                        font-weight: bold;
+                        MACRO_PADDING: 8px;
+                        border-radius: 5px;
+                        background-color: #3a3a3a;
+                        color: #888888;
+                    }
+                """)
             
-    #         settings_str = (
-    #             f"TP1: {s.tp1}\n"
-    #             f"TP1 Recheck: {s.tp1_recheck}\n"
-    #             f"TP2: {s.tp2}\n"
-    #             f"LED Max: {s.led_max_percentage}%\n"
-    #             f"LED Min: {s.led_min_percentage}%\n"
-    #             f"LED dimming: {s.led_dimming_percentage}%\n"
-    #             f"LED Step: {s.led_dimming_step_time_ms} ms\n"
-    #             f"LED Work: {s.led_dimming_work_time_ms} ms\n"
-    #             f"LED Delay: {s.led_dimming_delay_time_ms} ms\n"
-    #             f"Occupancy Timeout: {s.occupancy_timeout_us} us\n"
-    #             f"Sleep Time: {s.sleep_time} us"
-    #         )
-    #         self.settings_label.setText(settings_str)
+            settings_str = (
+                f"TP1: {SettingsData_handle.tp1}\n"
+                f"TP1 Recheck: {SettingsData_handle.tp1_recheck}\n"
+                f"TP2: {SettingsData_handle.tp2}\n"
+                f"LED Max: {SettingsData_handle.led_max_percentage}%\n"
+                f"LED Min: {SettingsData_handle.led_min_percentage}%\n"
+                f"LED dimming: {SettingsData_handle.led_dimming_percentage}%\n"
+                f"LED Step: {SettingsData_handle.led_dimming_step_time_ms} ms\n"
+                f"LED Work: {SettingsData_handle.led_dimming_work_time_ms} ms\n"
+                f"LED Delay: {SettingsData_handle.led_dimming_delay_time_ms} ms\n"
+                f"Occupancy Timeout: {SettingsData_handle.occupancy_timeout_us} us\n"
+                f"Sleep Time: {SettingsData_handle.sleep_time} us"
+            )
+            self.settings_label.setText(settings_str)
 
-    # def _calculate_stats(self, data):
-    #     """0이 아닌 값들에 대한 통계 계산"""
-    #     valid_data = [x for x in data if x != 0]
-    #     if not valid_data:
-    #         return 0, 0, 0, 0
+    def graph_statistics(self, inter_buffer:List):
+        """0이 아닌 값들에 대한 통계 계산"""
+        exclusion_zero_buffer = [x for x in inter_buffer if x != 0]
+        if not exclusion_zero_buffer:
+            return 0, 0, 0, 0
         
-    #     count = len(valid_data)
-    #     min_val = min(valid_data)
-    #     max_val = max(valid_data)
-    #     avg_val = sum(valid_data) / count
-    #     return count, min_val, max_val, avg_val
+        i_buffer_len = len(exclusion_zero_buffer)
+        i_min = min(exclusion_zero_buffer)
+        i_max = max(exclusion_zero_buffer)
+        i_avg = sum(exclusion_zero_buffer) / i_buffer_len
+        return i_buffer_len, i_min, i_max, i_avg
 
     # def _format_array_pretty(self, data, items_per_line=10, indent=4):
     #     """배열 데이터를 보기 좋게 문자열로 변환"""
@@ -1164,68 +1176,82 @@ class MainWindow(QMainWindow):
     #         lines.append(f"{' ' * indent}[{i:03d}] {line}")
     #     return "\n".join(lines)
 
-    # def _format_sensor_data_for_log(self, sensor_data: SensorData):
-    #     """센서 데이터를 로그 문자열로 변환"""
-    #     frame = sensor_data.raw_frame
-    #     data_name = get_data_type_name(frame.data_type)
+    # sensor_data -> input_sensor_parser_data
+    # frame -> UartReceiveData_raw
+    def log_TextEdit_print_sensor_data(self, input_sensor_parser_data:updm.SensorData):
+        """센서 데이터를 로그 문자열로 변환"""
+        # UartReceiveData_raw = input_sensor_parser_data.UartReceiveData_raw
+        s_data_name = upcfg.get_data_type_name(input_sensor_parser_data.i_data_type)
         
-    #     status = "✓" if frame.is_valid else "✗"
-    #     header = (f"{status} [{frame.timestamp.strftime('%H:%M:%S.%f')[:-3]}] "
-    #               f"Type: {data_name:20s} "
-    #               f"Length: {frame.data_length:4d} "
-    #               f"Checksum: 0x{frame.checksum:04X}")
+        s_chksum_pass_status = "✓" if input_sensor_parser_data.UartReceiveData_raw.b_chksum_pass else "✗"
+        s_header_text = (f"{s_chksum_pass_status}\n"
+                        f"UartReceiveData[{input_sensor_parser_data.UartReceiveData_raw.timestamp.strftime('%H:%M:%S.%f')[:-3]}],\n"
+                        f"SensorData[{input_sensor_parser_data.timestamp.strftime('%H:%M:%S.%f')[:-3]}],\n"
+                        # f"Type: {s_data_name:20s},\n"
+                        # f"Length: {input_sensor_parser_data.UartReceiveData_raw.bytes_data_length:4d},\n"
+                        # f"Checksum: 0x{input_sensor_parser_data.UartReceiveData_raw.bytes_checksum:04X}")
+                        f"Type: {s_data_name},\n"
+                        f"bytes_data_length: {input_sensor_parser_data.UartReceiveData_raw.bytes_data_length},\n"
+                        f"bytes_data: {input_sensor_parser_data.UartReceiveData_raw.bytes_data},\n"
+                        f"bytes_checksum: 0x{input_sensor_parser_data.UartReceiveData_raw.bytes_checksum},\n"
+                        f"Checksum: 0x{input_sensor_parser_data.UartReceiveData_raw.bytes_checksum},\n"
+                        f"i_data_type: {input_sensor_parser_data.i_data_type},\n"
+                        f"i_adc_raw: {input_sensor_parser_data.i_adc_raw},\n"
+                        f"A_adc_buffer: {input_sensor_parser_data.A_adc_buffer},\n"
+                        f"settings: {input_sensor_parser_data.settings},\n"
+                        f")\n")
 
-    #     log_lines = [header]
+        A_s_log_lines = [s_header_text]
 
-    #     # --- 버퍼 데이터 처리 ---
-    #     buffer, name = None, None
-    #     if sensor_data.adc_buffer:
-    #         buffer, name = sensor_data.adc_buffer, "ADC"
-    #     # voltage_buffer 로그 처리 삭제됨
-    #     elif sensor_data.adc_hpf_buffer:
-    #         buffer, name = sensor_data.adc_hpf_buffer, "SW HPF"
-    #     elif sensor_data.hpf_buffer:  # 하위 호환성
-    #         buffer, name = sensor_data.hpf_buffer, "SW HPF"
-    #     elif sensor_data.adc_bpf_buffer:
-    #         buffer, name = sensor_data.adc_bpf_buffer, "SW BPF"
-    #     elif sensor_data.hw_hpf_buffer:
-    #         buffer, name = sensor_data.hw_hpf_buffer, "HW HPF"
-    #     elif sensor_data.hw_bpf_buffer:
-    #         buffer, name = sensor_data.hw_bpf_buffer, "HW BPF"
-    #     # 델타 버퍼는 비활성화됨
-    #     # elif sensor_data.adc_delta_buffer:
-    #     #     buffer, name = sensor_data.adc_delta_buffer, "ADC Delta"
-    #     # elif sensor_data.voltage_delta_buffer:
-    #     #     buffer, name = sensor_data.voltage_delta_buffer, "Voltage Delta"
-    #     # elif sensor_data.hpf_delta_buffer:
-    #     #     buffer, name = sensor_data.hpf_delta_buffer, "HPF Delta"
+        # --- 버퍼 데이터 처리 ---
+        A_target_buffer, s_target_name = None, None
+        if input_sensor_parser_data.A_adc_buffer:
+            A_target_buffer, s_target_name = input_sensor_parser_data.A_adc_buffer, "ADC Buffer"
+        # voltage_buffer 로그 처리 삭제됨
+        # elif input_sensor_parser_data.adc_hpf_buffer:
+        #     buffer, name = input_sensor_parser_data.adc_hpf_buffer, "SW HPF"
+        # elif input_sensor_parser_data.hpf_buffer:  # 하위 호환성
+        #     buffer, name = input_sensor_parser_data.hpf_buffer, "SW HPF"
+        # elif input_sensor_parser_data.adc_bpf_buffer:
+        #     buffer, name = input_sensor_parser_data.adc_bpf_buffer, "SW BPF"
+        # elif input_sensor_parser_data.hw_hpf_buffer:
+        #     buffer, name = input_sensor_parser_data.hw_hpf_buffer, "HW HPF"
+        # elif input_sensor_parser_data.hw_bpf_buffer:
+        #     buffer, name = input_sensor_parser_data.hw_bpf_buffer, "HW BPF"
+        # 델타 버퍼는 비활성화됨
+        # elif input_sensor_parser_data.adc_delta_buffer:
+        #     buffer, name = input_sensor_parser_data.adc_delta_buffer, "ADC Delta"
+        # elif input_sensor_parser_data.voltage_delta_buffer:
+        #     buffer, name = input_sensor_parser_data.voltage_delta_buffer, "Voltage Delta"
+        # elif input_sensor_parser_data.hpf_delta_buffer:
+        #     buffer, name = input_sensor_parser_data.hpf_delta_buffer, "HPF Delta"
 
-    #     if buffer is not None and name is not None:
+        if A_target_buffer is not None and s_target_name is not None:
+            i_buffer_len, i_min, i_max, i_avg = self.graph_statistics(A_target_buffer)
 
-    #         count, min_v, max_v, avg_v = self._calculate_stats(buffer)
-    #         # 정수형 avg 값은 소수점 없이 표현
-    #         avg_str = f"{int(avg_v)}" if isinstance(avg_v, float) and avg_v.is_integer() else f"{avg_v:.2f}"
+            # 정수형 avg 값은 소수점 없이 표현
+            s_avg_text = f"{int(i_avg)}" if isinstance(i_avg, float) and i_avg.is_integer() else f"{i_avg:.2f}"
+            A_s_log_lines.append(f"{s_target_name}: {len(A_target_buffer)} samples (Non Zero Len: {i_buffer_len}) "
+                                f"(Min:{i_min}, Max:{i_max}, Avg:{s_avg_text})")
+            # 배열 전체 출력 제거 (성능 개선)
+            # A_s_log_lines.append(self._format_array_pretty(buffer))
 
-    #         log_lines.append(f"  {name}: {len(buffer)} samples (Valid: {count}) "
-    #                             f"(Min: {min_v}, Max: {max_v}, Avg: {avg_str})")
-    #         # 배열 전체 출력 제거 (성능 개선)
-    #         # log_lines.append(self._format_array_pretty(buffer))
+        # --- 설정값 처리 ---
+        elif input_sensor_parser_data.settings:
+            SettingsData_handle = input_sensor_parser_data.settings
+            s_occupancy_status = "🟢 재실 O" if SettingsData_handle.b_occu_status else "⚪ 재실 X"
+            A_s_log_lines.append(f"Settings: {s_occupancy_status}")
+            A_s_log_lines.append(f" - TP1: {SettingsData_handle.i_tp1}")
+            A_s_log_lines.append(f" - TP1 Recheck: {SettingsData_handle.i_tp1_recheck}")
+            A_s_log_lines.append(f" - TP2: {SettingsData_handle.i_tp2}")
+            A_s_log_lines.append(f" - LED: Max={SettingsData_handle.i_led_max_per}%, Min={SettingsData_handle.i_led_min_per}%, Dim={SettingsData_handle.i_led_dim_per}%")
+            A_s_log_lines.append(f" - LED Step: {SettingsData_handle.i_led_work_ms} ms, Work: {SettingsData_handle.i_led_step_ms} ms, Delay: {SettingsData_handle.i_led_delay_ms} ms")
+            A_s_log_lines.append(f" - Occupancy Timeout: {SettingsData_handle.i_occu_chk_timeout} us")
+            A_s_log_lines.append(f" - Sleep Time: {SettingsData_handle.i_sleep_time} us")
+            A_s_log_lines.append(f" - Occupancy: {SettingsData_handle.b_occu_status}")
+            A_s_log_lines.append(f" - PIR Output: {SettingsData_handle.b_pir_status}")
 
-    #     # --- 설정값 처리 ---
-    #     elif sensor_data.settings:
-    #         s = sensor_data.settings
-    #         occupancy_status = "🟢 재실" if s.occupancy else "⚪ 없음"
-    #         log_lines.append("  Settings:")
-    #         log_lines.append(f"    - TP1: {s.tp1}")
-    #         log_lines.append(f"    - TP1 Recheck: {s.tp1_recheck}")
-    #         log_lines.append(f"    - TP2: {s.tp2}")
-    #         log_lines.append(f"    - LED: Max={s.led_max_percentage}%, Min={s.led_min_percentage}%, Dim={s.led_dimming_percentage}%")
-    #         log_lines.append(f"    - LED Step: {s.led_dimming_step_time_ms} ms, Work: {s.led_dimming_work_time_ms} ms, Delay: {s.led_dimming_delay_time_ms} ms")
-    #         log_lines.append(f"    - Occupancy Timeout: {s.occupancy_timeout_us} us")
-    #         log_lines.append(f"    - Sleep Time: {s.sleep_time} us")
-    #         log_lines.append(f"    - Occupancy: {occupancy_status}")
-
-    #     return "\n".join(log_lines)
+        return "\n".join(A_s_log_lines) # 리스트의 각 항목을 \n(줄바꿈)으로 이어 붙여 하나의 문자열로 만듭니다.
 
     # def create_plot_tab(self, graph_tab_name, graph_fixed_range=None, opt_show_tp1=False, tab_type="adc_raw"):
 
@@ -1423,23 +1449,23 @@ class MainWindow(QMainWindow):
     #                 label.setText(f"DC Mean: {dc_mean:.1f}\nPeak: {peak_freq:.2f} Hz\n진폭(Mag): {peak_mag:.1f}")
     #                 label.setPos(10, 50)  # Y축 150 고정, 중간 위치
 
-    # def _get_or_create_plot(self, name, fixed_range=None, show_tp1_line=False):
-    #     """데이터 타입 이름으로 플롯을 반환. 미리 생성된 탭을 사용."""
-    #     if name in self.plots:
-    #         return self.plots[name]
-    #     else:
-    #         # 미리 생성되지 않은 탭은 동적으로 생성 (fallback)
-    #         # 이름에 따라 적절한 탭 타입 결정
-    #         if ("HW_HPF" in name or "HW_BPF" in name) and "_2" in name:
-    #             tab_type = "hw_filter_2"
-    #         elif "HW_HPF" in name or "HW_BPF" in name:
-    #             tab_type = "hw_filter"
-    #         elif "ADC_HPF" in name or "ADC_BPF" in name:
-    #             tab_type = "sw_filter"
-    #         else:
-    #             tab_type = "adc_raw"
-    #         self._create_plot_tab(name, fixed_range, show_tp1_line, tab_type)
-    #         return self.plots[name]
+    def _get_or_create_plot(self, name, fixed_range=None, show_tp1_line=False):
+        """데이터 타입 이름으로 플롯을 반환. 미리 생성된 탭을 사용."""
+        if name in self.plots:
+            return self.plots[name]
+        else:
+            # 미리 생성되지 않은 탭은 동적으로 생성 (fallback)
+            # 이름에 따라 적절한 탭 타입 결정
+            if ("HW_HPF" in name or "HW_BPF" in name) and "_2" in name:
+                tab_type = "hw_filter_2"
+            elif "HW_HPF" in name or "HW_BPF" in name:
+                tab_type = "hw_filter"
+            elif "ADC_HPF" in name or "ADC_BPF" in name:
+                tab_type = "sw_filter"
+            else:
+                tab_type = "adc_raw"
+            self._create_plot_tab(name, fixed_range, show_tp1_line, tab_type)
+            return self.plots[name]
 
 
     # def _update_threshold_lines(self):

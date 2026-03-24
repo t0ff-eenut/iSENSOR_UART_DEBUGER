@@ -4,8 +4,8 @@
 UART 프레임 및 센서 데이터 구조
 """
 
-from dataclasses import dataclass, field
-from typing import Optional, List, Any
+from dataclasses import dataclass,field
+from typing import Optional,List,Any
 from datetime import datetime
 
 import uart_protocol.data_models            as updm
@@ -41,7 +41,6 @@ class UartReceiveData:
     bytes_checksum:bytes      # Sum 체크섬 (Little Endian)
     bytes_etx:bytes           # DD 55 AA (3 bytes)
     
-
     # 메타데이터
     b_chksum_pass:bool = True       # 체크섬 검증 결과
     timestamp:datetime = field(default_factory=datetime.now)
@@ -49,11 +48,16 @@ class UartReceiveData:
     
     def __repr__(self) -> str:
         return (
-            f"UartFrame("
-            f"type={self.bytes_data_type}, "
-            f"length={self.bytes_data_length}, "
-            f"chksum pass={self.b_chksum_pass}, "
-            #f"time={self.timestamp.strftime('%H:%M:%S.%f')[:-3]}"
+            f"\nUartReceiveData("
+            f"bytes_stx\t={self.bytes_stx},\n"
+            f"bytes_data_type\t={self.bytes_data_type},\n"
+            f"bytes_data_length\t={self.bytes_data_length},\n"
+            f"bytes_data\t={self.bytes_data},\n"
+            f"bytes_checksum\t={self.bytes_checksum},\n"
+            f"bytes_etx\t={self.bytes_etx},\n"
+            f"b_chksum_pass\t={self.b_chksum_pass},\n"
+            f"timestamp\t={self.timestamp.strftime('%H:%M:%S.%f')[:-3]},\n"
+            f"error_message\t={self.error_message},\n"
             f")"
         )
 
@@ -67,12 +71,11 @@ class SensorData:
     """
 
     # 원본 프레임 참조
-    UartFrame_raw:updm.UartFrame = None
+    UartReceiveData_raw:updm.UartReceiveData = None
     i_data_type:int = 0
-
     i_adc_raw:int   = 0
     # 버퍼 데이터 (uint16 or float32)
-    adc_buffer: Optional[List[int]] = None              # 타입 0 (RAW)
+    A_adc_buffer:Optional[List[int]] = None              # 타입 0 (RAW)
     # voltage_buffer: Optional[List[int]] = None          # 타입 1 (Voltage)
     # adc_hpf_buffer: Optional[List[float]] = None        # 타입 2 (SW HPF 적용값)
     # hpf_buffer: Optional[List[float]] = None            # 타입 2 별칭 (하위 호환성)
@@ -86,7 +89,7 @@ class SensorData:
     # occupancy_buffer: Optional[List[bool]] = None     # (비활성화)
     
     # 설정 데이터 (타입 6)
-    settings: Optional['SettingsData'] = None
+    settings:Optional[SettingsData] = None
     # settings: Optional[parse_settings] = None
     
     
@@ -101,8 +104,12 @@ class SensorData:
     def __repr__(self) -> str:
         data_name = upcfg.get_data_type_name(self.i_data_type)
         return (
-            f"SensorData("
-            f"type={data_name}, "
+            f"\nSensorData("
+            f"UartReceiveData_raw={self.UartReceiveData_raw},\n"
+            f"i_data_type={self.i_data_type},\n"
+            f"i_adc_raw={self.i_adc_raw},\n"
+            f"A_adc_buffer={self.A_adc_buffer},\n"
+            f"settings={self.settings},\n"
             f"time={self.timestamp.strftime('%H:%M:%S.%f')[:-3]}"
             f")"
         )
@@ -135,32 +142,34 @@ class SettingsData:
     UART_RECEIVE_SETTINGS_OCCUPANCY_STATUS_BYTESIZE:int = 1 # bool
     UART_RECEIVE_SETTINGS_PIR_STATUS_BYTESIZE:int       = 1 # bool
     """
-    tp1: int                            # uint16 (occupancy)
-    tp1_recheck: int                    # uint16 (recheck)
-    tp2: int                            # uint64
-    led_max_percentage: int             # uint8
-    led_min_percentage: int             # uint8
-    led_dimming_percentage: int         # uint8
-    led_dimming_work_time_ms: int       # uint32
-    led_dimming_step_time_ms: int       # uint32
-    led_dimming_delay_time_ms: int      # uint32
-    occupancy_check_timeout_us: int     # uint64
-    sleep_time: int                     # uint64
-    occupancy: bool = False             # bool (재실 여부)
-    pir_output: bool = False            # bool (PIR 출력)
+    i_tp1:int = 0                      # uint16 (occupancy)
+    i_tp1_recheck:int = 0              # uint16 (recheck)
+    i_tp2:int = 0                      # uint64
+    i_led_max_per:int = 0              # uint8
+    i_led_min_per:int = 0              # uint8
+    i_led_dim_per:int = 0              # uint8
+    i_led_work_ms:int = 0              # uint32
+    i_led_step_ms:int = 0              # uint32
+    i_led_delay_ms:int = 0             # uint32
+    i_occu_chk_timeout:int = 0         # uint64
+    i_sleep_time:int = 0               # uint64
+    b_occu_status:bool = False         # bool (재실 여부)
+    b_pir_status:bool = False          # bool (PIR 출력)
     
     def __repr__(self) -> str:
         return (
-            f"SettingsData("
-            f"TP1={self.tp1}, "
-            f"TP1_RECHECK={self.tp1_recheck}, "
-            f"TP2={self.tp2}, "
-            f"LED={self.led_max_percentage}/{self.led_min_percentage}/{self.led_dimming_percentage}%, "
-            f"WORK={self.led_dimming_work_time_ms}ms, "
-            f"STEP={self.led_dimming_step_time_ms}ms, "
-            f"DELAY={self.led_dimming_delay_time_ms}ms, "
-            f"OCCUPANCY={'재실' if self.occupancy else '없음'}, "
-            f"PIR={'ON' if self.pir_output else 'OFF'}"
+            f"\nSettingsData("
+            f"TP1={self.i_tp1},\n"
+            f"TP1_RECHECK={self.i_tp1_recheck},\n"
+            f"TP2={self.i_tp2},\n"
+            f"LED={self.i_led_max_per}/{self.i_led_min_per}/{self.i_led_dim_per}%,\n"
+            f"WORK={self.i_led_work_ms}ms,\n"
+            f"STEP={self.i_led_step_ms}ms,\n"
+            f"DELAY={self.i_led_delay_ms}ms,\n"
+            f"OCCU_CHK_TIME={self.i_occu_chk_timeout}ms,\n"
+            f"SELLP_TIME={self.i_sleep_time}ms,\n"
+            f"OCCUPANCY={'재실' if self.b_occu_status else '없음'},\n"
+            f"PIR={'ON' if self.b_pir_status else 'OFF'}"
             f")"
         )
 
@@ -225,9 +234,9 @@ class ParserState:
     # def __repr__(self) -> str:
     #     return (
     #         f"ParserState("
-    #         f"total={self.total_frames}, "
-    #         f"valid={self.valid_frames}, "
-    #         f"invalid={self.invalid_frames}, "
+    #         f"total={self.total_frames},\n"
+    #         f"valid={self.valid_frames},\n"
+    #         f"invalid={self.invalid_frames},\n"
     #         f"rate={self.success_rate():.1%}"
     #         f")"
     #     )
