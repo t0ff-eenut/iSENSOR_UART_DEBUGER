@@ -7,7 +7,7 @@
 # from enum import IntEnum, auto
 # from typing import Optional, Tuple
 # from uart_protocol.protocol_config import (
-#     RECEIVE_STX, upcfg.UART_RECEIVE_ETX_PATTERN, upcfg.RECEIVE_STX_LENGTH, upcfg.UART_RECEIVE_ETX_SIZE,
+#     UART_RECEIVE_STX_PATTERN, upcfg.UART_RECEIVE_ETX_PATTERN, upcfg.RECEIVE_STX_LENGTH, upcfg.UART_RECEIVE_ETX_SIZE,
 #     RECEIVE_HEADER_LENGTH, FRAME_OVERHEAD_SIZE,
 #     RECEIVE_MAX_PAYLOAD_LENGTH, get_data_type_name
 # )
@@ -105,10 +105,10 @@ class UartReceiveParser:
     def parse_stx(self) -> None:
         """STX 패턴 파싱 (3 bytes)"""
         while len(self.A_receive_byte_buffer) >= upcfg.RECEIVE_STX_LENGTH:
-            if bytes(self.A_receive_byte_buffer[:upcfg.RECEIVE_STX_LENGTH]) == bytes(upcfg.RECEIVE_STX):
+            if bytes(self.A_receive_byte_buffer[:upcfg.RECEIVE_STX_LENGTH]) == bytes(upcfg.UART_RECEIVE_STX_PATTERN):
                 
                 # print(f"uart_receive_parser.py | parse_stx() | bytes(self.A_receive_byte_buffer[:upcfg.RECEIVE_STX_LENGTH]) : {bytes(self.A_receive_byte_buffer[:upcfg.RECEIVE_STX_LENGTH])}")   # 
-                # print(f"uart_receive_parser.py | parse_stx() | bytes(upcfg.RECEIVE_STX) : {bytes(upcfg.RECEIVE_STX)}")
+                # print(f"uart_receive_parser.py | parse_stx() | bytes(upcfg.UART_RECEIVE_STX_PATTERN) : {bytes(upcfg.UART_RECEIVE_STX_PATTERN)}")
 
                 self.bytes_receive_stx = bytes(self.A_receive_byte_buffer[:upcfg.RECEIVE_STX_LENGTH])
                 self.enum_parse_state = enum_parse_state.READ_HEADER

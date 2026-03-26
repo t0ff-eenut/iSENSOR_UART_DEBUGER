@@ -68,11 +68,11 @@ class DataParser:
 
             # 데이터 타입별 파싱
             if int(sensor_data.i_data_type) == upcfg.UartDataType.RAW_VALUE:
-                # sensor_data.adc_buffer = PayloadParser._parse_uint16_buffer(bytes_data)
+                # sensor_data.A_adc_buffer = PayloadParser._parse_uint16_buffer(bytes_data)
                 sensor_data.i_adc_raw = econv.bytes_to_uint16_array_be(complete_receive_data.bytes_data)
                 
             elif sensor_data.i_data_type == upcfg.UartDataType.ADC_BUFFER:
-                sensor_data.adc_buffer = econv.bytes_to_uint16_array_be(complete_receive_data.bytes_data)
+                sensor_data.A_adc_buffer = econv.bytes_to_uint16_array_be(complete_receive_data.bytes_data)
             # elif sensor_data.i_data_typ == upcfg.UartDataType.VOLTAGE_BUFFER:
             #     sensor_data.voltage_buffer = PayloadParser._parse_uint16_buffer(bytes_data)
             
@@ -198,16 +198,16 @@ class DataParser:
         
         i_led_max_per_start = i_tp2_end
         i_led_max_per_end = i_led_max_per_start + upcfg.RECEIVE_SETTINGS_LED_MAX_PER_LENGTH
-        # 
-        SettingData_handle.i_led_max_per = bytes_data[i_led_max_per_start:i_led_max_per_end]
+        # LED Max Percentage (uint8)
+        SettingData_handle.i_led_max_per = econv.bytes_to_int_auto(bytes_data[i_led_max_per_start:i_led_max_per_end], endian='big')
         i_led_min_per_start = i_led_max_per_end
         i_led_min_per_end = i_led_min_per_start + upcfg.RECEIVE_SETTINGS_LED_MIN_PER_LENGTH
-        # 
-        SettingData_handle.i_led_min_per = bytes_data[i_led_min_per_start:i_led_min_per_end]
+        # LED Min Percentage (uint8)
+        SettingData_handle.i_led_min_per = econv.bytes_to_int_auto(bytes_data[i_led_min_per_start:i_led_min_per_end], endian='big')
         i_led_dim_per_start = i_led_min_per_end
         i_led_dim_per_end = i_led_dim_per_start + upcfg.RECEIVE_SETTINGS_LED_DIM_PER_LENGTH
-        # 
-        SettingData_handle.i_led_dim_per = bytes_data[i_led_dim_per_start:i_led_dim_per_end]
+        # LED Dimming Percentage (uint8)
+        SettingData_handle.i_led_dim_per = econv.bytes_to_int_auto(bytes_data[i_led_dim_per_start:i_led_dim_per_end], endian='big')
 
         i_led_work_ms_start = i_led_dim_per_end
         i_led_work_ms_end = i_led_work_ms_start + upcfg.RECEIVE_SETTINGS_LED_WORK_MS_LENGTH
@@ -225,20 +225,20 @@ class DataParser:
         i_occu_chk_timeout_start = i_led_delay_ms_end
         i_occu_chk_timeout_end = i_occu_chk_timeout_start + upcfg.RECEIVE_SETTINGS_OCCU_CHK_TIMEOUT_LENGTH
         # 
-        SettingData_handle.i_occu_chk_timeout = econv.bytes_to_uint64_be(bytes_data[i_occu_chk_timeout_start:i_occu_chk_timeout_end])
+        SettingData_handle.i_occu_chk_timeout_us = econv.bytes_to_uint64_be(bytes_data[i_occu_chk_timeout_start:i_occu_chk_timeout_end])
         i_sleep_time_start = i_occu_chk_timeout_end
         i_sleep_time_end = i_sleep_time_start + upcfg.RECEIVE_SETTINGS_SLEEP_TIME_LENGTH
         # 
-        SettingData_handle.i_sleep_time = econv.bytes_to_uint64_be(bytes_data[i_sleep_time_start:i_sleep_time_end])
+        SettingData_handle.i_sleep_time_us = econv.bytes_to_uint64_be(bytes_data[i_sleep_time_start:i_sleep_time_end])
 
         b_occu_status_start = i_sleep_time_end
         b_occu_status_end = b_occu_status_start + upcfg.RECEIVE_SETTINGS_OCCUPANCY_STATUS_LENGTH
-        # 
-        SettingData_handle.b_occu_status = bytes_data[b_occu_status_start:b_occu_status_end]
+        # Occupancy status (bool from uint8)
+        SettingData_handle.b_occu_status = bool(econv.bytes_to_int_auto(bytes_data[b_occu_status_start:b_occu_status_end], endian='big'))
         b_pir_status_start = b_occu_status_end
         b_pir_status_end = b_pir_status_start + upcfg.RECEIVE_SETTINGS_PIR_STATUS_LENGTH
-        # 
-        SettingData_handle.b_pir_status = bytes_data[b_pir_status_start:b_pir_status_end]
+        # PIR status (bool from uint8)
+        SettingData_handle.b_pir_status = bool(econv.bytes_to_int_auto(bytes_data[b_pir_status_start:b_pir_status_end], endian='big'))
 
         return SettingData_handle
 

@@ -48,7 +48,7 @@ class UartReceiveData:
     
     def __repr__(self) -> str:
         return (
-            f"\nUartReceiveData("
+            f"\nUartReceiveData(\n"
             f"bytes_stx\t={self.bytes_stx},\n"
             f"bytes_data_type\t={self.bytes_data_type},\n"
             f"bytes_data_length\t={self.bytes_data_length},\n"
@@ -102,9 +102,9 @@ class SensorData:
 
     
     def __repr__(self) -> str:
-        data_name = upcfg.get_data_type_name(self.i_data_type)
+        # data_name = upcfg.get_data_type_name(self.i_data_type)
         return (
-            f"\nSensorData("
+            f"\nSensorData(\n"
             f"UartReceiveData_raw={self.UartReceiveData_raw},\n"
             f"i_data_type={self.i_data_type},\n"
             f"i_adc_raw={self.i_adc_raw},\n"
@@ -151,8 +151,8 @@ class SettingsData:
     i_led_work_ms:int = 0              # uint32
     i_led_step_ms:int = 0              # uint32
     i_led_delay_ms:int = 0             # uint32
-    i_occu_chk_timeout:int = 0         # uint64
-    i_sleep_time:int = 0               # uint64
+    i_occu_chk_timeout_us:int = 0         # uint64
+    i_sleep_time_us:int = 0               # uint64
     b_occu_status:bool = False         # bool (재실 여부)
     b_pir_status:bool = False          # bool (PIR 출력)
     
@@ -166,8 +166,8 @@ class SettingsData:
             f"WORK={self.i_led_work_ms}ms,\n"
             f"STEP={self.i_led_step_ms}ms,\n"
             f"DELAY={self.i_led_delay_ms}ms,\n"
-            f"OCCU_CHK_TIME={self.i_occu_chk_timeout}ms,\n"
-            f"SELLP_TIME={self.i_sleep_time}ms,\n"
+            f"OCCU_CHK_TIME={self.i_occu_chk_timeout_us}ms,\n"
+            f"SELLP_TIME={self.i_sleep_time_us}ms,\n"
             f"OCCUPANCY={'재실' if self.b_occu_status else '없음'},\n"
             f"PIR={'ON' if self.b_pir_status else 'OFF'}"
             f")"
