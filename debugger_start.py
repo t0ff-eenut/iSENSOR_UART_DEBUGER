@@ -9,40 +9,17 @@ import serial
 from serial.tools import (list_ports)
 
 import PyQt6.QtCore
-# from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QComboBox, QPushButton, QGridLayout, QLabel, QTextEdit, QGroupBox, QTabWidget,
     QSpinBox, QAbstractSpinBox, QMessageBox,
     QSizePolicy
 )
-# from PyQt6.QtCore import pyqtSlot, QThread, pyqtSignal
 
 import pyqtgraph
-# from pyqtgraph import (PlotWidget, mkPen, InfiniteLine, QtCore, pyqtgraph.TextItem)
-
 import enum
-
 import statistics
 from typing import List, Optional
-# from enum import Enum, auto, IntEnum, Flag
-# class TabType(str, Enum):
-#     ADC_RAW = "adc_raw"
-#     ADC_FFT = "adc_fft"
-#     SW_FILTER = "sw_filter"
-# class Mode(Enum):
-#     OFF = auto()
-#     ON = auto()
-# class BaudRate(IntEnum):
-#     B115200 = 115200
-#     B230400 = 230400
-# class Perm(Flag):
-#     READ = auto()
-#     WRITE = auto()
-#     EXEC = auto()
-# p = Perm.READ | Perm.WRITE
-# if Perm.WRITE in p:
-#     ...
 
 import config                               as cfg
 import uart_protocol.uart_protocol_config   as upcfg
@@ -51,35 +28,12 @@ import uart_protocol.data_parser            as updp
 import uart_protocol.command_sender         as upcs
 import uart_protocol.data_models            as updm
 
-# from upcfg import (BaudRate)
-# from upcs import CommandSender
-
-
-
-# 맑은 고딕 : 'Malgun Gothic'
-# Segoe UI: Windows 시스템 UI 폰트, 깔끔한 산세리프 → 데스크톱 앱 UI 권장
-# Tahoma: 가독성 좋고 컴팩트한 산세리프 → 레이블/버튼에 적합
-# Arial: 보편적 영문 산세리프 → 다국어(영문) 호환성 우수
-# Verdana: 화면 가독성 최적화(넓은 문자) → 소형 글자에 강함
-# Roboto: 구글/안드로이드 기본, 현대적 느낌 → 모바일/웹 스타일
-# Noto Sans KR: 구글의 다국어 한글 지원 폰트 → 일관된 크로스플랫폼 표시
-# Nanum Gothic / Nanum Myeongjo: 한국에서 자주 쓰이는 산세리프/명조
-# Pretendard: 최근 인기 있는 깔끔한 한글 웹폰트 → 깔끔한 UI에 적합
-# Gulim / Dotum / Batang: 오래된 Windows 기본 한글 글꼴(레거시 호환용)
 MACRO_FONT_NAME = "font-family: {};"
 MACRO_FONT_BOLD = "font-weight: bold;"
 MACRO_FONT_SIZE = "font-size: {}pt;"
 
-# Reusable CSS snippets for widgets
 BUTTON_HOVER_BG = "QPushButton:hover { background-color: %s; }"
-# print(BUTTON_HOVER_BG %'#3366ff')
-# print(
-#     """
-#     QPushButton:hover {
-#     background-color: #3366ff;
-#     }
-#     """
-#     )
+
 MACRO_BORDER_RADIUS = "border-radius: {}px;"
 MACRO_PADDING = "padding: {}px;"
 MACRO_BACKGROUND_COLOR = "background-color: {};"
@@ -87,71 +41,14 @@ MACRO_BORDER_STYLE = "border-style: {};"
 MACRO_BORDER_SIZE = "border: {}px;"
 MACRO_BORDER_COLOR = "border-color: {};"
 MACRO_TEXT_COLOR = "color: {};"
-# Fixed
-# 의미: 크기가 sizeHint()에 정확히 고정됩니다(늘어나거나 줄어들지 않음).
-# 사용처: 고정 아이콘, 고정 너비 버튼/라벨, 분할선 등.
-
-# Minimum
-# 의미: 가능한 한 작게(최소 크기) 유지하려 하고, 필요하면 늘어날 수 있음.
-# 사용처: 최소 공간만 차지하되 여유 공간이 생기면 확장해도 되는 작은 컨트롤.
-
-# Maximum
-# 의미: 가능한 한 크게 늘어나려 하지만(여유 있으면), 줄이는 쪽으로는 제약이 있음(작아지길 원하지 않음).
-# 사용처: 특수한 경우(보통 잘 쓰이지 않음).
-
-# Preferred
-# 의미: sizeHint()를 우선으로 삼고, 레이아웃 상황에 따라 늘어나거나 줄어들 수 있음.
-# 사용처: 일반적인 위젯(레이블, 입력상자 등).
-
-# MinimumExpanding
-# 의미: Minimum 성격(최소 유지를 선호) + 여유 공간이 있으면 적극적으로 확장함.
-# 사용처: 왼쪽 컨트롤은 최소, 오른쪽 뷰는 확장하는 레이아웃에서 가운데/오른쪽 확장 위젯.
-
-# Expanding
-# 의미: 가능한 한 여유 공간을 먼저 차지하려는 성향이 강함(확장 우선).
-# 사용처: 플롯, 텍스트 에디터, 로그 창 같은 중심 컨텐츠.
-
-# Ignored
-# 의미: sizeHint()를 무시하고 레이아웃이 임의로 크기를 정함.
-# 사용처: 커스텀 렌더링 캔버스 등 크기 제어를 전적으로 레이아웃에 맡길 때.
-
-# 각 데이터 타입별 플롯을 저장할 딕셔너리
-# self.plots = {}
-# self.plot_widgets = {}  # pyqtgraph.PlotWidget 저장용
-# self.threshold_lines = {}  # TP1 임계값 가로선 저장용
-# self.tp1_recheck_lines = {}  # TP1 Recheck 임계값 가로선 저장용
-# self.exceed_plots = {}  # TP1 초과 지점 표시용 ScatterPlot
-# self.exceed_labels = {}  # TP1 초과 개수 표시용 pyqtgraph.TextItem
-# self.stats_labels = {}  # 통계 정보 표시용 pyqtgraph.TextItem
-# self.i_tp1 = 0  # TP1 값 저장
-# self.tp1_rck_value = 0  # TP1 Recheck 값 저장
 
 NO_PORT_FOUND = "No ports found"
-
 
 ADC_RAW_FULL_SCALE_NAME = "ADC Raw Full Scale"
 ADC_RAW_ZOOM_SCALE_NAME = "ADC Raw Zoom Scale"
 ADC_FFT_FULL_SCALE_NAME = "ADC FFT Full Scale"
 ADC_FFT_ZOOM_SCALE_NAME = "ADC FFT Zoom Scale"
 
-
-
-# class enum_graph_plot_num(enum.IntEnum):
-#     ADC_RAW = 0
-#     ADC_FFT = ADC_RAW + 1
-# class enum_graph_plot_range_opt(enum.IntEnum):
-#     ALL = 0
-#     ADAPTIVE = ALL + 1
-# class enum_graph_plot_index(enum.IntEnum):
-#     STR_PLOT_NAME = 0
-#     INT_GRAPH_X_RANGE = STR_PLOT_NAME + 1
-#     STR_GRAPH_X_LABEL_POS = INT_GRAPH_X_RANGE + 1
-#     STR_GRAPH_X_LABEL = STR_GRAPH_X_LABEL_POS + 1
-#     INT_GRAPH_Y_RANGE = STR_GRAPH_X_LABEL + 1
-#     STR_GRAPH_Y_LABEL_POS = INT_GRAPH_Y_RANGE + 1
-#     STR_GRAPH_Y_LABEL = STR_GRAPH_Y_LABEL_POS + 1
-#     STR_LINE_COLOR = STR_GRAPH_Y_LABEL + 1
-#     STR_LEGEND_TEXT = STR_LINE_COLOR + 1
 class enum_graph_plot_num(enum.IntEnum):
     ADC_RAW = 0
     ADC_FFT = ADC_RAW + 1
@@ -173,7 +70,6 @@ class UartWorker(PyQt6.QtCore.QThread):
     """
     UART 통신을 처리하는 워커 스레드
     """
-
     event_new_data          = PyQt6.QtCore.pyqtSignal(object)       # 파싱된 SensorData 객체    # emit 이벤트 함수
     log_message             = PyQt6.QtCore.pyqtSignal(str)          # 로그 메시지 (텍스트)
     event_connection_status = PyQt6.QtCore.pyqtSignal(bool)         # 연결 상태 (True: 성공, False: 실패)   # emit 이벤트 함수
@@ -217,65 +113,30 @@ class UartWorker(PyQt6.QtCore.QThread):
         while self.b_uart_thread_running:
             try:
                 if self.serial_port.in_waiting > 0:
-
-                    byte_data:bytes = self.serial_port.read(self.serial_port.in_waiting)
-                    # print(f"debugger_start.py | [UART RX] {len(byte_data)} bytes received") # debugger_start.py | [UART RX] 32 bytes received
-                    # print(f"debugger_start.py | byte_data : {byte_data}")                   # debugger_start.py | byte_data : b'\xaaU\xcc\t-\x00\x0f\xa0\x0f\xa0\x00\x00\x00\x00\x00\x00\x00\x14d\x00\x14\x00\x00\x00\x05\x00\x00\x01\xf4\x00\x00\x01'
-                    
+                    byte_data:bytes = self.serial_port.read(self.serial_port.in_waiting)                    
                     for byte in byte_data:
-                        # print(f"debugger_start.py | byte : {byte}")                         # debugger_start.py | byte : 170
                         complete_receive_data:updm.UartReceiveData = self.UartReceiveParser_handle.feed_byte(byte)
-                        # print(f"debugger_start.py | run() | complete_receive_data(UartReceiveData) : {complete_receive_data}")     # debugger_start.py | frame : None
-
                         if complete_receive_data:
-                            # ★ 디버그: 프레임 파싱 완료 (비활성화)
-                            # print(f"[UART RX] Frame parsed! Type: {frame.data_type}, Payload: {frame.data_length} bytes")
-
                             sensor_data = self.DataParser_handle.data_parser(complete_receive_data)
-                            # print(f"debugger_start.py | run() | sensor_data(SensorData) : {sensor_data}")     # debugger_start.py | frame : None
-
                             if sensor_data:
-                                # ★ 디버그: 센서 데이터 파싱 완료 (비활성화)
-                                # print(f"debugger_start.py | run() | SensorData ready! Data type: {sensor_data.i_data_type}")
                                 self.event_new_data.emit(sensor_data)
                             else:
                                 print(f"debugger_start.py | run() | sensor_data = None for type {complete_receive_data.bytes_data_type}")
-
-                            # # bytes_stx:bytes           # AA 55 CC (3 bytes)
-                            # # bytes_data_type:bytes     # 0~9 (UartDataType)
-                            # # bytes_data_length:bytes   # 데이터 길이 (Little Endian)
-                            # # bytes_data:bytes          # 실제 데이터
-                            # # bytes_checksum:bytes      # Sum 체크섬 (Little Endian)
-                            # # bytes_etx:bytes           # DD 55 AA (3 bytes)
-
-                            # if sensor_data == None:
-                            #     # ★ 디버그: 센서 데이터 파싱 완료 (비활성화)
-                            #     # print(f"[UART RX] SensorData ready! Data type: {sensor_data.data_type}")
-                            #     print(f"debugger_start.py | run() | sensor_data = None for type {complete_receive_data.bytes_data_type}")
-                            
-
             except serial.SerialException as e:
                 self.log_message.emit(f"✗ Serial error: {e}")
                 self.b_uart_thread_running = False
-        
         if self.serial_port and self.serial_port.is_open:
             self.serial_port.close()
             self.log_message.emit("Port closed.")
-        
         self.event_connection_status.emit(False)
 
     def stop(self):
         """스레드 종료"""
         self.b_uart_thread_running = False
-
         self.log_message.emit("Requesting to stop UART thread...")
         self.wait(2000) # Wait up to 2 seconds for the thread to finish
 
-
-
-
 class MainWindow(QMainWindow):
-
     def adc_bit_2_range(self, input_i_bit:int = 0) -> int:
         return (1 << input_i_bit) - 1
 
@@ -294,32 +155,11 @@ class MainWindow(QMainWindow):
         self.f_sampling_rate:float = input_f_sampling_rate
 
     def value_init(self):
-
         self.adc_window_size_setting(300)
         self.adc_tp1_setting(10)
         self.adc_tp1_rck_setting(1000)
         self.adc_smapling_rate_setting(100)
-
-
-        # plots = {}
-        # plot_widgets = {}  # pyqtgraph.PlotWidget 저장용
-        # threshold_lines = {}  # TP1 임계값 가로선 저장용
-        # tp1_recheck_lines = {}  # TP1 Recheck 임계값 가로선 저장용
-        # exceed_plots = {}  # TP1 초과 지점 표시용 ScatterPlot
-        # exceed_labels = {}  # TP1 초과 개수 표시용 pyqtgraph.TextItem
-        # stats_labels = {}  # 통계 정보 표시용 pyqtgraph.TextItem
-        # tp1_value = 0  # TP1 값 저장
-        # tp1_rck_value = 0  # TP1 Recheck 값 저장
         
-        # 나중에 tabData로 찾기
-        # for i in range(self.adc_raw_plot_TabWidget.count()):
-        #     if self.adc_raw_plot_TabWidget.tabText(i) == graph_tab_name:
-        #     if self.adc_raw_plot_TabWidget.tabData(i) == graph_tab_name:
-        #         pw = self.adc_raw_plot_TabWidget.widget(i)
-        #         break
-# target_PlotWidget.setObjectName("plot_"+graph_tab_name)
-# pw = self.adc_raw_plot_TabWidget.findChild(pyqtgraph.PlotWidget, "plot_"+graph_tab_name)
-
         self.A_graph_plot_value:list = []
         """
         STR_PLOT_NAME
@@ -355,14 +195,11 @@ class MainWindow(QMainWindow):
                 , "#000000", "TEMP_LEGEND"
             ],
         ]
-
         self.A_graph_plot_value.append(self.A_adc_raw_plot_TabWidget_configs)   # 0
         self.A_graph_plot_value.append(self.A_adc_fft_plot_TabWidget_configs)   # 1
-
         self.uart_thread = None
         self.command_sender = upcs.CommandSender()  # 명령 송신 객체
         
-
     def graph_title_setting(self, input_s_graph_title:str, input_enum_graph_plot_num:enum_graph_plot_num = None, input_enum_graph_plot_range_opt:enum_graph_plot_range_opt = None):
         for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
             for enum_graph_plot_range_opt_index in range(len(self.A_graph_plot_value[enum_graph_plot_num_index])):
@@ -426,14 +263,6 @@ class MainWindow(QMainWindow):
                     if (input_enum_graph_plot_range_opt is None) or (input_enum_graph_plot_range_opt == enum_graph_plot_range_opt_index):
                         self.A_graph_plot_value[enum_graph_plot_num_index][enum_graph_plot_range_opt_index][enum_graph_plot_index.STR_LEGEND_TEXT] = input_s_graph_legend
 
-    # def adc_bit_refrash(self):
-    #     self.A_graph_plot_value[enum_graph_plot_num.ADC_RAW][enum_graph_plot_range_opt.ALL][enum_graph_plot_index.INT_GRAPH_Y_RANGE] = (1 << self.i_adc_bit) - 1
-    # def adc_bit_setting(self, input_i_adc_bit):
-    #     self.i_adc_bit = input_i_adc_bit
-    #     self.adc_bit_refrash()
-
-
-
     """메인 윈도우"""
     def __init__(self):
         super().__init__()
@@ -480,9 +309,6 @@ class MainWindow(QMainWindow):
         # --- 좌측 패널 (제어 + 설정) ---
         self.left_Widget = QWidget()                     # 1. 대상 위젯 생성
         self.left_Widget.setFixedWidth(cfg.LEFT_BOX_WIDTH)              # * 위젯 가로 사이즈 설정
-        # 5px = 테두리 두께(픽셀).
-        # solid = 테두리 스타일 — 실선(draw a solid line). (dashed, dotted, none 등 가능)
-        # #3366ff = 테두리 색상(HEX).
 
         self.left_Widget.setStyleSheet(""
                                        + MACRO_BORDER_RADIUS.format(6)
@@ -563,11 +389,6 @@ class MainWindow(QMainWindow):
                                                   + BUTTON_HOVER_BG % cfg.LINE_COLOR
                                                   )
         self.port_connect_PushButton.clicked.connect(self.event_port_connection) # 버튼 기능 구현
-        # addWidget(..., row, col, rowSpan, colSpan)의
-        # 2 = 배치할 행(row) 인덱스 (0부터 시작)
-        # 0 = 배치할 열(column) 인덱스 (0부터 시작)
-        # 1 = 몇 행(rowSpan)을 차지할지 (여기선 1행)
-        # 2 = 몇 열(columnSpan)을 차지할지 (여기선 2열)
         self.connection_GridLayout.addWidget(self.port_connect_PushButton, 2, 0, 1, 2)
 
 #################################################################################################################
@@ -734,7 +555,6 @@ class MainWindow(QMainWindow):
         self.tp2_SpinBox.setValue(10)  # 기본값
         # 내장 버튼을 숨기고 외부 버튼으로 대체
         self.tp2_SpinBox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        # self.tp1_SpinBox.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.tp2_HBoxLayout.addWidget(self.tp2_SpinBox)
         # 별도 버튼: 상승 / 하강
         self.tp2_up_btn = QPushButton("▲")
@@ -759,11 +579,6 @@ class MainWindow(QMainWindow):
                                                   )
                                                   
         self.tp_setting_PushButton.clicked.connect(self.event_send_tp_command) # 버튼 기능 구현
-        # addWidget(..., row, col, rowSpan, colSpan)의
-        # 2 = 배치할 행(row) 인덱스 (0부터 시작)
-        # 0 = 배치할 열(column) 인덱스 (0부터 시작)
-        # 1 = 몇 행(rowSpan)을 차지할지 (여기선 1행)
-        # 2 = 몇 열(columnSpan)을 차지할지 (여기선 2열)
         self.tp_setting_GridLayout.addWidget(self.tp_setting_PushButton, 4, 0, 1, 2)
 
         # --- 우측 패널 (그래프 + 로그) ---
@@ -786,7 +601,6 @@ class MainWindow(QMainWindow):
         self.adc_raw_graph_GroupBox.setStyleSheet(""
                                                   + MACRO_PADDING.format(10)
                                                   )
-        # self.right_VBoxLayout.addWidget(self.adc_raw_graph_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
         self.right_VBoxLayout.addWidget(self.adc_raw_graph_GroupBox, stretch=2)           # 1-1. 상위 레이아웃에 위젯 적용
 
         self.adc_raw_graph_VBoxLayout = QVBoxLayout()                     # 2. 세로 방향 레이아웃 생성
@@ -798,14 +612,12 @@ class MainWindow(QMainWindow):
                                                   + MACRO_PADDING.format(0)
                                                   )
         self.adc_raw_plot_TabWidget.setMovable(True)  # 탭 드래그로 순서 변경 가능
-        # self.adc_raw_graph_VBoxLayout.addWidget(self.adc_raw_plot_TabWidget, stretch=2)
         self.adc_raw_graph_VBoxLayout.addWidget(self.adc_raw_plot_TabWidget)
         
         self.adc_fft_graph_GroupBox = QGroupBox("ADC FFT Plot")             # 1. 대상 위젯 생성
         self.adc_fft_graph_GroupBox.setStyleSheet(""
                                                   + MACRO_PADDING.format(10)
                                                   )
-        # self.right_VBoxLayout.addWidget(self.adc_fft_graph_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
         self.right_VBoxLayout.addWidget(self.adc_fft_graph_GroupBox, stretch=2)           # 1-1. 상위 레이아웃에 위젯 적용
 
         self.adc_fft_graph_VBoxLayout = QVBoxLayout()                     # 2. 세로 방향 레이아웃 생성
@@ -818,7 +630,6 @@ class MainWindow(QMainWindow):
                                                   + MACRO_PADDING.format(0)
                                                   )
         self.adc_fft_plot_TabWidget.setMovable(True)  # 탭 드래그로 순서 변경 가능
-        # self.adc_fft_graph_VBoxLayout.addWidget(self.adc_fft_plot_TabWidget, stretch=2)
         self.adc_fft_graph_VBoxLayout.addWidget(self.adc_fft_plot_TabWidget)
     
         for plot_opt in enum_graph_plot_range_opt:
@@ -860,49 +671,20 @@ class MainWindow(QMainWindow):
         # self.command_sender = upcs.CommandSender(None)  # 명령 송신 객체
 
 ############################################################################################################
-    # @pyqtSlot(bool)
     def event_connection_status_changed(self, b_is_connected):
         """워커의 연결 상태 변경 시 UI 업데이트"""
         self.port_connect_PushButton.setEnabled(True)
         if b_is_connected:
             self.port_connect_PushButton.setText("Disconnect")
-            # 모든 컨트롤 버튼 활성화
-            # self.tp1_send_button.setEnabled(True)
-            # self.tp2_send_button.setEnabled(True)
-            # self.tp1_recheck_send_button.setEnabled(True)
-            # self.get_settings_button.setEnabled(True)
-            # self.save_nvs_button.setEnabled(True)
-            # self.reset_button.setEnabled(True)
-
             self.tp_setting_PushButton.setEnabled(True)
-            # CommandSender에 시리얼 포트 설정
-
-            # self.serial_port:serial.Serial = serial.Serial(
-            #     port        = self.i_port_num,
-            #     baudrate    = self.i_baud_rate,
-            #     bytesize    = serial.EIGHTBITS,
-            #     parity      = serial.PARITY_NONE,
-            #     stopbits    = serial.STOPBITS_ONE,
-            #     timeout     = 1.0
-            # )
-
             # PC -> Chip 명령 송신
             if self.uart_thread and self.uart_thread.serial_port:
                 self.command_sender.set_serial(self.uart_thread.serial_port)
         else:
             self.port_connect_PushButton.setText("Connect")
-            # 모든 컨트롤 버튼 비활성화
-            # self.tp1_send_button.setEnabled(False)
-            # self.tp2_send_button.setEnabled(False)
-            # self.tp1_recheck_send_button.setEnabled(False)
-            # self.get_settings_button.setEnabled(False)
-            # self.save_nvs_button.setEnabled(False)
-            # self.reset_button.setEnabled(False)
             self.tp_setting_PushButton.setEnabled(True)
-
             self.command_sender.set_serial(None)
 
-            # Clean up the thread object
             if self.uart_thread:
                 self.uart_thread.deleteLater()
                 self.uart_thread = None
@@ -913,7 +695,6 @@ class MainWindow(QMainWindow):
         self.port_sel_ComboBox.clear()
         A_ports:list = list_ports.comports()
         for port in A_ports:
-            # self.port_sel_ComboBox.addItem(f"{port.description}")
             self.port_sel_ComboBox.addItem(f"{port.device}: {port.description}", port.device)
         if not A_ports:
             self.port_sel_ComboBox.addItem(NO_PORT_FOUND)
@@ -945,30 +726,17 @@ class MainWindow(QMainWindow):
         else:
             # 연결
             port = self.port_sel_ComboBox.currentData()
-
             self.log_TextEdit.append(f"Connected port {port}")
-
             if not port or NO_PORT_FOUND in port:
                 self.log_TextEdit.append("Error: 선택된 포트가 없습니다.")
                 return
             baud = self.baudrate_sel_ComboBox.currentData()
-
             self.uart_thread = UartWorker(port, baud)
             self.uart_thread.event_new_data.connect(self.event_update_ui)
-            # self.uart_thread.log_message.connect(self.log_TextEdit.append)
-
-            # emit 연결
             self.uart_thread.event_connection_status.connect(self.event_connection_status_changed)
-
             self.uart_thread.start()
-            
             self.port_connect_PushButton.setText("Connecting...")
             self.port_connect_PushButton.setEnabled(False) # Disable button while connecting
-    
-
-
-
-
 
     def event_send_tp_command(self):
         """TP1 값을 ESP32에 전송"""
@@ -993,34 +761,6 @@ class MainWindow(QMainWindow):
         else:
             self.log_TextEdit.append("[TX] TP2 전송 실패 - 연결 상태를 확인하세요")
             QMessageBox.warning(self, "전송 실패", "TP2 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
-    
-    # def send_tp2_command(self):
-    #     """TP2 값을 ESP32에 전송"""
-    #     tp2_value = self.tp2_spinbox.value()
-        
-    #     if self.command_sender.send_set_tp2(tp2_value):
-    #         self.log_TextEdit.append(f"[TX] TP2 설정 명령 전송: {tp2_value}")
-    #     else:
-    #         self.log_TextEdit.append("[TX] TP2 전송 실패 - 연결 상태를 확인하세요")
-    #         QMessageBox.warning(self, "전송 실패", "TP2 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
-    
-    # def send_tp1_recheck_command(self):
-    #     """TP1_RECHECK 값을 ESP32에 전송"""
-    #     tp1_recheck_value = self.tp1_recheck_spinbox.value()
-        
-    #     if self.command_sender.send_set_tp1_recheck(tp1_recheck_value):
-    #         self.log_TextEdit.append(f"[TX] TP1_RECHECK 설정 명령 전송: {tp1_recheck_value}")
-    #         # 로컬 tp1_recheck_value 업데이트 및 그래프 임계선 업데이트
-    #         self.i_tp1_rck = tp1_recheck_value
-    #         self._update_threshold_lines()
-    #     else:
-    #         self.log_TextEdit.append("[TX] TP1_RECHECK 전송 실패 - 연결 상태를 확인하세요")
-    #         QMessageBox.warning(self, "전송 실패", "TP1_RECHECK 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
-
-
-
-
-
 
     def graph_statistics(self, inter_buffer:list):
         """0이 아닌 값들에 대한 통계 계산"""
@@ -1037,29 +777,14 @@ class MainWindow(QMainWindow):
 
         return i_buffer_len, i_exclusion_zero_buffer_len, i_min, i_max, i_avg, i_mid
 
-    # def _format_array_pretty(self, data, items_per_line=10, indent=4):
-    #     """배열 데이터를 보기 좋게 문자열로 변환"""
-    #     lines = []
-    #     for i in range(0, len(data), items_per_line):
-    #         chunk = data[i:i + items_per_line]
-    #         line = ", ".join(f"{x}" if isinstance(x, int) else f"{x:.2f}" for x in chunk)
-    #         lines.append(f"{' ' * indent}[{i:03d}] {line}")
-    #     return "\n".join(lines)
-
-    # sensor_data -> input_sensor_parser_data
-    # frame -> UartReceiveData_raw
     def log_TextEdit_print_sensor_data(self, input_sensor_parser_data:updm.SensorData):
         """센서 데이터를 로그 문자열로 변환"""
-        # UartReceiveData_raw = input_sensor_parser_data.UartReceiveData_raw
         s_data_name = upcfg.get_data_type_name(input_sensor_parser_data.i_data_type)
         
         s_chksum_pass_status = "✓" if input_sensor_parser_data.UartReceiveData_raw.b_chksum_pass else "✗"
         s_header_text = (f"{s_chksum_pass_status}\n"
                         f"UartReceiveData[{input_sensor_parser_data.UartReceiveData_raw.timestamp.strftime('%H:%M:%S.%f')[:-3]}],\n"
                         f"SensorData[{input_sensor_parser_data.timestamp.strftime('%H:%M:%S.%f')[:-3]}],\n"
-                        # f"Type: {s_data_name:20s},\n"
-                        # f"Length: {input_sensor_parser_data.UartReceiveData_raw.bytes_data_length:4d},\n"
-                        # f"Checksum: 0x{input_sensor_parser_data.UartReceiveData_raw.bytes_checksum:04X}")
                         f"Type: {s_data_name},\n"
                         f"bytes_data_length: {input_sensor_parser_data.UartReceiveData_raw.bytes_data_length},\n"
                         f"bytes_data: {input_sensor_parser_data.UartReceiveData_raw.bytes_data},\n"
@@ -1077,32 +802,9 @@ class MainWindow(QMainWindow):
         A_target_buffer, s_target_name = None, None
         if input_sensor_parser_data.A_adc_buffer:
             A_target_buffer, s_target_name = input_sensor_parser_data.A_adc_buffer, "ADC Buffer"
-        # voltage_buffer 로그 처리 삭제됨
-        # elif input_sensor_parser_data.adc_hpf_buffer:
-        #     buffer, name = input_sensor_parser_data.adc_hpf_buffer, "SW HPF"
-        # elif input_sensor_parser_data.hpf_buffer:  # 하위 호환성
-        #     buffer, name = input_sensor_parser_data.hpf_buffer, "SW HPF"
-        # elif input_sensor_parser_data.adc_bpf_buffer:
-        #     buffer, name = input_sensor_parser_data.adc_bpf_buffer, "SW BPF"
-        # elif input_sensor_parser_data.hw_hpf_buffer:
-        #     buffer, name = input_sensor_parser_data.hw_hpf_buffer, "HW HPF"
-        # elif input_sensor_parser_data.hw_bpf_buffer:
-        #     buffer, name = input_sensor_parser_data.hw_bpf_buffer, "HW BPF"
-        # 델타 버퍼는 비활성화됨
-        # elif input_sensor_parser_data.adc_delta_buffer:
-        #     buffer, name = input_sensor_parser_data.adc_delta_buffer, "ADC Delta"
-        # elif input_sensor_parser_data.voltage_delta_buffer:
-        #     buffer, name = input_sensor_parser_data.voltage_delta_buffer, "Voltage Delta"
-        # elif input_sensor_parser_data.hpf_delta_buffer:
-        #     buffer, name = input_sensor_parser_data.hpf_delta_buffer, "HPF Delta"
 
         if A_target_buffer is not None and s_target_name is not None:
             i_buffer_len, i_exclusion_zero_buffer_len, i_min, i_max, i_avg, i_mid = self.graph_statistics(A_target_buffer)
-
-            # 정수형 avg 값은 소수점 없이 표현
-            # s_avg_text = f"{int(i_avg)}" if isinstance(i_avg, float) and i_avg.is_integer() else f"{i_avg:.2f}"
-            # A_s_log_lines.append(f"{s_target_name}: {len(A_target_buffer)} samples (Non Zero Len: {i_exclusion_zero_buffer_len})\n"
-            #                     f"(Min:{i_min}, Max:{i_max}, Avg:{s_avg_text}, Mid:{i_mid})")
             s_stats_text = (
                 f"총 Len: {i_buffer_len}개\n"
                 f"실제 값 Len: {i_exclusion_zero_buffer_len}개)\n"
@@ -1112,10 +814,6 @@ class MainWindow(QMainWindow):
                 f"실제 값 Mid: {i_mid}"
             )
             A_s_log_lines.append(s_stats_text)
-
-
-            # 배열 전체 출력 제거 (성능 개선)
-            # A_s_log_lines.append(self._format_array_pretty(buffer))
 
         # --- 설정값 처리 ---
         elif input_sensor_parser_data.settings:
@@ -1133,9 +831,6 @@ class MainWindow(QMainWindow):
             A_s_log_lines.append(f" - PIR Output : {SettingsData_handle.b_pir_status}")
 
         return "\n".join(A_s_log_lines) # 리스트의 각 항목을 \n(줄바꿈)으로 이어 붙여 하나의 문자열로 만듭니다.
-
-    # def create_plot_tab(self, graph_tab_name, graph_fixed_range=None, opt_show_tp1=False, tab_type="adc_raw"):
-
 
     def create_line(self, target_PlotWidget, s_inter_name, i_value, s_label, s_color_code):
         # TP1 임계값 가로선 추가 (빨간색)
@@ -1160,11 +855,8 @@ class MainWindow(QMainWindow):
         )
         tp_InfiniteLine.role = s_inter_name
         target_PlotWidget.addItem(tp_InfiniteLine, ignoreBounds=True)
-        # tp_InfiniteLine.label.setPos(tp_InfiniteLine.label.pos() + pyqtgraph.QtCore.QPointF(-100, 0))
-        # tp_InfiniteLine.label.setPos(tp_InfiniteLine.label.pos() - pyqtgraph.QtCore.QPointF(-100, 0))
 
     def create_label(self, target_PlotWidget, s_inter_name, i_x_anchor, i_y_anchor, s_color_code):
-        # TextItem.__init__ doesn't accept a 'pos' kwarg — create then setPos()
         label_TextItem = pyqtgraph.TextItem(
             text='TEMP_LABEL_TEXT',
             color=s_color_code,
@@ -1173,17 +865,6 @@ class MainWindow(QMainWindow):
         label_TextItem.setFont(pyqtgraph.QtGui.QFont('Consolas', 9))
         label_TextItem.role = s_inter_name
         target_PlotWidget.addItem(label_TextItem, ignoreBounds=True) # pyqtgraph가 auto-range 계산 시 이 TextItem의 위치를 무시
-
-        # 위치를 현재 viewRange 기준으로 설정 (view가 준비되지 않았으면 무시)
-        # try:
-        #     ViewBox = target_PlotWidget.getPlotItem().getViewBox()
-        #     x_max = ViewBox.viewRange()[0][1]
-        #     y_max = ViewBox.viewRange()[1][1]
-        #     label_TextItem.setPos(x_max - 2, y_max - 500)
-        #     # label_TextItem.setZValue(100)
-        # except Exception:
-        #     # viewRange가 아직 유효하지 않을 수 있음; 나중에 update 시 reposition 권장
-        #     pass
 
         return label_TextItem
 
@@ -1199,8 +880,6 @@ class MainWindow(QMainWindow):
 
         return point_ScatterPlotItem
 
-
-    # def create_adc_plot_tab(self, graph_tab_name=None, graph_range_x=None, graph_range_y=None):
     def create_adc_plot_tab(self, graph_plot_value:list):
 
         target_PlotWidget = pyqtgraph.PlotWidget()
@@ -1235,9 +914,6 @@ class MainWindow(QMainWindow):
         self.create_scatter(target_PlotWidget, cfg.TP1_RCK_POINT_NAME, cfg.TP1_RCK_POINT_COLOR)
         self.create_label(target_PlotWidget, cfg.LABEL_NAME, cfg.LABEL_ANCHOR_X, cfg.LABEL_ANCHOR_Y, cfg.LABEL_COLOR)
 
-
-
-        # tp1_recheck_lines[graph_tab_name] = self.tp1_rck_InfiniteLine
         self.adc_raw_plot_TabWidget.addTab(target_PlotWidget, graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME])
 
     def create_fft_plot_tab(self, graph_plot_value:list):
@@ -1410,40 +1086,16 @@ class MainWindow(QMainWindow):
     #         return self.plots[name]
 
     def get_TabWidget(self, input_plot_name:str) -> Optional[QWidget]:
-        # A_return_value = [None, None]
-        # enum_graph_plot_num
-        # enum_graph_plot_range_opt
-
         # 나중에 tabData로 찾기
         for i_index in range(self.adc_raw_plot_TabWidget.count()):
             if self.adc_raw_plot_TabWidget.tabText(i_index) == input_plot_name:
-            # if self.adc_raw_plot_TabWidget.tabData(i) == graph_tab_name:
-                # return [enum_graph_plot_num.ADC_RAW, i_index]
                 return self.adc_raw_plot_TabWidget.widget(i_index)
             
         for i_index in range(self.adc_fft_plot_TabWidget.count()):
             if self.adc_fft_plot_TabWidget.tabText(i_index) == input_plot_name:
-            # if self.adc_raw_plot_TabWidget.tabData(i) == graph_tab_name:
-                # return [enum_graph_plot_num.ADC_FFT, i_index]
                 return self.adc_fft_plot_TabWidget.widget(i_index)
 
         return None
-
-        # self.create_adc_plot_tab(self.A_graph_plot_value[enum_graph_plot_num.ADC_RAW][plot_opt])
-        # self.create_fft_plot_tab(self.A_graph_plot_value[enum_graph_plot_num.ADC_FFT][plot_opt])
-
-
-    # def _update_threshold_lines(self):
-    #     """모든 임계값 가로선의 위치 업데이트"""
-    #     # TP1 빨간선 업데이트
-    #     for name, line in self.threshold_lines.items():
-    #         line.setValue(self.i_tp1)
-    #         line.label.setText(f'TP1={self.i_tp1}')
-        
-    #     # TP1 Recheck 주황선 업데이트
-    #     for name, line in self.tp1_recheck_lines.items():
-    #         line.setValue(self.i_tp1_rck)
-    #         line.label.setText(f'TP1_RCK={self.i_tp1_rck}')
 
     def update_threshold_lines(self, inter_Widget:QWidget):
 
@@ -1463,95 +1115,6 @@ class MainWindow(QMainWindow):
         target_line.setValue(self.i_tp1_rck)
         target_line.label.setText(f'TP1={self.i_tp1_rck}')
 
-
-        # """모든 임계값 가로선의 위치 업데이트"""
-        # # TP1 빨간선 업데이트
-        # for name, line in self.threshold_lines.items():
-        #     line.setValue(self.i_tp1)
-        #     line.label.setText(f'TP1={self.i_tp1}')
-        
-        # # TP1 Recheck 주황선 업데이트
-        # for name, line in self.tp1_recheck_lines.items():
-        #     line.setValue(self.i_tp1_rck)
-        #     line.label.setText(f'TP1_RCK={self.i_tp1_rck}')
-
-
-
-
-
-
-    # def _update_stats(self, plot_name, data, y_max=None, positive_only=False):
-    #     """그래프 우측 상단에 통계 정보(최소, 최대, 중앙값, 평균) 표시
-        
-    #     Args:
-    #         plot_name: 플롯 이름
-    #         data: 데이터 배열
-    #         y_max: 고정 Y축 최대값 (옵션)
-    #         positive_only: True면 양수 값만 필터링해서 통계 계산
-    #     """
-    #     import statistics
-        
-    #     if plot_name not in self.plot_widgets:
-    #         return
-        
-    #     plot_widget = self.plot_widgets[plot_name]
-        
-    #     # 통계 라벨이 없으면 생성
-    #     if plot_name not in self.stats_labels:
-    #         label = pg.pyqtgraph.TextItem(
-    #             text='',
-    #             color=(200, 200, 200),  # 연한 회색
-    #             anchor=(1, 0)  # 우측 상단 기준
-    #         )
-    #         label.setFont(pg.QtGui.QFont('Consolas', 9))
-    #         plot_widget.addItem(label)
-    #         self.stats_labels[plot_name] = label
-        
-    #     # 양수만 필터링 (옵션)
-    #     if positive_only:
-    #         filtered_data = [x for x in data if x > 0]
-    #     else:
-    #         filtered_data = data
-        
-    #     # 통계 계산
-    #     if len(filtered_data) > 0:
-    #         min_val = min(filtered_data)
-    #         max_val = max(filtered_data)
-    #         avg_val = sum(filtered_data) / len(filtered_data)
-    #         median_val = statistics.median(filtered_data)
-            
-    #         # 포맷팅 (소수점 1자리)
-    #         if positive_only:
-    #             stats_text = (
-    #                 f"(양수만 {len(filtered_data)}개)\n"
-    #                 f"Min: {min_val:.1f}\n"
-    #                 f"Max: {max_val:.1f}\n"
-    #                 f"Med: {median_val:.1f}\n"
-    #                 f"Avg: {avg_val:.1f}"
-    #             )
-    #         else:
-    #             stats_text = (
-    #                 f"Min: {min_val:.1f}\n"
-    #                 f"Max: {max_val:.1f}\n"
-    #                 f"Med: {median_val:.1f}\n"
-    #                 f"Avg: {avg_val:.1f}"
-    #             )
-    #     else:
-    #         stats_text = "No positive data" if positive_only else "No data"
-        
-    #     # 라벨 업데이트
-    #     self.stats_labels[plot_name].setText(stats_text)
-        
-    #     # 위치 설정 (우측 상단)
-    #     if y_max is None:
-    #         # 자동 스케일 그래프의 경우 데이터 최대값 기준
-    #         y_pos = max(data) if len(data) > 0 else 100
-    #     else:
-    #         y_pos = y_max - 100  # 고정 범위 그래프의 경우
-        
-    #     self.stats_labels[plot_name].setPos(len(data) - 2, y_pos)
-
-    # def update_status(self, plot_name, data, y_max=None, positive_only=False):
     def update_status(self, inter_Widget:QWidget, A_inter_data:updm.SensorData):
         """그래프 우측 상단에 통계 정보(최소, 최대, 중앙값, 평균) 표시
         
@@ -1561,63 +1124,16 @@ class MainWindow(QMainWindow):
             y_max: 고정 Y축 최대값 (옵션)
             positive_only: True면 양수 값만 필터링해서 통계 계산
         """
-        
-        # # 통계 라벨이 없으면 생성
-        # if plot_name not in self.stats_labels:
-        #     label = pg.pyqtgraph.TextItem(
-        #         text='',
-        #         color=(200, 200, 200),  # 연한 회색
-        #         anchor=(1, 0)  # 우측 상단 기준
-        #     )
-        #     label.setFont(pg.QtGui.QFont('Consolas', 9))
-        #     inter_Widget.addItem(label)
-        #     self.stats_labels[plot_name] = label
-        
         target_label = None
         PlotItem = inter_Widget.getPlotItem()
         items = getattr(PlotItem, 'items', None)  # 일부 버전은 속성, 일부는 다른 구조일 수 있음
-        # if items:
-        #     for item in items:
-        #         if isinstance(item, pyqtgraph.TextItem):
-        #             # 찾음: it
-        #             target_label = item
-        #         else:
-        #             self.create_label(inter_Widget, A_pos, s_color_code)
-        # else:
-        #     # print(f"debugger_start.py | MainWindow | update_status | items = {items}")
-        #     label = pyqtgraph.TextItem(
-        #         text='',
-        #         color=(200, 200, 200),  # 연한 회색
-        #         anchor=(1, 0)  # 우측 상단 기준
-        #     )
-        #     label.setFont(pyqtgraph.QtGui.QFont('Consolas', 9))
-        #     target_label = label
-        #     inter_Widget.addItem(target_label)
 
         # 검색 시
         for item in items:
             if isinstance(item, pyqtgraph.TextItem) and getattr(item, 'role', None) == cfg.LABEL_NAME:
                 target_label = item
-
-
-
-        # if not target_label:
-        # print(f"debugger_start.py | MainWindow | update_status | target_label = {target_label}")
-        # vb = inter_Widget.getPlotItem().getViewBox()
-        # print("viewRange:", vb.viewRange())      # ([xMin,xMax], [yMin,yMax])
-        # print("label pos:", target_label.pos())  # QPointF(x,y)
-        # print("label anchor:", target_label.anchor)  # anchor 값
-            # self.create_label(inter_Widget, A_pos, s_color_code)
-
-
-        # # 양수만 필터링 (옵션)
-        # if positive_only:
-        #     filtered_data = [x for x in data if x > 0]
-        # else:
-        #     filtered_data = data
         
         i_buffer_len, i_exclusion_zero_buffer_len, i_min, i_max, i_avg, i_mid = self.graph_statistics(A_inter_data)
-        # self.update_threshold_lines()
         return_value = self.update_exceed_points(inter_Widget, A_inter_data)  # TP1 초과점 표시
 
         s_stats_text = (
@@ -1632,93 +1148,12 @@ class MainWindow(QMainWindow):
         )
 
         target_label.setText(s_stats_text)
-        
-        # # # # # 위치 설정 (우측 상단)
-        # # # # if y_max is None:
-        # # # #     # 자동 스케일 그래프의 경우 데이터 최대값 기준
-        # # # #     y_pos = max(data) if len(data) > 0 else 100
-        # # # # else:
-        # # # #     y_pos = y_max - 100  # 고정 범위 그래프의 경우
-        
-        # # # # self.stats_labels[plot_name].setPos(len(data) - 2, y_pos)
+
         ViewBox = PlotItem.getViewBox()
         x_max = ViewBox.viewRange()[0][1]
         y_max = ViewBox.viewRange()[1][1]
-        # target_label.setPos(x_max - 2, y_max - 500)
-        target_label.setPos(x_max, y_max)
-        # target_label.setPos(x_max - 2, i_max)
-        
-    # def _update_exceed_points(self, plot_name, data, y_max=3900):
-    #     """TP1 초과 지점을 빨간색 점, TP1_RECHECK 초과 지점을 주황색 점으로 표시"""
-    #     if plot_name not in self.plot_widgets:
-    #         return
-        
-    #     plot_widget = self.plot_widgets[plot_name]
-        
-    #     # TP1 초과용 ScatterPlot (빨간색)
-    #     if plot_name not in self.exceed_plots:
-    #         scatter = pg.ScatterPlotItem(
-    #             pen=None,
-    #             brush=pg.mkBrush('r'),  # 빨간색
-    #             size=8,
-    #             symbol='o'
-    #         )
-    #         plot_widget.addItem(scatter)
-    #         self.exceed_plots[plot_name] = scatter
-        
-    #     # TP1_RECHECK 초과용 ScatterPlot (주황색)
-    #     recheck_key = f"{plot_name}_recheck"
-    #     if recheck_key not in self.exceed_plots:
-    #         scatter_recheck = pg.ScatterPlotItem(
-    #             pen=None,
-    #             brush=pg.mkBrush(255, 165, 0),  # 주황색
-    #             size=10,
-    #             symbol='s'  # 사각형으로 구분
-    #         )
-    #         plot_widget.addItem(scatter_recheck)
-    #         self.exceed_plots[recheck_key] = scatter_recheck
-        
-    #     # 초과 개수 표시용 pyqtgraph.TextItem 생성
-    #     if plot_name not in self.exceed_labels:
-    #         label = pg.pyqtgraph.TextItem(
-    #             text='TP1 초과: 0 / TP1_RCK 초과: 0',
-    #             color='r',
-    #             anchor=(1, 0)  # 우측 상단 기준
-    #         )
-    #         label.setFont(pg.QtGui.QFont('Arial', 10, pg.QtGui.QFont.Weight.Bold))
-    #         plot_widget.addItem(label)
-    #         self.exceed_labels[plot_name] = label
-        
-    #     # 영역 구분 방식:
-    #     # 🔴 빨간 점: TP1 < value <= TP1_RECHECK (중간 영역)
-    #     # 🟠 주황 점: value > TP1_RECHECK (높은 영역)
-        
-    #     exceed_x = []  # 빨간 점 (TP1 ~ TP1_RECHECK)
-    #     exceed_y = []
-    #     exceed_recheck_x = []  # 주황 점 (TP1_RECHECK 초과)
-    #     exceed_recheck_y = []
-        
-    #     for i, value in enumerate(data):
-    #         if self.i_tp1_rck > 0 and value > self.i_tp1_rck:
-    #             # TP1_RECHECK 초과 → 주황 점
-    #             exceed_recheck_x.append(i)
-    #             exceed_recheck_y.append(value)
-    #         elif self.i_tp1 > 0 and value > self.i_tp1:
-    #             # TP1 초과 but TP1_RECHECK 이하 → 빨간 점
-    #             exceed_x.append(i)
-    #             exceed_y.append(value)
-        
-    #     # ScatterPlot 업데이트
-    #     self.exceed_plots[plot_name].setData(exceed_x, exceed_y)
-    #     self.exceed_plots[recheck_key].setData(exceed_recheck_x, exceed_recheck_y)
-        
-    #     # 초과 개수 라벨 업데이트 (우측 상단 위치)
-    #     exceed_count = len(exceed_x)
-    #     exceed_recheck_count = len(exceed_recheck_x)
-    #     self.exceed_labels[plot_name].setText(f'TP1: {exceed_count} / TP1_RCK: {exceed_recheck_count}')
-    #     # 우측 상단에 위치 (x=데이터길이-5, y=고정범위 상단)
-    #     self.exceed_labels[plot_name].setPos(len(data) - 5, y_max)
 
+        target_label.setPos(x_max, y_max)
 
     def update_exceed_points(self, inter_Widget:QWidget, A_inter_data:updm.SensorData) -> list:
         """TP1 초과 지점을 빨간색 점, TP1_RECHECK 초과 지점을 주황색 점으로 표시"""
@@ -1750,14 +1185,12 @@ class MainWindow(QMainWindow):
         # 초과 개수 라벨 업데이트 (우측 상단 위치)
         tp1_over_count = len(A_i_tp1_over_x)
 
-
         for item in items:
             if isinstance(item, pyqtgraph.ScatterPlotItem) and getattr(item, 'role', None) == cfg.TP1_RCK_POINT_NAME:
                 target_scatter = item
 
         target_scatter.setData(A_i_tp1_rck_over_x, A_i_tp1_rck_over_y)
         tp1_rck_over_count = len(A_i_tp1_rck_over_x)
-
 
         return tp1_over_count, tp1_rck_over_count
 
@@ -1829,24 +1262,13 @@ class MainWindow(QMainWindow):
     #     event.accept()
 
 
-    # data_parser
-    # sensor_data
-    # data -> input_sensor_parser_data
     @PyQt6.QtCore.pyqtSlot(object)
     def event_update_ui(self, input_sensor_parser_data:updm.SensorData):
-
-        # print(f"debugger_start.py | MainWindow | event_update_ui | input_sensor_parser_data = \n{input_sensor_parser_data}")        
-
         """UI 업데이트: 로그, 그래프, 설정 표시"""
         # 1. 로그 텍스트 업데이트 (최대 500줄 제한)
         log_str = self.log_TextEdit_print_sensor_data(input_sensor_parser_data)
         self.log_TextEdit.append(log_str)
         
-        # 로그 줄 수 제한 (메모리 누수 방지)
-        # MAX_LOG_LINES = 500
-        # doc.blockCount() — 줄(블록) 개수 반환 (코드에서 로그 줄 제한에 사용됨).
-        # doc.toPlainText() / doc.setPlainText(...) — 순수 텍스트 읽기/쓰기.
-        # doc.find(...), doc.undo() 등 검색·편집 기능 제공.
         log_TextEdit_doc = self.log_TextEdit.document()
         if log_TextEdit_doc.blockCount() > cfg.MAX_LOG_LINES:
             cursor = self.log_TextEdit.textCursor() # 내부 편집 커서(QTextCursor) 객체
@@ -1858,16 +1280,7 @@ class MainWindow(QMainWindow):
             cursor.removeSelectedText()
         
         self.log_TextEdit.verticalScrollBar().setValue(self.log_TextEdit.verticalScrollBar().maximum())
-
-        # 2. 그래프 업데이트
-        # ADC_RAW_FULL_SCALE_NAME
-        # ADC_RAW_ZOOM_SCALE_NAME
-        # ADC_FFT_FULL_SCALE_NAME
-        # ADC_FFT_ZOOM_SCALE_NAME
-        # print(f"debugger_start.py | MainWindow | event_update_ui | input_sensor_parser_data.A_adc_buffer = {input_sensor_parser_data.A_adc_buffer}")
         if input_sensor_parser_data.A_adc_buffer:
-            # 숫자로 return
-            # self._get_or_create_plot("ADC_BUFFER (Adaptive)", show_tp1_line=True).setData(input_sensor_parser_data.A_adc_buffer)
             get_Widget = self.get_TabWidget(ADC_RAW_FULL_SCALE_NAME)
 
             ### update_status 처럼 함수로 만들기 ############################################
@@ -1875,22 +1288,13 @@ class MainWindow(QMainWindow):
                 print(f"debugger_start.py | MainWindow | event_update_ui | get_Widget = {get_Widget} [ADC_RAW_FULL_SCALE_NAME]")
             else:
                 Items = get_Widget.getPlotItem()
-                # print(f"debugger_start.py | MainWindow | event_update_ui | Items = {Items}")
-                # lines = get_Widget.getPlotItem().listDataItems()
                 lines = Items.listDataItems()
-                # print(f"debugger_start.py | MainWindow | event_update_ui | lines = {lines}")
                 if lines:
                     lines[0].setData(input_sensor_parser_data.A_adc_buffer)
                 else:
                     get_Widget.plot(input_sensor_parser_data.A_adc_buffer)
             ### update_status 처럼 함수로 만들기 ############################################
-            
-            # self._update_stats("ADC_BUFFER (Adaptive)", input_sensor_parser_data.A_adc_buffer)
             self.update_status(get_Widget, input_sensor_parser_data.A_adc_buffer)
-            # self._update_exceed_points("ADC_BUFFER (Adaptive)", input_sensor_parser_data.A_adc_buffer, y_max=4096)  # TP1 초과점 표시
-            # self.update_exceed_points(get_Widget, input_sensor_parser_data.A_adc_buffer)  # TP1 초과점 표시
-
-            # self._get_or_create_plot("ADC_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(input_sensor_parser_data.A_adc_buffer)
             get_Widget = self.get_TabWidget(ADC_RAW_ZOOM_SCALE_NAME)
 
             ### update_status 처럼 함수로 만들기 ############################################
@@ -1898,189 +1302,38 @@ class MainWindow(QMainWindow):
                 print(f"debugger_start.py | MainWindow | event_update_ui | get_Widget = {get_Widget} [ADC_RAW_ZOOM_SCALE_NAME]")
             else:
                 Items = get_Widget.getPlotItem()
-                # print(f"debugger_start.py | MainWindow | event_update_ui | Items = {Items}")
-                # lines = get_Widget.getPlotItem().listDataItems()
                 lines = Items.listDataItems()
-                # print(f"debugger_start.py | MainWindow | event_update_ui | lines = {lines}")
                 if lines:
                     lines[0].setData(input_sensor_parser_data.A_adc_buffer)
                 else:
                     get_Widget.plot(input_sensor_parser_data.A_adc_buffer)
             ### update_status 처럼 함수로 만들기 ############################################
-            
-            # self._update_stats("ADC_BUFFER", input_sensor_parser_data.A_adc_buffer, y_max=3900)
             self.update_status(get_Widget, input_sensor_parser_data.A_adc_buffer)
-            
-            # self._update_exceed_points("ADC_BUFFER", input_sensor_parser_data.A_adc_buffer, y_max=3900)  # TP1 초과점 표시
             
             # ★ FFT 분석 및 그래프 업데이트
             # self._update_fft_plot(input_sensor_parser_data.A_adc_buffer)
 
-
-
-
-
-
-
-        # # 델타 버퍼는 비활성화됨
-        # # elif data.adc_delta_buffer:
-        # #     self._get_or_create_plot("ADC_DELTA_BUFFER").setData(data.adc_delta_buffer)
-        # #     self._update_stats("ADC_DELTA_BUFFER", data.adc_delta_buffer)
-        # #     self._get_or_create_plot("ADC_DELTA_BUFFER (Fixed)", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_delta_buffer)
-        # #     self._update_stats("ADC_DELTA_BUFFER (Fixed)", data.adc_delta_buffer, y_max=3900)
-        # #     self._update_exceed_points("ADC_DELTA_BUFFER (Fixed)", data.adc_delta_buffer, y_max=3900)
-        # # VOLTAGE_BUFFER 삭제됨
-        # elif data.adc_hpf_buffer:  # SW HPF 버퍼
-        #     self._get_or_create_plot("ADC_HPF_BUFFER (Adaptive)").setData(data.adc_hpf_buffer)
-        #     self._update_stats("ADC_HPF_BUFFER (Adaptive)", data.adc_hpf_buffer)
-        #     self._get_or_create_plot("ADC_HPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.adc_hpf_buffer)
-        #     self._update_stats("ADC_HPF_BUFFER", data.adc_hpf_buffer, y_max=3300, positive_only=True)
-            
-        #     # ★ TP1 초과 지점 빨간색으로 표시
-        #     self._update_exceed_points("ADC_HPF_BUFFER", data.adc_hpf_buffer, y_max=3300)
-            
-        #     # ★ SW Filter Plot (4번째 그래프)에도 표시
-        #     self._get_or_create_plot("SW_HPF_BUFFER (Zoom)").setData(data.adc_hpf_buffer)
-        #     self._update_stats("SW_HPF_BUFFER (Zoom)", data.adc_hpf_buffer, y_max=300)
-        #     self._update_exceed_points("SW_HPF_BUFFER (Zoom)", data.adc_hpf_buffer, y_max=300)
-        #     self._get_or_create_plot("SW_HPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_hpf_buffer)
-        #     self._update_stats("SW_HPF_BUFFER", data.adc_hpf_buffer, y_max=3900)
-        #     self._update_exceed_points("SW_HPF_BUFFER", data.adc_hpf_buffer, y_max=3900)
-        # # hpf_buffer (하위 호환성 - adc_hpf_buffer 별칭)
-        # elif data.hpf_buffer:
-        #     self._get_or_create_plot("ADC_HPF_BUFFER (Adaptive)").setData(data.hpf_buffer)
-        #     self._update_stats("ADC_HPF_BUFFER (Adaptive)", data.hpf_buffer)
-        #     self._get_or_create_plot("ADC_HPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.hpf_buffer)
-        #     self._update_stats("ADC_HPF_BUFFER", data.hpf_buffer, y_max=3300, positive_only=True)
-        #     self._update_exceed_points("ADC_HPF_BUFFER", data.hpf_buffer, y_max=3300)
-        
-        # # SW BPF 버퍼 (Band-Pass Filter 적용값)
-        # elif data.adc_bpf_buffer:
-        #     self._get_or_create_plot("ADC_BPF_BUFFER (Adaptive)").setData(data.adc_bpf_buffer)
-        #     self._update_stats("ADC_BPF_BUFFER (Adaptive)", data.adc_bpf_buffer)
-        #     self._get_or_create_plot("ADC_BPF_BUFFER", fixed_range=(0, 3500), show_tp1_line=True).setData(data.adc_bpf_buffer)
-        #     self._update_stats("ADC_BPF_BUFFER", data.adc_bpf_buffer, y_max=3300, positive_only=True)
-        #     self._update_exceed_points("ADC_BPF_BUFFER", data.adc_bpf_buffer, y_max=3300)
-            
-        #     # ★ SW Filter Plot (4번째 그래프)에도 표시
-        #     self._get_or_create_plot("SW_BPF_BUFFER (Zoom)").setData(data.adc_bpf_buffer)
-        #     self._update_stats("SW_BPF_BUFFER (Zoom)", data.adc_bpf_buffer, y_max=300)
-        #     self._update_exceed_points("SW_BPF_BUFFER (Zoom)", data.adc_bpf_buffer, y_max=300)
-        #     self._get_or_create_plot("SW_BPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.adc_bpf_buffer)
-        #     self._update_stats("SW_BPF_BUFFER", data.adc_bpf_buffer, y_max=3900)
-        #     self._update_exceed_points("SW_BPF_BUFFER", data.adc_bpf_buffer, y_max=3900)
-        
-        # # HW HPF 버퍼 (하드웨어 HPF 채널 RAW ADC)
-        # elif data.hw_hpf_buffer:
-        #     # 3번째 그래프 (HW Filter)
-        #     self._get_or_create_plot("HW_HPF_BUFFER (Zoom)").setData(data.hw_hpf_buffer)
-        #     self._update_stats("HW_HPF_BUFFER (Zoom)", data.hw_hpf_buffer, y_max=300)
-        #     self._update_exceed_points("HW_HPF_BUFFER (Zoom)", data.hw_hpf_buffer, y_max=300)
-        #     self._get_or_create_plot("HW_HPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_hpf_buffer)
-        #     self._update_stats("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
-        #     # ★ TP1 초과 지점 표시
-        #     self._update_exceed_points("HW_HPF_BUFFER", data.hw_hpf_buffer, y_max=3900)
-            
-        #     # 4번째 그래프 (SW Filter) - HW HPF 데이터가 있으면 SW 플롯은 업데이트하지 않음 (SW 데이터가 별도로 전송됨)
-        
-        # # HW BPF 버퍼 (하드웨어 BPF 채널 RAW ADC)
-        # elif data.hw_bpf_buffer:
-        #     # 3번째 그래프 (HW Filter)
-        #     self._get_or_create_plot("HW_BPF_BUFFER (Zoom)").setData(data.hw_bpf_buffer)
-        #     self._update_stats("HW_BPF_BUFFER (Zoom)", data.hw_bpf_buffer, y_max=300)
-        #     self._update_exceed_points("HW_BPF_BUFFER (Zoom)", data.hw_bpf_buffer, y_max=300)
-        #     self._get_or_create_plot("HW_BPF_BUFFER", fixed_range=(0, 4096), show_tp1_line=True).setData(data.hw_bpf_buffer)
-        #     self._update_stats("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
-        #     # ★ TP1 초과 지점 표시
-        #     self._update_exceed_points("HW_BPF_BUFFER", data.hw_bpf_buffer, y_max=3900)
-            
-        #     # 4번째 그래프 (SW Filter) - HW BPF 데이터가 있으면 SW 플롯은 업데이트하지 않음 (SW 데이터가 별도로 전송됨)
-        
-        # 델타 버퍼는 비활성화됨
-        # elif data.voltage_delta_buffer:
-        #     self._get_or_create_plot("VOLTAGE_DELTA_BUFFER").setData(data.voltage_delta_buffer)
-        #     self._update_stats("VOLTAGE_DELTA_BUFFER", data.voltage_delta_buffer)
-        # elif data.hpf_delta_buffer:
-        #     self._get_or_create_plot("HPF_DELTA_BUFFER").setData(data.hpf_delta_buffer)
-        #     self._update_stats("HPF_DELTA_BUFFER", data.hpf_delta_buffer)
-        #     self._get_or_create_plot("HPF_DELTA_BUFFER (Fixed)", fixed_range=(-50, 2500), show_tp1_line=True).setData(data.hpf_delta_buffer)
-        #     self._update_stats("HPF_DELTA_BUFFER (Fixed)", data.hpf_delta_buffer, y_max=2300)
-        #     self._update_exceed_points("HPF_DELTA_BUFFER (Fixed)", data.hpf_delta_buffer, y_max=2400)
-
-
-
-
         # 3. 설정값 업데이트
         if input_sensor_parser_data.settings:
             SettingsData_handle = input_sensor_parser_data.settings
-            # self.i_tp1 = SettingsData_handle.i_tp1  # TP1 값 저장
-            # self.i_tp1_rck = SettingsData_handle.i_tp1_recheck  # TP1 Recheck 값 저장
-            
-            # self.adc_window_size_setting(300)
             self.adc_tp1_setting(SettingsData_handle.i_tp1)
             self.adc_tp1_rck_setting(SettingsData_handle.i_tp1_recheck)
-            # self.adc_smapling_rate_setting(100)
 
-
-
-            # TP1 가로선 업데이트
-            # self._update_threshold_lines()
             get_Widget = self.get_TabWidget(ADC_RAW_FULL_SCALE_NAME)
             self.update_threshold_lines(get_Widget)
             get_Widget = self.get_TabWidget(ADC_RAW_ZOOM_SCALE_NAME)
             self.update_threshold_lines(get_Widget)
-            
-            # 재실 상태 라벨 업데이트 (눈에 띄게!)
+
             if SettingsData_handle.b_occu_status:
                 self.occupancy_Label.setText("🟢 재실 중")
-                # self.occupancy_Label.setStyleSheet("""
-                #     QLabel {
-                #         font-size: 14px;
-                #         font-weight: bold;
-                #         padding: 8px;
-                #         border-radius: 5px;
-                #         background-color: #1a4d1a;
-                #         color: #66ff66;
-                #     }
-                # """)
             else:
                 self.occupancy_Label.setText("⚪ 재실 중이 아님")
-                # self.occupancy_Label.setStyleSheet("""
-                #     QLabel {
-                #         font-size: 14px;
-                #         font-weight: bold;
-                #         padding: 8px;
-                #         border-radius: 5px;
-                #         background-color: #3a3a3a;
-                #         color: #888888;
-                #     }
-                # """)
             
             # PIR 출력 상태 라벨 업데이트
             if SettingsData_handle.b_pir_status:
                 self.pir_output_Label.setText("📡 PIR 출력: ON")
-                # self.pir_output_Label.setStyleSheet("""
-                #     QLabel {
-                #         font-size: 14px;
-                #         font-weight: bold;
-                #         padding: 8px;
-                #         border-radius: 5px;
-                #         background-color: #4d4d1a;
-                #         color: #ffff66;
-                #     }
-                # """)
             else:
                 self.pir_output_Label.setText("📡 PIR 출력: OFF")
-                # self.pir_output_Label.setStyleSheet("""
-                #     QLabel {
-                #         font-size: 14px;
-                #         font-weight: bold;
-                #         MACRO_PADDING: 8px;
-                #         border-radius: 5px;
-                #         background-color: #3a3a3a;
-                #         color: #888888;
-                #     }
-                # """)
             
             settings_str = (
                 f"TP1: {SettingsData_handle.i_tp1}\n"
@@ -2096,7 +1349,6 @@ class MainWindow(QMainWindow):
                 f"Sleep Time: {SettingsData_handle.i_sleep_time_us} us"
             )
             self.connect_status_Label.setText(settings_str)
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
