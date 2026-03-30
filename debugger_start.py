@@ -12,14 +12,19 @@ import PyQt6.QtCore
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QComboBox, QPushButton, QGridLayout, QLabel, QTextEdit, QGroupBox, QTabWidget,
-    QSpinBox, QAbstractSpinBox, QMessageBox,
+    QSpinBox, QDoubleSpinBox, QAbstractSpinBox, QMessageBox,
     QSizePolicy
 )
+
 
 import pyqtgraph
 import enum
 import statistics
 from typing import List, Optional
+
+# import numpy as np  # FFT 분석용
+import numpy
+from collections import deque
 
 import config                               as cfg
 import uart_protocol.uart_protocol_config   as upcfg
@@ -27,6 +32,11 @@ import uart_protocol.uart_receive_parser    as upurp
 import uart_protocol.data_parser            as updp
 import uart_protocol.command_sender         as upcs
 import uart_protocol.data_models            as updm
+import fft
+# ############################# COPILOT EDIT START (import svm)
+import svm
+# ############################# COPILOT EDIT END
+
 
 MACRO_FONT_NAME = "font-family: {};"
 MACRO_FONT_BOLD = "font-weight: bold;"
@@ -150,15 +160,11 @@ class MainWindow(QMainWindow):
     def adc_tp1_rck_setting(self, input_i_tp1_rck:int):
         self.i_tp1_rck:int = input_i_tp1_rck
 
-    # FFT
-    def adc_smapling_rate_setting(self, input_f_sampling_rate:float):
-        self.f_sampling_rate:float = input_f_sampling_rate
-
     def value_init(self):
         self.adc_window_size_setting(300)
         self.adc_tp1_setting(10)
         self.adc_tp1_rck_setting(1000)
-        self.adc_smapling_rate_setting(100)
+#         self.adc_smapling_rate_setting(100)
         
         self.A_graph_plot_value:list = []
         """
@@ -199,6 +205,17 @@ class MainWindow(QMainWindow):
         self.A_graph_plot_value.append(self.A_adc_fft_plot_TabWidget_configs)   # 1
         self.uart_thread = None
         self.command_sender = upcs.CommandSender()  # 명령 송신 객체
+
+        self.fft_handle:fft.FFT_Module = fft.FFT_Module()
+        # ############################# COPILOT EDIT START (svm 핸들 초기화 + Phase 3 히스토리)
+        self.svm_handle:svm.SVM_Module        = svm.SVM_Module()
+        self.str_svm_csv_path:str             = "svm_data.csv"
+        self.str_svm_waveform_csv_path:str    = "svm_waveforms.csv"
+        self._SVM_HISTORY_MAXLEN:int          = 60
+        self._svm_history:deque               = deque(maxlen=self._SVM_HISTORY_MAXLEN)
+        self._last_adc_raw:list               = []
+        self._svm_waveform_overlay_items:list = []
+        # ############################# COPILOT EDIT END
         
     def graph_title_setting(self, input_s_graph_title:str, input_enum_graph_plot_num:enum_graph_plot_num = None, input_enum_graph_plot_range_opt:enum_graph_plot_range_opt = None):
         for enum_graph_plot_num_index in range(len(self.A_graph_plot_value)):
@@ -283,10 +300,10 @@ class MainWindow(QMainWindow):
 
         self.graph_title_setting(ADC_FFT_FULL_SCALE_NAME, enum_graph_plot_num.ADC_FFT, enum_graph_plot_range_opt.ALL)
         self.graph_title_setting(ADC_FFT_ZOOM_SCALE_NAME, enum_graph_plot_num.ADC_FFT, enum_graph_plot_range_opt.ADAPTIVE)
-        self.graph_x_range_setting(100, enum_graph_plot_num.ADC_FFT)
+        self.graph_x_range_setting(cfg.FFT_SAMPLING_RATE / 2, enum_graph_plot_num.ADC_FFT)
         self.graph_x_label_pos_setting("bottom", enum_graph_plot_num.ADC_FFT)
         self.graph_x_label_setting("주파수(Hz)", enum_graph_plot_num.ADC_FFT)
-        # self.graph_y_range_setting(150, enum_graph_plot_num.ADC_FFT, enum_graph_plot_range_opt.ALL)
+        self.graph_y_range_setting(self.adc_bit_2_range(12) / 2, enum_graph_plot_num.ADC_FFT, enum_graph_plot_range_opt.ALL)
         self.graph_y_label_pos_setting("left", enum_graph_plot_num.ADC_FFT)
         self.graph_y_label_setting("강도", enum_graph_plot_num.ADC_FFT)
         self.graph_line_color_setting(cfg.ADC_FFT_LINE_COLOR, enum_graph_plot_num.ADC_FFT)
@@ -551,7 +568,7 @@ class MainWindow(QMainWindow):
         self.tp_setting_GridLayout.addLayout(self.tp2_HBoxLayout, 2, 1)         # 3. 위젯을 대상 레이아웃에 적용
         self.tp2_SpinBox = QSpinBox()
         self.tp2_SpinBox.setMinimum(0)
-        self.tp2_SpinBox.setMaximum(2147483647)  # SpinBox는 int32 최대값까지만 지원
+        self.tp2_SpinBox.setMaximum(4096)  # SpinBox는 int32 최대값까지만 지원
         self.tp2_SpinBox.setValue(10)  # 기본값
         # 내장 버튼을 숨기고 외부 버튼으로 대체
         self.tp2_SpinBox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
@@ -580,6 +597,88 @@ class MainWindow(QMainWindow):
                                                   
         self.tp_setting_PushButton.clicked.connect(self.event_send_tp_command) # 버튼 기능 구현
         self.tp_setting_GridLayout.addWidget(self.tp_setting_PushButton, 4, 0, 1, 2)
+
+        # ############################# COPILOT EDIT START (FFT Gain 그룹박스 + SVM Data Collect 그룹박스 UI)
+        # --- FFT Gain 설정 ---
+        self.fft_gain_GroupBox = QGroupBox("FFT Gain")             # 1. 대상 위젯 생성
+        self.fft_gain_GroupBox.setStyleSheet(""
+                                               + MACRO_BORDER_RADIUS.format(6)
+                                               )
+        self.fft_gain_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성
+        self.fft_gain_GroupBox.setLayout(self.fft_gain_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
+        self.left_VBoxLayout.addWidget(self.fft_gain_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
+
+        # --- Gain 라벨 ---
+        self.fft_gain_Label = QLabel("Gain: ")
+        self.fft_gain_Label.setStyleSheet(""
+                                          + MACRO_FONT_BOLD
+                                          + MACRO_BORDER_STYLE.format('none')
+                                          )
+        self.fft_gain_Label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)
+        self.fft_gain_GridLayout.addWidget(self.fft_gain_Label, 0, 0)
+
+        self.fft_gain_HBoxLayout = QHBoxLayout()
+        self.fft_gain_GridLayout.addLayout(self.fft_gain_HBoxLayout, 0, 1)
+        self.fft_gain_SpinBox = QDoubleSpinBox()
+        self.fft_gain_SpinBox.setMinimum(0.1)
+        self.fft_gain_SpinBox.setMaximum(1000.0)
+        self.fft_gain_SpinBox.setSingleStep(1.0)
+        self.fft_gain_SpinBox.setDecimals(1)
+        self.fft_gain_SpinBox.setValue(20.0)  # 기본값
+        self.fft_gain_SpinBox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.fft_gain_HBoxLayout.addWidget(self.fft_gain_SpinBox)
+        self.fft_gain_up_btn = QPushButton("▲")
+        self.fft_gain_down_btn = QPushButton("▼")
+        for b in (self.fft_gain_up_btn, self.fft_gain_down_btn):
+            b.setFixedWidth(28)
+            b.setFocusPolicy(PyQt6.QtCore.Qt.FocusPolicy.NoFocus)
+            b.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Maximum)
+        self.fft_gain_up_btn.clicked.connect(self.fft_gain_SpinBox.stepUp)
+        self.fft_gain_down_btn.clicked.connect(self.fft_gain_SpinBox.stepDown)
+        self.fft_gain_HBoxLayout.addWidget(self.fft_gain_up_btn)
+        self.fft_gain_HBoxLayout.addWidget(self.fft_gain_down_btn)
+
+        # --- SVM 데이터 수집 ---
+        self.svm_collect_GroupBox = QGroupBox("SVM Data Collect")
+        self.svm_collect_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
+        self.svm_collect_GridLayout = QGridLayout()
+        self.svm_collect_GroupBox.setLayout(self.svm_collect_GridLayout)
+        self.left_VBoxLayout.addWidget(self.svm_collect_GroupBox)
+
+        # 샘플 카운트 레이블
+        self.svm_count_Label = QLabel("BG: 0  |  Human: 0")
+        self.svm_count_Label.setStyleSheet("" + MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
+        self.svm_collect_GridLayout.addWidget(self.svm_count_Label, 0, 0, 1, 2)
+
+        # 배경 저장 버튼
+        self.svm_bg_PushButton = QPushButton("💾 배경 저장")
+        self.svm_bg_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.svm_bg_PushButton.clicked.connect(self.event_svm_save_background)
+        self.svm_collect_GridLayout.addWidget(self.svm_bg_PushButton, 1, 0)
+
+        # 사람 저장 버튼
+        self.svm_human_PushButton = QPushButton("💾 사람 저장")
+        self.svm_human_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.svm_human_PushButton.clicked.connect(self.event_svm_save_human)
+        self.svm_collect_GridLayout.addWidget(self.svm_human_PushButton, 1, 1)
+
+        # SVM 학습 버튼
+        self.svm_train_PushButton = QPushButton("🤖 SVM 학습")
+        self.svm_train_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.svm_train_PushButton.clicked.connect(self.event_svm_train)
+        self.svm_collect_GridLayout.addWidget(self.svm_train_PushButton, 2, 0, 1, 2)
+
+        # 학습 상태 레이블
+        self.svm_status_Label = QLabel("미학습")
+        self.svm_status_Label.setStyleSheet("" + MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
+        self.svm_collect_GridLayout.addWidget(self.svm_status_Label, 3, 0, 1, 2)
+
+        # 학습 데이터 삭제 버튼
+        self.svm_clear_PushButton = QPushButton("🗑 학습 데이터 삭제")
+        self.svm_clear_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.svm_clear_PushButton.clicked.connect(self.event_svm_clear)
+        self.svm_collect_GridLayout.addWidget(self.svm_clear_PushButton, 4, 0, 1, 2)
+        # ############################# COPILOT EDIT END
 
         # --- 우측 패널 (그래프 + 로그) ---
         self.right_Widget = QWidget()                    # 1. 대상 위젯 생성
@@ -636,7 +735,48 @@ class MainWindow(QMainWindow):
             self.create_adc_plot_tab(self.A_graph_plot_value[enum_graph_plot_num.ADC_RAW][plot_opt])
             self.create_fft_plot_tab(self.A_graph_plot_value[enum_graph_plot_num.ADC_FFT][plot_opt])
 
-        # --- 로그 패널 (그래프 + 로그) ---
+        # ############################# COPILOT EDIT START (Phase 2: SVM 산점도 탭)
+        self.svm_scatter_PlotWidget = pyqtgraph.PlotWidget()
+        self.svm_scatter_PlotWidget.setTitle("SVM Feature Space")
+        self.svm_scatter_PlotWidget.setLabel('bottom', 'Peak Freq (Hz)', **{'font-size': '12pt'})
+        self.svm_scatter_PlotWidget.setLabel('left',   'Peak Mag',       **{'font-size': '12pt'})
+        self.svm_scatter_PlotWidget.addLegend(offset=(10, 10))
+        self.svm_scatter_PlotWidget.setMouseEnabled(x=True, y=True)
+        # 실시간 점 (예측 위치)
+        self.svm_realtime_scatter = pyqtgraph.ScatterPlotItem(
+            size=14, pen=pyqtgraph.mkPen('w', width=2),
+            brush=pyqtgraph.mkBrush(255, 255, 0, 200),
+            symbol='star', name='현재'
+        )
+        self.svm_scatter_PlotWidget.addItem(self.svm_realtime_scatter)
+        self.adc_fft_plot_TabWidget.addTab(self.svm_scatter_PlotWidget, "SVM 산점도")
+        # ############################# COPILOT EDIT END
+        # ############################# COPILOT EDIT START (Phase 3: 분류 히스토리 탭)
+        self.svm_history_PlotWidget = pyqtgraph.PlotWidget()
+        self.svm_history_PlotWidget.setTitle("분류 히스토리  (빨강=사람  /  초록=배경)", color='w', size='12pt')
+        self.svm_history_PlotWidget.hideAxis('left')
+        self.svm_history_PlotWidget.getAxis('bottom').setLabel('← 오래된  |  최근 →')
+        self.svm_history_PlotWidget.setMouseEnabled(x=False, y=False)
+        self.svm_history_PlotWidget.setMenuEnabled(False)
+        self.svm_history_img = pyqtgraph.ImageItem()
+        self.svm_history_PlotWidget.addItem(self.svm_history_img)
+        self.svm_history_PlotWidget.getViewBox().disableAutoRange()  # auto-range 가 setImage 후 범위 덧쓰는 것 방지
+        self.adc_fft_plot_TabWidget.addTab(self.svm_history_PlotWidget, "분류 히스토리")
+        self._update_svm_history_display()  # 초기 회색 표시
+        # ############################# COPILOT EDIT END
+        # ############################# COPILOT EDIT START (Phase A+B: 파형 뷰 탭)
+        self.svm_waveform_PlotWidget = pyqtgraph.PlotWidget()
+        self.svm_waveform_PlotWidget.setTitle("파형 뷰  (현재=밝은선 / 저장=흐린선)", color='w', size='12pt')
+        self.svm_waveform_PlotWidget.setLabel('bottom', '시간 (sec)', **{'font-size': '12pt'})
+        self.svm_waveform_PlotWidget.setLabel('left',   'ADC 값',    **{'font-size': '12pt'})
+        self.svm_waveform_PlotWidget.setYRange(0, 4095, padding=0.05)
+        self.svm_waveform_PlotWidget.setMouseEnabled(x=True, y=True)
+        # 실시간 파형 라인 (SVM 결과에 따라 색 변경)
+        self.svm_realtime_waveform = self.svm_waveform_PlotWidget.plot(
+            [], pen=pyqtgraph.mkPen('w', width=2), name='현재 프레임'
+        )
+        self.adc_fft_plot_TabWidget.addTab(self.svm_waveform_PlotWidget, "파형 뷰")
+        # ############################# COPILOT EDIT END
         self.log_Widget = QWidget()                    # 1. 대상 위젯 생성
         self.log_Widget.setStyleSheet(""
                                         + MACRO_BORDER_RADIUS.format(6)
@@ -754,6 +894,147 @@ class MainWindow(QMainWindow):
             self.log_TextEdit.append("[TX] TP1_RECHECK 전송 실패 - 연결 상태를 확인하세요")
             QMessageBox.warning(self, "전송 실패", "TP1_RECHECK 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
 
+    # ############################# COPILOT EDIT START (SVM 이벤트 핸들러)
+    def _get_last_fft_raw(self):
+        """마지막 FFT raw magnitudes 반환 (게인 미적용)"""
+        return getattr(self, '_last_fft_raw', None), getattr(self, '_last_fft_freqs', None)
+
+    def event_svm_save_background(self):
+        """현재 FFT 결과를 배경(0) 레이블로 저장"""
+        A_mags_raw, A_freqs = self._get_last_fft_raw()
+        if A_mags_raw is None:
+            QMessageBox.warning(self, "저장 실패", "FFT 데이터가 없습니다.\n먼저 데이터를 수신하세요.")
+            return
+        A_feature = self.svm_handle.extract_features(A_mags_raw, A_freqs)
+        self.svm_handle.save_sample(A_feature, svm.LABEL_BACKGROUND, self.str_svm_csv_path)
+        if self._last_adc_raw:
+            self.svm_handle.save_waveform(self._last_adc_raw, svm.LABEL_BACKGROUND, self.str_svm_waveform_csv_path)
+            self.update_svm_waveform_overlay()
+        self._update_svm_count_label()
+        self.log_TextEdit.append("[SVM] 배경 샘플 저장 완료")
+
+    def event_svm_save_human(self):
+        """현재 FFT 결과를 사람(1) 레이블로 저장"""
+        A_mags_raw, A_freqs = self._get_last_fft_raw()
+        if A_mags_raw is None:
+            QMessageBox.warning(self, "저장 실패", "FFT 데이터가 없습니다.\n먼저 데이터를 수신하세요.")
+            return
+        A_feature = self.svm_handle.extract_features(A_mags_raw, A_freqs)
+        self.svm_handle.save_sample(A_feature, svm.LABEL_HUMAN, self.str_svm_csv_path)
+        if self._last_adc_raw:
+            self.svm_handle.save_waveform(self._last_adc_raw, svm.LABEL_HUMAN, self.str_svm_waveform_csv_path)
+            self.update_svm_waveform_overlay()
+        self._update_svm_count_label()
+        self.log_TextEdit.append("[SVM] 사람 샘플 저장 완료")
+
+    def event_svm_train(self):
+        """CSV 데이터로 SVM 학습"""
+        b_ok = self.svm_handle.train(self.str_svm_csv_path)
+        if b_ok:
+            i_bg, i_human = self.svm_handle.get_sample_counts(self.str_svm_csv_path)
+            self.svm_status_Label.setText(f"학습 완료  BG:{i_bg} / Human:{i_human}")
+            self.log_TextEdit.append(f"[SVM] 학습 완료  BG:{i_bg} / Human:{i_human}")
+            self.update_svm_scatter()        # 학습 완료 후 산점도 갱신
+            self.update_svm_waveform_overlay()  # 파형 오버레이 갱신
+        else:
+            self.svm_status_Label.setText("학습 실패 - 데이터 부족")
+            QMessageBox.warning(self, "학습 실패", "데이터가 부족합니다.\n배경/사람 각각 5개 이상 수집하세요.")
+
+    def _update_svm_count_label(self):
+        i_bg, i_human = self.svm_handle.get_sample_counts(self.str_svm_csv_path)
+        self.svm_count_Label.setText(f"BG: {i_bg}  |  Human: {i_human}")
+
+    def event_svm_clear(self):
+        """CSV 학습 데이터 삭제 + SVM 초기화"""
+        reply = QMessageBox.question(
+            self, "학습 데이터 삭제",
+            f"'{self.str_svm_csv_path}' 파일을 삭제하고\nSVM을 초기화합니다. 계속할까요?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        import os
+        if os.path.exists(self.str_svm_csv_path):
+            os.remove(self.str_svm_csv_path)
+        if os.path.exists(self.str_svm_waveform_csv_path):
+            os.remove(self.str_svm_waveform_csv_path)
+        self.svm_handle = svm.SVM_Module()  # 완전 초기화
+        self.svm_status_Label.setText("미학습")
+        self.svm_count_Label.setText("BG: 0  |  Human: 0")
+        self.log_TextEdit.append("[SVM] 학습 데이터 삭제 및 초기화 완료")
+        # 산점도 초기화
+        for item in self.svm_scatter_PlotWidget.listDataItems():
+            if item is not self.svm_realtime_scatter:
+                self.svm_scatter_PlotWidget.removeItem(item)
+        self.svm_realtime_scatter.setData([], [])
+        # Phase 3: 히스토리 초기화
+        self._svm_history.clear()
+        self._update_svm_history_display()
+        # 파형 오버레이 초기화
+        for item in self._svm_waveform_overlay_items:
+            self.svm_waveform_PlotWidget.removeItem(item)
+        self._svm_waveform_overlay_items.clear()
+        self.svm_realtime_waveform.setData([], [])
+        self.svm_realtime_waveform.setPen(pyqtgraph.mkPen('w', width=2))
+
+    # ############################# COPILOT EDIT START (Phase 2: update_svm_scatter)
+    def update_svm_scatter(self):
+        """CSV 데이터로 산점도 갱신 (학습 완료 후 호출)
+        X축: peak_freq  Y축: peak_mag
+        """
+        import csv as _csv
+        import os
+
+        if not os.path.exists(self.str_svm_csv_path):
+            return
+
+        A_bg_x, A_bg_y = [], []
+        A_human_x, A_human_y = [], []
+
+        with open(self.str_svm_csv_path, 'r') as f:
+            reader = _csv.reader(f)
+            next(reader, None)  # 헤더 스킵
+            for row in reader:
+                if len(row) < 2:
+                    continue
+                # peak_freq = 인덱스 151 (mag_0~150 다음)
+                # peak_mag  = 인덱스 152
+                f_peak_freq = float(row[151])
+                f_peak_mag  = float(row[152])
+                i_label     = int(row[-1])
+                if i_label == svm.LABEL_BACKGROUND:
+                    A_bg_x.append(f_peak_freq)
+                    A_bg_y.append(f_peak_mag)
+                else:
+                    A_human_x.append(f_peak_freq)
+                    A_human_y.append(f_peak_mag)
+
+        # 기존 배경/사람 점 제거
+        for item in list(self.svm_scatter_PlotWidget.listDataItems()):
+            if item is not self.svm_realtime_scatter:
+                self.svm_scatter_PlotWidget.removeItem(item)
+
+        # 배경 점 (초록)
+        if A_bg_x:
+            scatter_bg = pyqtgraph.ScatterPlotItem(
+                x=A_bg_x, y=A_bg_y,
+                size=8, pen=pyqtgraph.mkPen(None),
+                brush=pyqtgraph.mkBrush(0, 200, 0, 180),
+                symbol='o', name='배경'
+            )
+            self.svm_scatter_PlotWidget.addItem(scatter_bg)
+
+        # 사람 점 (빨강)
+        if A_human_x:
+            scatter_human = pyqtgraph.ScatterPlotItem(
+                x=A_human_x, y=A_human_y,
+                size=8, pen=pyqtgraph.mkPen(None),
+                brush=pyqtgraph.mkBrush(220, 0, 0, 180),
+                symbol='t', name='사람'
+            )
+            self.svm_scatter_PlotWidget.addItem(scatter_human)
+    # ############################# COPILOT EDIT END
+
 
         i_get_tp2 = self.tp2_SpinBox.value()    
         if self.command_sender.send_set_tp2(i_get_tp2):
@@ -761,6 +1042,66 @@ class MainWindow(QMainWindow):
         else:
             self.log_TextEdit.append("[TX] TP2 전송 실패 - 연결 상태를 확인하세요")
             QMessageBox.warning(self, "전송 실패", "TP2 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
+
+    # ############################# COPILOT EDIT START (Phase A+B: update_svm_waveform_overlay)
+    def update_svm_waveform_overlay(self):
+        """저장된 파형 CSV를 읽어 오버레이 그래프 갱신
+        초록 선 = 배경(LABEL_BACKGROUND), 빨강 선 = 사람(LABEL_HUMAN)
+        """
+        # 기존 오버레이 제거
+        for item in self._svm_waveform_overlay_items:
+            self.svm_waveform_PlotWidget.removeItem(item)
+        self._svm_waveform_overlay_items.clear()
+
+        A_waveforms = self.svm_handle.load_waveforms(self.str_svm_waveform_csv_path)
+        for A_raw, i_label in A_waveforms:
+            x_wave = numpy.arange(len(A_raw)) / 100.0  # 시간축 (초)
+            if i_label == svm.LABEL_HUMAN:
+                pen = pyqtgraph.mkPen((220, 0, 0, 70), width=1)
+            else:
+                pen = pyqtgraph.mkPen((0, 180, 0, 70), width=1)
+            item = self.svm_waveform_PlotWidget.plot(x_wave, A_raw, pen=pen)
+            self._svm_waveform_overlay_items.append(item)
+
+        # 실시간 라인을 맨 위 z-order로 유지
+        self.svm_waveform_PlotWidget.removeItem(self.svm_realtime_waveform)
+        self.svm_waveform_PlotWidget.addItem(self.svm_realtime_waveform)
+    # ############################# COPILOT EDIT END
+
+    # ############################# COPILOT EDIT START (Phase 3: _update_svm_history_display)
+    def _update_svm_history_display(self):
+        """분류 히스토리 ImageItem 갱신 (최신값이 오른쪽 끝)"""
+        _BAR_H = 40  # y축 높이 (픽셀 두께 확보 - 1픽셀은 렌더링 시 사라질 수 있음)
+        # shape: (maxlen, BAR_H, 3) → pyqtgraph image[x, y, ch]
+        img = numpy.full((self._SVM_HISTORY_MAXLEN, _BAR_H, 3), 40, dtype=numpy.uint8)
+        i_history_len = len(self._svm_history)
+        i_offset = self._SVM_HISTORY_MAXLEN - i_history_len  # 최신이 오른쪽 끝에 오도록
+        for i, i_label in enumerate(self._svm_history):
+            pos = i_offset + i
+            if i_label == svm.LABEL_HUMAN:
+                img[pos, :, :] = [220, 0, 0]    # 빨강 = 사람 (전체 높이 칠하기)
+            else:
+                img[pos, :, :] = [0, 180, 0]    # 초록 = 배경 (전체 높이 칠하기)
+        # levels=(0,255) 명시: autoLevels=False일 때 단색 이미지에서 levels=(40,40) 오류 방지
+        self.svm_history_img.setImage(img, autoLevels=False, levels=(0, 255))
+        # setImage 후 범위 재적용 (setImage 호출 시 ViewBox 범위가 리셋될 수 있음)
+        self.svm_history_PlotWidget.setXRange(0, self._SVM_HISTORY_MAXLEN, padding=0.02)
+        self.svm_history_PlotWidget.setYRange(0, _BAR_H, padding=0.0)
+        # 타이틀에 감지율 표시
+        if i_history_len > 0:
+            i_human_cnt = sum(1 for x in self._svm_history if x == svm.LABEL_HUMAN)
+            f_rate = i_human_cnt / i_history_len * 100
+            self.svm_history_PlotWidget.setTitle(
+                f"분류 히스토리  |  감지율: {f_rate:.1f}%  ({i_human_cnt}/{i_history_len}회)  "
+                f"(빨강=사람 / 초록=배경)",
+                color='w', size='12pt'
+            )
+        else:
+            self.svm_history_PlotWidget.setTitle(
+                "분류 히스토리  (빨강=사람  /  초록=배경)",
+                color='w', size='12pt'
+            )
+    # ############################# COPILOT EDIT END
 
     def graph_statistics(self, inter_buffer:list):
         """0이 아닌 값들에 대한 통계 계산"""
@@ -912,7 +1253,7 @@ class MainWindow(QMainWindow):
         self.create_line(target_PlotWidget, cfg.TP1_RCK_LINE_NAME, self.i_tp1_rck, f'TP1_RCK={self.i_tp1_rck}', cfg.TP1_RCK_COLOR)
         self.create_scatter(target_PlotWidget, cfg.TP1_POINT_NAME, cfg.TP1_POINT_COLOR)
         self.create_scatter(target_PlotWidget, cfg.TP1_RCK_POINT_NAME, cfg.TP1_RCK_POINT_COLOR)
-        self.create_label(target_PlotWidget, cfg.LABEL_NAME, cfg.LABEL_ANCHOR_X, cfg.LABEL_ANCHOR_Y, cfg.LABEL_COLOR)
+        self.create_label(target_PlotWidget, cfg.ADC_LABEL_NAME, cfg.ADC_LABEL_ANCHOR_X, cfg.ADC_LABEL_ANCHOR_Y, cfg.ADC_LABEL_COLOR)
 
         self.adc_raw_plot_TabWidget.addTab(target_PlotWidget, graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME])
 
@@ -947,6 +1288,8 @@ class MainWindow(QMainWindow):
         # 피크 주파수 표시용 텍스트 아이템
         peak_TextItem = pyqtgraph.TextItem(anchor=(0, 1), color='y')
         target_PlotWidget.addItem(peak_TextItem)
+
+        self.create_label(target_PlotWidget, cfg.FFT_LABEL_NAME, cfg.FFT_LABEL_ANCHOR_X, cfg.FFT_LABEL_ANCHOR_Y, cfg.FFT_LABEL_COLOR)
 
         # tp1_recheck_lines[graph_tab_name] = self.tp1_rck_InfiniteLine
         self.adc_fft_plot_TabWidget.addTab(target_PlotWidget, graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME])
@@ -1028,6 +1371,8 @@ class MainWindow(QMainWindow):
     #                 label = self.fft_peak_labels["ADC_FFT"]
     #                 label.setText(f"DC Mean: {dc_mean:.1f}\nPeak: {peak_freq:.2f} Hz\n진폭(Mag): {peak_mag:.1f}")
     #                 label.setPos(frequencies[-1] * 0.6, 50)  # Y축 150 고정, 중간 위치
+
+
         
     #     # 확대 스펙트럼 그래프 업데이트 (0~15Hz)
     #     if "ADC_FFT (Zoom)" in self.plots:
@@ -1098,7 +1443,6 @@ class MainWindow(QMainWindow):
         return None
 
     def update_threshold_lines(self, inter_Widget:QWidget):
-
         target_line = None
         PlotItem = inter_Widget.getPlotItem()
         items = getattr(PlotItem, 'items', None)  # 일부 버전은 속성, 일부는 다른 구조일 수 있음
@@ -1115,47 +1459,7 @@ class MainWindow(QMainWindow):
         target_line.setValue(self.i_tp1_rck)
         target_line.label.setText(f'TP1={self.i_tp1_rck}')
 
-    def update_status(self, inter_Widget:QWidget, A_inter_data:updm.SensorData):
-        """그래프 우측 상단에 통계 정보(최소, 최대, 중앙값, 평균) 표시
-        
-        Args:
-            plot_name: 플롯 이름
-            data: 데이터 배열
-            y_max: 고정 Y축 최대값 (옵션)
-            positive_only: True면 양수 값만 필터링해서 통계 계산
-        """
-        target_label = None
-        PlotItem = inter_Widget.getPlotItem()
-        items = getattr(PlotItem, 'items', None)  # 일부 버전은 속성, 일부는 다른 구조일 수 있음
-
-        # 검색 시
-        for item in items:
-            if isinstance(item, pyqtgraph.TextItem) and getattr(item, 'role', None) == cfg.LABEL_NAME:
-                target_label = item
-        
-        i_buffer_len, i_exclusion_zero_buffer_len, i_min, i_max, i_avg, i_mid = self.graph_statistics(A_inter_data)
-        return_value = self.update_exceed_points(inter_Widget, A_inter_data)  # TP1 초과점 표시
-
-        s_stats_text = (
-            f"총 Len : {i_buffer_len}개\n"
-            f"실제 값 Len : {i_exclusion_zero_buffer_len}개)\n"
-            f"실제 값 Min : {i_min}\n"
-            f"실제 값 Max : {i_max}\n"
-            f"실제 값 Avg : {i_avg:.1f}\n"
-            f"실제 값 Mid : {i_mid}\n"
-            f"TP1: {return_value[0]}\n"
-            f"TP1_RCK: {return_value[1]}\n"
-        )
-
-        target_label.setText(s_stats_text)
-
-        ViewBox = PlotItem.getViewBox()
-        x_max = ViewBox.viewRange()[0][1]
-        y_max = ViewBox.viewRange()[1][1]
-
-        target_label.setPos(x_max, y_max)
-
-    def update_exceed_points(self, inter_Widget:QWidget, A_inter_data:updm.SensorData) -> list:
+    def update_exceed_points(self, inter_Widget:QWidget, A_inter_data:List) -> list:
         """TP1 초과 지점을 빨간색 점, TP1_RECHECK 초과 지점을 주황색 점으로 표시"""
 
         A_i_tp1_over_x = []  # 빨간 점 (TP1 ~ TP1_RECHECK)
@@ -1194,9 +1498,183 @@ class MainWindow(QMainWindow):
 
         return tp1_over_count, tp1_rck_over_count
 
+    def update_adc_graph(self, inter_Widget:QWidget, A_inter_data:list):
+        """그래프 우측 상단에 통계 정보(최소, 최대, 중앙값, 평균) 표시
+        Args:
+            plot_name: 플롯 이름
+            data: 데이터 배열
+            y_max: 고정 Y축 최대값 (옵션)
+            positive_only: True면 양수 값만 필터링해서 통계 계산
+        """
+        
+        PlotItem = inter_Widget.getPlotItem()
+        lines = PlotItem.listDataItems()
+        if lines:
+            lines[0].setData(A_inter_data)
+        else:
+            inter_Widget.plot(A_inter_data)
 
 
-    
+        target_label = None
+        items = getattr(PlotItem, 'items', None)  # 일부 버전은 속성, 일부는 다른 구조일 수 있음
+        for item in items:
+            if isinstance(item, pyqtgraph.TextItem) and getattr(item, 'role', None) == cfg.ADC_LABEL_NAME:
+                target_label = item
+        
+        i_buffer_len, i_exclusion_zero_buffer_len, i_min, i_max, i_avg, i_mid = self.graph_statistics(A_inter_data)
+        return_value = self.update_exceed_points(inter_Widget, A_inter_data)  # TP1 초과점 표시
+
+        s_stats_text = (
+            f"총 Len : {i_buffer_len}개\n"
+            f"실제 값 Len : {i_exclusion_zero_buffer_len}개)\n"
+            f"실제 값 Min : {i_min}\n"
+            f"실제 값 Max : {i_max}\n"
+            f"실제 값 Avg : {i_avg:.1f}\n"
+            f"실제 값 Mid : {i_mid}\n"
+            f"TP1: {return_value[0]}\n"
+            f"TP1_RCK: {return_value[1]}\n"
+        )
+
+        target_label.setText(s_stats_text)
+
+        ViewBox = PlotItem.getViewBox()
+        x_max = ViewBox.viewRange()[0][1]
+        y_max = ViewBox.viewRange()[1][1]
+
+        target_label.setPos(x_max, y_max)
+
+    # def compute_fft(self, adc_buffer, apply_window=True):
+    #     """ADC 버퍼에 FFT 적용
+        
+    #     Args:
+    #         adc_buffer: ADC 샘플 배열 (예: 300개의 uint16)
+    #         apply_window: 윈도우 함수 적용 여부
+            
+    #     Returns:
+    #         frequencies: 주파수 배열 (Hz)
+    #         magnitudes: 진폭 배열 (정규화됨)
+    #     """
+    #     # n = len(adc_buffer)
+        
+    #     # # 1. DC 오프셋 제거
+    #     # signal = np.array(adc_buffer, dtype=np.float64)
+    #     # signal = signal - np.mean(signal)
+        
+    #     # 2. 윈도우 함수 적용 (스펙트럼 누설 방지)
+    #     if apply_window:
+    #         window = np.hanning(n)
+    #         signal = signal * window
+        
+    #     # 3. FFT 연산 (실수 신호용 rfft)
+    #     fft_result = np.fft.rfft(signal)
+        
+    #     # 4. 진폭 계산 및 정규화
+    #     magnitudes = np.abs(fft_result) * 2 / n
+    #     magnitudes[0] /= 2  # DC 성분 보정
+        
+    #     # 5. 주파수 축 생성
+    #     frequencies = np.fft.rfftfreq(n, d=1.0/self.f_sampling_rate)
+        
+    #     return frequencies, magnitudes
+
+    def update_fft_graph(self, inter_Widget:QWidget, A_inter_data:list):
+        """FFT 그래프 업데이트
+        Args:
+            adc_buffer: ADC 샘플 배열
+        """
+        # ############################# COPILOT EDIT START (raw magnitudes 저장 + 게인 분리)
+        # raw magnitudes (게인 미적용) → SVM 특징 추출용
+        A_frequencies, A_magnitudes_raw, i_mean, i_peak_idx, i_peak_freq, i_peak_mag = self.fft_handle.fft(A_inter_data, 1.0)
+        self._last_fft_raw   = A_magnitudes_raw.copy()
+        self._last_fft_freqs = A_frequencies.copy()
+        self._last_adc_raw   = list(A_inter_data)   # 파형 오버레이/실시간 뷰용 원시 ADC 저장
+
+        # 게인 적용 → 그래프 표시용
+        A_magnitudes = A_magnitudes_raw * self.fft_gain_SpinBox.value()
+        # ############################# COPILOT EDIT END
+        # print(f"debugger_start.py | update_fft_graph() | A_return_fft_data = {A_return_fft_data}")
+        # 전체 스펙트럼 그래프 업데이트
+        # if "ADC_FFT" in self.plots:
+        #     self.plots["ADC_FFT"].setData(frequencies, magnitudes)
+            
+        #     # 피크 주파수 찾기 (DC 제외)
+        #     if len(magnitudes) > 1:
+        #         # DC(0Hz) 제외한 영역에서 피크 찾기
+        #         peak_idx = np.argmax(magnitudes[1:]) + 1
+        #         peak_freq = frequencies[peak_idx]
+        #         peak_mag = magnitudes[peak_idx]
+                
+        #         # 피크 라벨 업데이트 (Mean 값 포함)
+        #         if "ADC_FFT" in self.fft_peak_labels:
+        #             label = self.fft_peak_labels["ADC_FFT"]
+        #             label.setText(f"DC Mean: {dc_mean:.1f}\nPeak: {peak_freq:.2f} Hz\n진폭(Mag): {peak_mag:.1f}")
+        #             label.setPos(frequencies[-1] * 0.6, 50)  # Y축 150 고정, 중간 위치
+
+
+        PlotItem = inter_Widget.getPlotItem()
+        lines = PlotItem.listDataItems()
+        if lines:
+            lines[0].setData(A_frequencies, A_magnitudes)
+        else:
+            inter_Widget.plot(A_frequencies, A_magnitudes)
+
+        target_label = None
+        items = getattr(PlotItem, 'items', None)  # 일부 버전은 속성, 일부는 다른 구조일 수 있음
+        for item in items:
+            if isinstance(item, pyqtgraph.TextItem) and getattr(item, 'role', None) == cfg.FFT_LABEL_NAME:
+                target_label = item
+
+        s_stats_text = (
+            f"DC Mean : {i_mean:.1f}\n"
+            f"Peak 위치 : {i_peak_idx:.1f}\n"
+            f"Peak Freq(주파수) : {i_peak_freq:.2f} Hz\n"
+            f"Peak Mag(진폭/세기) : {i_peak_mag:.1f}\n"
+        )
+
+        target_label.setText(s_stats_text)
+        ViewBox = PlotItem.getViewBox()
+        x_max = ViewBox.viewRange()[0][1]
+        y_max = ViewBox.viewRange()[1][1]
+
+        target_label.setPos(x_max, y_max)
+
+        # ############################# COPILOT EDIT START (Phase 1+2+3+A: 실시간 SVM 분류 + 산점도 + 히스토리 + 파형 뷰)
+        # Phase A: 파형 뷰 실시간 라인 갱신 (SVM 학습 여부 무관하게 항상 업데이트)
+        _x_wave = numpy.arange(len(A_inter_data)) / 100.0
+        self.svm_realtime_waveform.setData(_x_wave, list(A_inter_data))
+
+        if self.svm_handle.b_is_trained:
+            A_feature = self.svm_handle.extract_features(A_magnitudes_raw, A_frequencies)
+            i_label, f_confidence = self.svm_handle.predict(A_feature)
+
+            if i_label == svm.LABEL_HUMAN:
+                inter_Widget.setBackground((80, 0, 0, 180))
+                s_svm_result = f"● 사람 감지  ({f_confidence*100:.1f}%)"
+                rt_brush = pyqtgraph.mkBrush(255, 80, 80, 230)
+                self.svm_realtime_waveform.setPen(pyqtgraph.mkPen((255, 80, 80), width=2))  # 빨강
+            else:
+                inter_Widget.setBackground((0, 60, 0, 180))
+                s_svm_result = f"○ 배경  ({f_confidence*100:.1f}%)"
+                rt_brush = pyqtgraph.mkBrush(80, 255, 80, 230)
+                self.svm_realtime_waveform.setPen(pyqtgraph.mkPen((80, 255, 80), width=2))  # 초록
+
+            target_label.setText(s_stats_text + f"SVM : {s_svm_result}")
+
+            # Phase 2: 산점도에 실시간 현재 위치 표시
+            f_peak_freq = float(A_frequencies[i_peak_idx])
+            f_peak_mag  = float(A_magnitudes_raw[i_peak_idx])
+            self.svm_realtime_scatter.setData(
+                x=[f_peak_freq], y=[f_peak_mag],
+                brush=rt_brush
+            )
+            # Phase 3: 히스토리 deque 에 레이블 추가 → 히스토리 탭 갱신
+            self._svm_history.append(i_label)
+            self._update_svm_history_display()
+        else:
+            inter_Widget.setBackground('default')
+            self.svm_realtime_waveform.setPen(pyqtgraph.mkPen('w', width=2))  # 미학습 → 흰색
+        # ############################# COPILOT EDIT END
+
 
     # def send_get_settings_command(self):
     #     """ESP32에 현재 설정값을 요청"""
@@ -1281,37 +1759,19 @@ class MainWindow(QMainWindow):
         
         self.log_TextEdit.verticalScrollBar().setValue(self.log_TextEdit.verticalScrollBar().maximum())
         if input_sensor_parser_data.A_adc_buffer:
+
             get_Widget = self.get_TabWidget(ADC_RAW_FULL_SCALE_NAME)
+            self.update_adc_graph(get_Widget, input_sensor_parser_data.A_adc_buffer)
 
-            ### update_status 처럼 함수로 만들기 ############################################
-            if not get_Widget:
-                print(f"debugger_start.py | MainWindow | event_update_ui | get_Widget = {get_Widget} [ADC_RAW_FULL_SCALE_NAME]")
-            else:
-                Items = get_Widget.getPlotItem()
-                lines = Items.listDataItems()
-                if lines:
-                    lines[0].setData(input_sensor_parser_data.A_adc_buffer)
-                else:
-                    get_Widget.plot(input_sensor_parser_data.A_adc_buffer)
-            ### update_status 처럼 함수로 만들기 ############################################
-            self.update_status(get_Widget, input_sensor_parser_data.A_adc_buffer)
             get_Widget = self.get_TabWidget(ADC_RAW_ZOOM_SCALE_NAME)
-
-            ### update_status 처럼 함수로 만들기 ############################################
-            if not get_Widget:
-                print(f"debugger_start.py | MainWindow | event_update_ui | get_Widget = {get_Widget} [ADC_RAW_ZOOM_SCALE_NAME]")
-            else:
-                Items = get_Widget.getPlotItem()
-                lines = Items.listDataItems()
-                if lines:
-                    lines[0].setData(input_sensor_parser_data.A_adc_buffer)
-                else:
-                    get_Widget.plot(input_sensor_parser_data.A_adc_buffer)
-            ### update_status 처럼 함수로 만들기 ############################################
-            self.update_status(get_Widget, input_sensor_parser_data.A_adc_buffer)
+            self.update_adc_graph(get_Widget, input_sensor_parser_data.A_adc_buffer)
             
             # ★ FFT 분석 및 그래프 업데이트
             # self._update_fft_plot(input_sensor_parser_data.A_adc_buffer)
+            get_Widget = self.get_TabWidget(ADC_FFT_FULL_SCALE_NAME)
+            self.update_fft_graph(get_Widget, input_sensor_parser_data.A_adc_buffer)
+            get_Widget = self.get_TabWidget(ADC_FFT_ZOOM_SCALE_NAME)
+            self.update_fft_graph(get_Widget, input_sensor_parser_data.A_adc_buffer)
 
         # 3. 설정값 업데이트
         if input_sensor_parser_data.settings:

@@ -62,7 +62,6 @@ class UartReceiveParser:
         self.bytes_receive_data:bytes           = None
         self.bytes_receive_checksum:bytes       = None
         self.bytes_receive_etx:bytes            = None
-
         self.b_chksum_pass:bool                 = False
 
         

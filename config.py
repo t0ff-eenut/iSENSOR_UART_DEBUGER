@@ -18,24 +18,34 @@ TEXT_COLOR:str          = "#FFFFFF"
 ADC_RAW_LINE_COLOR:str  = "#059200"
 ADC_FFT_LINE_COLOR:str  = "#eeff00"
 
-TP1_LINE_NAME:str       = 'TP1_line_name'
-TP1_COLOR:str           = "#FF0000"
-TP1_RCK_LINE_NAME:str   = 'TP1_rck_line_name'
-TP1_RCK_COLOR:str       = "#FFA500"
 
 # ax = 0 → 텍스트의 왼쪽이 pos에 정렬,
 # ax = 1 → 텍스트의 오른쪽이 pos에 정렬,
 # ay = 0 → 텍스트의 위쪽이 pos에 정렬,
 # ay = 1 → 텍스트의 아래쪽이 pos에 정렬.
-LABEL_NAME:str          = 'graph_value_info'
-LABEL_ANCHOR_X:int      = 1 
-LABEL_ANCHOR_Y:int      = 0
-LABEL_COLOR:str         = "#898989"
+ADC_LABEL_NAME:str          = 'adc_graph_value_info'
+ADC_LABEL_ANCHOR_X:int      = 1 
+ADC_LABEL_ANCHOR_Y:int      = 0
+ADC_LABEL_COLOR:str         = "#898989"
+
+TP1_LINE_NAME:str       = 'TP1_line_name'
+TP1_COLOR:str           = "#FF0000"
+TP1_RCK_LINE_NAME:str   = 'TP1_rck_line_name'
+TP1_RCK_COLOR:str       = "#FFA500"
 
 TP1_POINT_NAME:str      = 'TP1_scatter_name'
 TP1_POINT_COLOR:str     = "#FF0000"
 TP1_RCK_POINT_NAME:str  = 'TP1_RCK_scatter_name'
 TP1_RCK_POINT_COLOR:str = "#FFA500"
+
+
+
+FFT_LABEL_NAME:str          = 'fft_graph_value_info'
+FFT_LABEL_ANCHOR_X:int      = 1 
+FFT_LABEL_ANCHOR_Y:int      = 0
+FFT_LABEL_COLOR:str         = "#898989"
+
+FFT_SAMPLING_RATE           = 100
 
 MAX_LOG_LINES:int           = 500
 
