@@ -1,3 +1,12 @@
+# 샘플 300개, 샘플링 레이트가 100Hz
+# 빈 번호	주파수 범위	의미
+# 빈 0 (mag_0)	0 Hz	DC 성분
+# 빈 1 (mag_1)	~0.33 Hz	0.33Hz 신호 세기
+# 빈 2 (mag_2)	~0.67 Hz	0.67Hz 신호 세기
+# ...	...	...
+# 빈 150 (mag_150)	~50 Hz	50Hz 신호 세기
+
+
 # ############################# COPILOT EDIT START (svm.py 신규 생성)
 import numpy
 import csv
@@ -12,6 +21,18 @@ LABEL_HUMAN      = 1  # 사람 감지
 class SVM_Module():
 
     def __init__(self):
+
+        self.A_frequencies = []
+        self.A_magnitudes  = []
+        
+        # 1. 피크 주파수 (DC 제외
+        self.i_peak_idx    = 0
+        self.f_peak_freq   = 0
+        # 2. 피크 진폭
+        self.f_peak_mag    = 0
+        # 3. 전체 평균 진폭 (DC 제외)
+        self.f_mag_mean    = 0
+
         self.scaler:StandardScaler  = StandardScaler()
         self.svm_model:SVC          = SVC(kernel='rbf', C=1.0, gamma='scale', probability=True)
         self.b_is_trained:bool      = False
@@ -22,7 +43,8 @@ class SVM_Module():
     # -------------------------------------------------------
     # 특징 추출
     # -------------------------------------------------------
-    def extract_features(self, A_magnitudes_raw:numpy.ndarray, A_frequencies:numpy.ndarray) -> numpy.ndarray:
+    # def extract_features(self, A_magnitudes_raw:numpy.ndarray, A_frequencies:numpy.ndarray) -> numpy.ndarray:
+    def extract_features(self) -> numpy.ndarray:
         """FFT 결과에서 SVM 특징 벡터 추출 (게인 적용 전 raw magnitudes 사용)
 
         Args:
@@ -32,44 +54,44 @@ class SVM_Module():
         Returns:
             numpy.ndarray: 특징 벡터 (전체 스펙트럼 151개 + 통계 10개 = 161개)
         """
-        mags = A_magnitudes_raw
-        freqs = A_frequencies
+        # self.A_magnitudes = A_magnitudes_raw
+        # self.A_frequencies = A_frequencies
 
-        # --- 통계 특징 10개 ---
-        # 1. 피크 주파수 (DC 제외)
-        i_peak_idx      = numpy.argmax(mags[1:]) + 1
-        f_peak_freq     = freqs[i_peak_idx]
+        # --- feature 10개 ---
+        # # 1. 피크 주파수 (DC 제외)
+        # i_peak_idx      = numpy.argmax(self.A_magnitudes[1:]) + 1
+        # f_peak_freq     = self.A_frequencies[i_peak_idx]
+        # # 2. 피크 진폭
+        # f_peak_mag      = self.A_magnitudes[i_peak_idx]
 
-        # 2. 피크 진폭
-        f_peak_mag      = mags[i_peak_idx]
 
         # 3. 전체 평균 진폭 (DC 제외)
-        f_mean_mag      = numpy.mean(mags[1:])
+        f_mean_mag      = numpy.mean(self.A_magnitudes[1:])
 
         # 4. 진폭 표준편차
-        f_std_mag       = numpy.std(mags[1:])
+        f_std_mag       = numpy.std(self.A_magnitudes[1:])
 
         # 5. 스펙트럼 무게중심 주파수
-        f_total_energy  = numpy.sum(mags[1:])
+        f_total_energy  = numpy.sum(self.A_magnitudes[1:])
         if f_total_energy > 0:
-            f_centroid  = numpy.sum(freqs[1:] * mags[1:]) / f_total_energy
+            f_centroid  = numpy.sum(self.A_frequencies[1:] * self.A_magnitudes[1:]) / f_total_energy
         else:
             f_centroid  = 0.0
 
         # 6~8. 대역별 에너지 합
-        low_mask        = (freqs >= 0.0) & (freqs <  5.0)   # 저주파 0~5Hz
-        mid_mask        = (freqs >= 5.0) & (freqs < 20.0)   # 중주파 5~20Hz
-        high_mask       = (freqs >= 20.0)                    # 고주파 20~50Hz
-        f_low_energy    = numpy.sum(mags[low_mask])
-        f_mid_energy    = numpy.sum(mags[mid_mask])
-        f_high_energy   = numpy.sum(mags[high_mask])
+        low_mask        = (self.A_frequencies >= 0.0) & (self.A_frequencies <  5.0)   # 저주파 0~5Hz
+        mid_mask        = (self.A_frequencies >= 5.0) & (self.A_frequencies < 20.0)   # 중주파 5~20Hz
+        high_mask       = (self.A_frequencies >= 20.0)                    # 고주파 20~50Hz
+        f_low_energy    = numpy.sum(self.A_magnitudes[low_mask])
+        f_mid_energy    = numpy.sum(self.A_magnitudes[mid_mask])
+        f_high_energy   = numpy.sum(self.A_magnitudes[high_mask])
 
         # 9. RMS 에너지
-        f_rms           = numpy.sqrt(numpy.mean(mags[1:] ** 2))
+        f_rms           = numpy.sqrt(numpy.mean(self.A_magnitudes[1:] ** 2))
 
         # 10. 임계값 이상 피크 개수 (평균 + 2*표준편차 초과)
         f_threshold     = f_mean_mag + 2.0 * f_std_mag
-        i_peak_count    = int(numpy.sum(mags[1:] > f_threshold))
+        i_peak_count    = int(numpy.sum(self.A_magnitudes[1:] > f_threshold))
 
         A_stat_features = numpy.array([
             f_peak_freq,
@@ -85,7 +107,7 @@ class SVM_Module():
         ])
 
         # 전체 스펙트럼(151개) + 통계(10개) = 161개
-        A_feature_vector = numpy.concatenate([mags, A_stat_features])
+        A_feature_vector = numpy.concatenate([self.A_magnitudes, A_stat_features])
         return A_feature_vector
 
     # -------------------------------------------------------
@@ -106,6 +128,22 @@ class SVM_Module():
             if b_write_header:
                 # 헤더 생성
                 A_header = [f"mag_{i}" for i in range(151)]
+                #                 인덱스	컬럼명	설명
+                # 151	peak_freq	피크 주파수 (현재 X)
+                # 152	peak_mag	피크 진폭 (현재 Y)
+                # 153	mean_mag	전체 평균 진폭
+                # 154	std_mag	진폭 표준편차
+                # 155	centroid	스펙트럼 무게중심 주파수
+                # 156	low_energy	저주파(0~5Hz) 에너지 합
+                # 157	mid_energy	중주파(5~20Hz) 에너지 합
+                # 158	high_energy	고주파(20~50Hz) 에너지 합
+                # 159	rms	RMS 에너지
+                # 160	peak_count	임계값 이상 피크 개수
+
+                # centroid (X) vs mid_energy (Y): 사람 존재 시 중주파대에 에너지가 몰리고, 무게중심도 이동하므로 분리가 잘 됨
+                # rms (X) vs peak_mag (Y): 전체 에너지 세기 vs 최대 피크 세기
+                # low_energy (X) vs mid_energy (Y): 저/중주파 에너지 비율로 분류
+                
                 A_header += [
                     "peak_freq", "peak_mag", "mean_mag", "std_mag",
                     "centroid", "low_energy", "mid_energy", "high_energy",

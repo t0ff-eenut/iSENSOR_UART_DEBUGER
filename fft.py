@@ -8,9 +8,22 @@ class FFT_Module():
     def __init__(self):
         self.f_sampling_rate:float  = cfg.FFT_SAMPLING_RATE
 
-    # FFT
-    def adc_smapling_rate_setting(self, input_f_sampling_rate:float):
-        self.f_sampling_rate = input_f_sampling_rate
+        self.A_data        = 0
+        self.i_data_len    = 0
+        self.f_gain        = 0
+
+        self.A_f_data = []
+        self.A_DC_exit_data = []
+
+        self.A_fft_result   = []
+
+        self.A_frequencies = []
+        self.A_magnitudes  = []
+        self.f_mean_adc    = 0.0
+        self.i_peak_idx    = 0
+        self.f_peak_freq   = 0
+        self.f_peak_mag    = 0
+
 
     def fft(self, A_inter_data:list, f_gain:float = 1.0) -> list:
         """ADC 버퍼에 FFT 적용
@@ -23,12 +36,15 @@ class FFT_Module():
             frequencies: 주파수 배열 (Hz)
             magnitudes: 진폭 배열 (게인 적용됨)
         """
-        i_data_len = len(A_inter_data)
+
+        self.A_data     = A_inter_data
+        self.i_data_len = len(self.A_data)
+        self.f_gain     = f_gain
 
         # 1. DC 오프셋 제거
-        A_signal = numpy.array(A_inter_data, dtype=numpy.float64)
-        i_mean = numpy.mean(A_signal)   # 배열의 평균값
-        A_signal = A_signal - i_mean    # 배열 DC 성분 제거
+        self.A_f_data = numpy.array(self.A_data, dtype=numpy.float64)
+        self.f_mean_adc = numpy.mean(self.A_f_data)               # 배열의 평균값
+        self.A_DC_exit_data = self.A_f_data - self.f_mean_adc     # 배열 DC 성분 제거
 
         # 3. FFT 연산(음수 주파수 포함 -> 양수와 대칭)
         # fft_result = numpy.fft.fft(A_signal)
@@ -50,32 +66,32 @@ class FFT_Module():
 
         # fft_result 단독으로는 세기만 있고 주파수는 없음
         # rfftfreq와 합쳐야 비로소 주파수 + 세기 조합
-        A_fft_result = numpy.fft.rfft(A_signal)
+        self.A_fft_result = numpy.fft.rfft(self.A_DC_exit_data)
         # print(f"fft.py | fft() | len {len(fft_result)}\nfft_result = {fft_result}")
         
 
         # # 4. 진폭 계산 및 정규화 (abs(fft_result[k]) × N/2)
         # magnitudes = 진폭(세기)
-        A_magnitudes = numpy.abs(A_fft_result) * (2 / i_data_len)
-        A_magnitudes[0] /= 2  # DC 성분 보정
+        self.A_magnitudes = numpy.abs(self.A_fft_result) * (2 / self.i_data_len)
+        self.A_magnitudes[0] /= 2  # DC 성분 보정
         
-        A_magnitudes = A_magnitudes * f_gain  # 게인 적용 (표시용)
+        self.A_magnitudes = self.A_magnitudes * self.f_gain  # 게인 적용 (표시용)
 
         # # 5. 주파수 축 생성
-        A_frequencies = numpy.fft.rfftfreq(i_data_len, d=1.0/self.f_sampling_rate)
+        self.A_frequencies = numpy.fft.rfftfreq(self.i_data_len, d=1.0/self.f_sampling_rate)
 
-        print(f"fft.py | fft() | len {len(A_magnitudes)}\n A_magnitudes = {A_magnitudes}")
-        print(f"fft.py | fft() | len {len(A_frequencies)}\n A_frequencies = {A_frequencies}")
+        print(f"fft.py | fft() | len {len(self.A_magnitudes)}\n A_magnitudes = {self.A_magnitudes}")
+        print(f"fft.py | fft() | len {len(self.A_frequencies)}\n A_frequencies = {self.A_frequencies}")
 
-        if len(A_magnitudes) > 1:
+        if len(self.A_magnitudes) > 1:
             # DC(0Hz) 제외한 영역에서 피크 찾기
-            i_peak_idx = numpy.argmax(A_magnitudes[1:]) + 1
-            i_peak_freq = A_frequencies[i_peak_idx]
-            i_peak_mag = A_magnitudes[i_peak_idx]
+            self.i_peak_idx = numpy.argmax(self.A_magnitudes[1:]) + 1
+            self.i_peak_freq = self.A_frequencies[self.i_peak_idx]
+            self.i_peak_mag = self.A_magnitudes[self.i_peak_idx]
         else:
-            i_peak_idx = 0
-            i_peak_freq = 0
-            i_peak_mag = 0
+            self.i_peak_idx = 0
+            self.i_peak_freq = 0
+            self.i_peak_mag = 0
             
             # # 피크 라벨 업데이트 (Mean 값 포함)
             # if "ADC_FFT" in self.fft_peak_labels:
@@ -85,5 +101,13 @@ class FFT_Module():
 
 
 
-        return A_frequencies, A_magnitudes, i_mean, i_peak_idx, i_peak_freq, i_peak_mag
+        return (
+            self.A_frequencies
+            , self.A_magnitudes
+            , self.f_gain
+            , self.f_mean_adc
+            , self.i_peak_idx
+            , self.i_peak_freq
+            , self.i_peak_mag
+            )
 

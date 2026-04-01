@@ -39,13 +39,21 @@ TP1_RCK_POINT_NAME:str  = 'TP1_RCK_scatter_name'
 TP1_RCK_POINT_COLOR:str = "#FFA500"
 
 
-
 FFT_LABEL_NAME:str          = 'fft_graph_value_info'
 FFT_LABEL_ANCHOR_X:int      = 1 
 FFT_LABEL_ANCHOR_Y:int      = 0
 FFT_LABEL_COLOR:str         = "#898989"
 
 FFT_SAMPLING_RATE           = 100
+
+
+SVM_NOW_POINT_NAME:str  = 'SVM_now_scatter_name'
+SVM_NOW_POINT_COLOR:str = "#FF0000"
+
+SVM_LABEL_NAME:str          = 'svm_graph_value_info'
+SVM_LABEL_ANCHOR_X:int      = 1 
+SVM_LABEL_ANCHOR_Y:int      = 0
+SVM_LABEL_COLOR:str         = "#898989"
 
 MAX_LOG_LINES:int           = 500
 
