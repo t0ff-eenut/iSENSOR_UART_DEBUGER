@@ -17,6 +17,7 @@ TEXT_COLOR:str          = "#FFFFFF"
 # cfg.TEXT_COLOR
 ADC_RAW_LINE_COLOR:str  = "#059200"
 ADC_FFT_LINE_COLOR:str  = "#eeff00"
+SVM_LINE_COLOR:str      = "#ff0000"
 
 
 # ax = 0 → 텍스트의 왼쪽이 pos에 정렬,

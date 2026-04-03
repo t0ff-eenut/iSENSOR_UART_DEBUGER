@@ -4,10 +4,15 @@ iSENSOR UART Debugger - GUI 버전
 PyQt6와 pyqtgraph를 사용한 UART 데이터 시각화 도구
 """
 import sys
-
+import os
+from typing import List, Optional
+import numpy
+import enum
+import pyqtgraph
+import statistics
+from collections import deque
 import serial
 from serial.tools import (list_ports)
-
 import PyQt6.QtCore
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -15,16 +20,6 @@ from PyQt6.QtWidgets import (
     QSpinBox, QDoubleSpinBox, QAbstractSpinBox, QMessageBox,
     QSizePolicy
 )
-
-
-import pyqtgraph
-import enum
-import statistics
-from typing import List, Optional
-
-# import numpy as np  # FFT 분석용
-import numpy
-from collections import deque
 
 import config                               as cfg
 import uart_protocol.uart_protocol_config   as upcfg
@@ -36,7 +31,6 @@ import fft
 # ############################# COPILOT EDIT START (import svm)
 import svm
 # ############################# COPILOT EDIT END
-
 
 MACRO_FONT_NAME = "font-family: {};"
 MACRO_FONT_BOLD = "font-weight: bold;"
@@ -168,8 +162,8 @@ class MainWindow(QMainWindow):
     # FFT
     def adc_smapling_rate_setting(self, input_f_sampling_rate:float):
         self.f_sampling_rate = input_f_sampling_rate
-        self.fft_handle:fft.FFT_Module.f_sampling_rate = self.f_sampling_rate
-        self.svm_handle:svm.SVM_Module.f_sampling_rate = self.f_sampling_rate
+        self.fft_handle.f_sampling_rate = self.f_sampling_rate
+        self.svm_handle.f_sampling_rate = self.f_sampling_rate
 
     def value_init(self):        
         self.A_graph_plot_value:list = []
@@ -231,32 +225,42 @@ class MainWindow(QMainWindow):
         self.A_adc_buffer     = []
         self.i_adc_buffer_len = 0
         self.i_adc_min        = 0
-        self.i_adc_max        = 0
-        self.i_adc_avg        = 0
         self.i_adc_mid        = 0
+        self.i_adc_max        = 0
+        self.f_adc_avg        = 0.0
+        self.f_adc_std        = 0.0
 
         self.A_adc_exclusion_zero_buffer     = []
         self.i_adc_exclusion_zero_buffer_len = 0
         self.i_adc_exclusion_zero_min        = 0
-        self.i_adc_exclusion_zero_max        = 0
-        self.i_adc_exclusion_zero_avg        = 0
         self.i_adc_exclusion_zero_mid        = 0
+        self.i_adc_exclusion_zero_max        = 0
+        self.f_adc_exclusion_zero_avg        = 0.0
+        self.f_adc_exclusion_zero_std        = 0.0
+        
 
         self.i_tp1_over_count                = 0
         self.i_tp1_rck_over_count            = 0
 
+
         self.fft_handle:fft.FFT_Module = fft.FFT_Module()
         self.A_fft_frequencies         = []
         self.A_fft_magnitudes          = []
-        self.f_fft_gain = 0
-        self.f_fft_mean_freq           = 0
+        self.f_fft_gain                = 0
+        self.f_fft_adc_avg             = 0
         self.i_fft_peak_idx            = 0
         self.f_fft_peak_freq           = 0
         self.f_fft_peak_mag            = 0
         # # ############################# COPILOT EDIT START (svm 핸들 초기화 + Phase 3 히스토리)
-        self.svm_handle:svm.SVM_Module        = svm.SVM_Module()
+        self.svm_handle:svm.SVM_Module  = svm.SVM_Module()
 
-        # self.str_svm_csv_path:str             = "svm_data.csv"
+
+
+        self.A_svm_probabilty           = []
+        self.i_svm_label                = 0
+        self.f_svm_confidence           = 0.0
+
+        # self.svm_handle.str_svm_csv_path:str             = "svm_data.csv"
         # self.str_svm_waveform_csv_path:str    = "svm_waveforms.csv"
         # self._SVM_HISTORY_MAXLEN:int          = 60
         # self._svm_history:deque               = deque(maxlen=self._SVM_HISTORY_MAXLEN)
@@ -370,7 +374,7 @@ class MainWindow(QMainWindow):
         self.graph_y_range_setting(self.adc_bit_2_range(12) / 2, enum_graph_plot_num.SVM, enum_graph_plot_range_opt.ALL)
         self.graph_y_label_pos_setting("left", enum_graph_plot_num.SVM)
         self.graph_y_label_setting("피크 강도", enum_graph_plot_num.SVM)
-        self.graph_line_color_setting(cfg.ADC_FFT_LINE_COLOR, enum_graph_plot_num.SVM)
+        self.graph_line_color_setting(cfg.SVM_LINE_COLOR, enum_graph_plot_num.SVM)
         # self.graph_legend_setting('FFT 분포', enum_graph_plot_num.SVM)
 
         self.setWindowTitle(cfg.WINDOW_TITLE)
@@ -726,7 +730,7 @@ class MainWindow(QMainWindow):
         # 사람 저장 버튼
         self.svm_human_PushButton = QPushButton("💾 사람 저장")
         self.svm_human_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
-        self.svm_human_PushButton.clicked.connect(self.event_svm_save_human)
+        self.svm_human_PushButton.clicked.connect(self.event_svm_save_occupancy)
         self.svm_collect_GridLayout.addWidget(self.svm_human_PushButton, 1, 1)
 
         # SVM 학습 버튼
@@ -994,156 +998,118 @@ class MainWindow(QMainWindow):
         # self.svm_handle.A_frequencies
         # self.svm_handle.A_magnitudes
 
-        if self.svm_handle.A_magnitudes is None:
+        if not self.uart_thread or self.svm_handle.A_magnitudes is None:
             ######################################################################## 경고 대화상자
             QMessageBox.warning(self, "배경 정보 저장 실패", "magnitudes(강도) 데이터가 없습니다.\n 먼저 데이터를 수신하세요.")
             ######################################################################## 경고 대화상자
             return
         
         # A_feature = self.svm_handle.extract_features(A_mags_raw, A_freqs)
-        A_feature = self.svm_handle.extract_features()
+        # A_feature = self.svm_handle.extract_features()
+        # self.svm_handle.save_sample(A_feature, svm.enum_label.LABEL_BACKGROUND, self.svm_handle.str_svm_csv_path)
+        self.svm_handle.save_sample(svm.enum_label.LABEL_BACKGROUND)
 
+        # if self._last_adc_raw:
+        #     self.svm_handle.save_waveform(self._last_adc_raw, svm.enum_label.LABEL_BACKGROUND, self.str_svm_waveform_csv_path)
+        #     self.update_svm_waveform_overlay()
 
-        self.svm_handle.save_sample(A_feature, svm.LABEL_BACKGROUND, self.str_svm_csv_path)
-        if self._last_adc_raw:
-            self.svm_handle.save_waveform(self._last_adc_raw, svm.LABEL_BACKGROUND, self.str_svm_waveform_csv_path)
-            self.update_svm_waveform_overlay()
-        self._update_svm_count_label()
+        self.update_svm_label_count()
         self.log_TextEdit.append("[SVM] 배경 샘플 저장 완료")
 
-#     def event_svm_save_human(self):
-#         """현재 FFT 결과를 사람(1) 레이블로 저장"""
-#         A_mags_raw, A_freqs = self._get_last_fft_raw()
-#         if A_mags_raw is None:
-#             QMessageBox.warning(self, "저장 실패", "FFT 데이터가 없습니다.\n먼저 데이터를 수신하세요.")
-#             return
-#         A_feature = self.svm_handle.extract_features(A_mags_raw, A_freqs)
-#         self.svm_handle.save_sample(A_feature, svm.LABEL_HUMAN, self.str_svm_csv_path)
-#         if self._last_adc_raw:
-#             self.svm_handle.save_waveform(self._last_adc_raw, svm.LABEL_HUMAN, self.str_svm_waveform_csv_path)
-#             self.update_svm_waveform_overlay()
-#         self._update_svm_count_label()
-#         self.log_TextEdit.append("[SVM] 사람 샘플 저장 완료")
+    def event_svm_save_occupancy(self):
+        """현재 FFT 결과를 사람(1) 레이블로 저장"""
+        # A_mags_raw, A_freqs = self._get_last_fft_raw()
+        # if A_mags_raw is None:
+        #     QMessageBox.warning(self, "저장 실패", "FFT 데이터가 없습니다.\n먼저 데이터를 수신하세요.")
+        #     return
+        # A_feature = self.svm_handle.extract_features(A_mags_raw, A_freqs)
+        # self.svm_handle.save_sample(A_feature, svm.enum_label.LABEL_HUMAN, self.svm_handle.str_svm_csv_path)
+        # if self._last_adc_raw:
+        #     self.svm_handle.save_waveform(self._last_adc_raw, svm.enum_label.LABEL_HUMAN, self.str_svm_waveform_csv_path)
+        #     self.update_svm_waveform_overlay()
+        # self.update_svm_label_count()
+        # self.log_TextEdit.append("[SVM] 사람 샘플 저장 완료")
 
-#     def event_svm_train(self):
-#         """CSV 데이터로 SVM 학습"""
-#         b_ok = self.svm_handle.train(self.str_svm_csv_path)
-#         if b_ok:
-#             i_bg, i_human = self.svm_handle.get_sample_counts(self.str_svm_csv_path)
-#             self.svm_status_Label.setText(f"학습 완료  BG:{i_bg} / Human:{i_human}")
-#             self.log_TextEdit.append(f"[SVM] 학습 완료  BG:{i_bg} / Human:{i_human}")
-#             self.update_svm_scatter()        # 학습 완료 후 산점도 갱신
-#             self.update_svm_waveform_overlay()  # 파형 오버레이 갱신
-#         else:
-#             self.svm_status_Label.setText("학습 실패 - 데이터 부족")
-#             QMessageBox.warning(self, "학습 실패", "데이터가 부족합니다.\n배경/사람 각각 5개 이상 수집하세요.")
+        if not self.uart_thread or self.svm_handle.A_magnitudes is None:
+            ######################################################################## 경고 대화상자
+            QMessageBox.warning(self, "재실 정보 저장 실패", "magnitudes(강도) 데이터가 없습니다.\n 먼저 데이터를 수신하세요.")
+            ######################################################################## 경고 대화상자
+            return
 
-#     def _update_svm_count_label(self):
-#         i_bg, i_human = self.svm_handle.get_sample_counts(self.str_svm_csv_path)
-#         self.svm_count_Label.setText(f"BG: {i_bg}  |  Human: {i_human}")
+        self.svm_handle.save_sample(svm.enum_label.LABEL_HUMAN)
 
-#     def event_svm_clear(self):
-#         """CSV 학습 데이터 삭제 + SVM 초기화"""
+        self.update_svm_label_count()
+        self.log_TextEdit.append("[SVM] 재실 샘플 저장 완료")
 
-#         ######################################################################## 물어보는 대화상자
-#         reply = QMessageBox.question(
-#             self, "학습 데이터 삭제",
-#             f"'{self.str_svm_csv_path}' 파일을 삭제하고\nSVM을 초기화합니다. 계속할까요?",
-#             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-#         )
-#         ######################################################################## 물어보는 대화상자
+    def event_svm_train(self):
+        """CSV 데이터로 SVM 학습"""
 
-#         if reply != QMessageBox.StandardButton.Yes:
-#             return
-#         import os
-#         if os.path.exists(self.str_svm_csv_path):
-#             os.remove(self.str_svm_csv_path)
-#         if os.path.exists(self.str_svm_waveform_csv_path):
-#             os.remove(self.str_svm_waveform_csv_path)
-#         self.svm_handle = svm.SVM_Module()  # 완전 초기화
-#         self.svm_status_Label.setText("미학습")
-#         self.svm_count_Label.setText("BG: 0  |  Human: 0")
-#         self.log_TextEdit.append("[SVM] 학습 데이터 삭제 및 초기화 완료")
-#         # 산점도 초기화
-#         for item in self.svm_scatter_PlotWidget.listDataItems():
-#             if item is not self.svm_realtime_scatter:
-#                 self.svm_scatter_PlotWidget.removeItem(item)
-#         self.svm_realtime_scatter.setData([], [])
-#         # Phase 3: 히스토리 초기화
-#         self._svm_history.clear()
-#         self._update_svm_history_display()
-#         # 파형 오버레이 초기화
-#         for item in self._svm_waveform_overlay_items:
-#             self.svm_waveform_PlotWidget.removeItem(item)
-#         self._svm_waveform_overlay_items.clear()
-#         self.svm_realtime_waveform.setData([], [])
-#         self.svm_realtime_waveform.setPen(pyqtgraph.mkPen('w', width=2))
+        # b_ok = self.svm_handle.train(self.svm_handle.str_svm_csv_path)
+        b_train_done = self.svm_handle.train()
+        if b_train_done:
+            # i_bg, i_human = self.svm_handle.get_sample_counts(self.svm_handle.str_svm_csv_path)
+            self.svm_status_Label.setText(f"학습 완료  BG:{self.svm_handle.i_bg_count} / Human:{self.svm_handle.i_human_count}")
+            self.log_TextEdit.append(f"[SVM] 학습 완료  BG:{self.svm_handle.i_bg_count} / Human:{self.svm_handle.i_human_count}")
 
-#     # ############################# COPILOT EDIT START (Phase 2: update_svm_scatter)
-#     def update_svm_scatter(self):
-#         """CSV 데이터로 산점도 갱신 (학습 완료 후 호출)
-#         X축: peak_freq  Y축: peak_mag
-#         """
-#         import csv as _csv
-#         import os
-
-#         if not os.path.exists(self.str_svm_csv_path):
-#             return
-
-#         A_bg_x, A_bg_y = [], []
-#         A_human_x, A_human_y = [], []
-
-#         with open(self.str_svm_csv_path, 'r') as f:
-#             reader = _csv.reader(f)
-#             next(reader, None)  # 헤더 스킵
-#             for row in reader:
-#                 if len(row) < 2:
-#                     continue
-#                 # peak_freq = 인덱스 151 (mag_0~150 다음)
-#                 # peak_mag  = 인덱스 152
-#                 f_peak_freq = float(row[151])
-#                 f_peak_mag  = float(row[152])
-#                 i_label     = int(row[-1])
-#                 if i_label == svm.LABEL_BACKGROUND:
-#                     A_bg_x.append(f_peak_freq)
-#                     A_bg_y.append(f_peak_mag)
-#                 else:
-#                     A_human_x.append(f_peak_freq)
-#                     A_human_y.append(f_peak_mag)
-
-#         # 기존 배경/사람 점 제거
-#         for item in list(self.svm_scatter_PlotWidget.listDataItems()):
-#             if item is not self.svm_realtime_scatter:
-#                 self.svm_scatter_PlotWidget.removeItem(item)
-
-#         # 배경 점 (초록)
-#         if A_bg_x:
-#             scatter_bg = pyqtgraph.ScatterPlotItem(
-#                 x=A_bg_x, y=A_bg_y,
-#                 size=8, pen=pyqtgraph.mkPen(None),
-#                 brush=pyqtgraph.mkBrush(0, 200, 0, 180),
-#                 symbol='o', name='배경'
-#             )
-#             self.svm_scatter_PlotWidget.addItem(scatter_bg)
-
-#         # 사람 점 (빨강)
-#         if A_human_x:
-#             scatter_human = pyqtgraph.ScatterPlotItem(
-#                 x=A_human_x, y=A_human_y,
-#                 size=8, pen=pyqtgraph.mkPen(None),
-#                 brush=pyqtgraph.mkBrush(220, 0, 0, 180),
-#                 symbol='t', name='사람'
-#             )
-#             self.svm_scatter_PlotWidget.addItem(scatter_human)
-#     # ############################# COPILOT EDIT END
+            self.update_svm_scatter()           # 학습 완료 후 산점도 갱신
+            # self.update_svm_waveform_overlay()  # 파형 오버레이 갱신
+        else:
+            self.svm_status_Label.setText("학습 실패 - 데이터 부족")
+            QMessageBox.warning(self, "학습 실패", "데이터가 부족합니다.\n10개 이상 수집하세요.")
 
 
-#         i_get_tp2 = self.tp2_SpinBox.value()    
-#         if self.command_sender.send_set_tp2(i_get_tp2):
-#             self.log_TextEdit.append(f"[TX] TP2 설정 명령 전송: {i_get_tp2}")
-#         else:
-#             self.log_TextEdit.append("[TX] TP2 전송 실패 - 연결 상태를 확인하세요")
-#             QMessageBox.warning(self, "전송 실패", "TP2 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
+    def event_svm_clear(self):
+        """CSV 학습 데이터 삭제 + SVM 초기화"""
+
+        if not os.path.exists(self.svm_handle.str_svm_csv_path):
+            QMessageBox.warning(self, "학습 데이터 삭제 실패", f"'{self.svm_handle.str_svm_csv_path}' 파일이 존재하지 않습니다.")
+            return
+
+        ######################################################################## 물어보는 대화상자
+        reply_QMessageBox = QMessageBox.question(
+            self, "학습 데이터 삭제",
+            f"'{self.svm_handle.str_svm_csv_path}' 파일을 삭제하고 SVM을 초기화합니다.\n계속할까요?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        ######################################################################## 물어보는 대화상자
+        if reply_QMessageBox == QMessageBox.StandardButton.No:
+            return
+        
+        if os.path.exists(self.svm_handle.str_svm_csv_path):
+            os.remove(self.svm_handle.str_svm_csv_path)
+        # if os.path.exists(self.str_svm_waveform_csv_path):
+        #     os.remove(self.str_svm_waveform_csv_path)
+        self.svm_handle = svm.SVM_Module()  # 완전 초기화
+
+
+        self.svm_status_Label.setText("미학습")
+        self.svm_count_Label.setText("BackGround : 0  |  Occupancy : 0")
+
+        self.log_TextEdit.append("[SVM] 학습 데이터 삭제 및 초기화 완료")
+
+
+        # # 산점도 초기화
+        # for item in self.svm_scatter_PlotWidget.listDataItems():
+        #     if item is not self.svm_realtime_scatter:
+        #         self.svm_scatter_PlotWidget.removeItem(item)
+        # self.svm_realtime_scatter.setData([], [])
+
+        # # Phase 3: 히스토리 초기화
+        # self._svm_history.clear()
+        # self._update_svm_history_display()
+        # # 파형 오버레이 초기화
+        # for item in self._svm_waveform_overlay_items:
+        #     self.svm_waveform_PlotWidget.removeItem(item)
+        # self._svm_waveform_overlay_items.clear()
+        # self.svm_realtime_waveform.setData([], [])
+        # self.svm_realtime_waveform.setPen(pyqtgraph.mkPen('w', width=2))
+
+        # i_get_tp2 = self.tp2_SpinBox.value()    
+        # if self.command_sender.send_set_tp2(i_get_tp2):
+        #     self.log_TextEdit.append(f"[TX] TP2 설정 명령 전송: {i_get_tp2}")
+        # else:
+        #     self.log_TextEdit.append("[TX] TP2 전송 실패 - 연결 상태를 확인하세요")
+        #     QMessageBox.warning(self, "전송 실패", "TP2 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
 
 #     # ############################# COPILOT EDIT START (Phase A+B: update_svm_waveform_overlay)
 #     def update_svm_waveform_overlay(self):
@@ -1158,7 +1124,7 @@ class MainWindow(QMainWindow):
 #         A_waveforms = self.svm_handle.load_waveforms(self.str_svm_waveform_csv_path)
 #         for A_raw, i_label in A_waveforms:
 #             x_wave = numpy.arange(len(A_raw)) / 100.0  # 시간축 (초)
-#             if i_label == svm.LABEL_HUMAN:
+#             if i_label == svm.enum_label.LABEL_HUMAN:
 #                 pen = pyqtgraph.mkPen((220, 0, 0, 70), width=1)
 #             else:
 #                 pen = pyqtgraph.mkPen((0, 180, 0, 70), width=1)
@@ -1180,7 +1146,7 @@ class MainWindow(QMainWindow):
 #         i_offset = self._SVM_HISTORY_MAXLEN - i_history_len  # 최신이 오른쪽 끝에 오도록
 #         for i, i_label in enumerate(self._svm_history):
 #             pos = i_offset + i
-#             if i_label == svm.LABEL_HUMAN:
+#             if i_label == svm.enum_label.LABEL_HUMAN:
 #                 img[pos, :, :] = [220, 0, 0]    # 빨강 = 사람 (전체 높이 칠하기)
 #             else:
 #                 img[pos, :, :] = [0, 180, 0]    # 초록 = 배경 (전체 높이 칠하기)
@@ -1191,7 +1157,7 @@ class MainWindow(QMainWindow):
 #         self.svm_history_PlotWidget.setYRange(0, _BAR_H, padding=0.0)
 #         # 타이틀에 감지율 표시
 #         if i_history_len > 0:
-#             i_human_cnt = sum(1 for x in self._svm_history if x == svm.LABEL_HUMAN)
+#             i_human_cnt = sum(1 for x in self._svm_history if x == svm.enum_label.LABEL_HUMAN)
 #             f_rate = i_human_cnt / i_history_len * 100
 #             self.svm_history_PlotWidget.setTitle(
 #                 f"분류 히스토리  |  감지율: {f_rate:.1f}%  ({i_human_cnt}/{i_history_len}회)  "
@@ -1210,10 +1176,11 @@ class MainWindow(QMainWindow):
         """0이 아닌 값들에 대한 통계 계산"""
         i_buffer_len = len(inter_A_buffer)
         i_buffer_min = numpy.min(inter_A_buffer)
+        i_buffer_mid = numpy.median(inter_A_buffer)
         i_buffer_max = numpy.max(inter_A_buffer)
         # f_buffer_avg = sum(inter_A_buffer) / i_buffer_len
         f_buffer_avg = numpy.mean(inter_A_buffer)
-        i_buffer_mid = numpy.median(inter_A_buffer)
+        f_buffer_std = numpy.std(inter_A_buffer)
         
 
 
@@ -1223,24 +1190,27 @@ class MainWindow(QMainWindow):
         
         i_exclusion_zero_buffer_len = len(A_exclusion_zero_buffer)
         i_exclusion_zero_buffer_min = numpy.min(A_exclusion_zero_buffer)
-        i_exclusion_zero_buffer_max = numpy.max(A_exclusion_zero_buffer)
-        # i_exclusion_zero_buffer_avg = sum(A_exclusion_zero_buffer) / i_exclusion_zero_buffer_len
-        i_exclusion_zero_buffer_avg = numpy.mean(A_exclusion_zero_buffer)
         i_exclusion_zero_buffer_mid = numpy.median(A_exclusion_zero_buffer)
+        i_exclusion_zero_buffer_max = numpy.max(A_exclusion_zero_buffer)
+        # f_exclusion_zero_buffer_avg = sum(A_exclusion_zero_buffer) / i_exclusion_zero_buffer_len
+        f_exclusion_zero_buffer_avg = numpy.mean(A_exclusion_zero_buffer)
+        f_exclusion_zero_buffer_std = numpy.std(A_exclusion_zero_buffer)
         
 
         return (
             i_buffer_len
             , i_buffer_min
+            , i_buffer_mid
             , i_buffer_max
             , f_buffer_avg
-            , i_buffer_mid
+            , f_buffer_std
             , A_exclusion_zero_buffer
             , i_exclusion_zero_buffer_len
             , i_exclusion_zero_buffer_min
-            , i_exclusion_zero_buffer_max
-            , i_exclusion_zero_buffer_avg
             , i_exclusion_zero_buffer_mid
+            , i_exclusion_zero_buffer_max
+            , f_exclusion_zero_buffer_avg
+            , f_exclusion_zero_buffer_std
             )
 
     def create_line(self, target_PlotWidget, s_inter_name, i_value, s_label, s_color_code):
@@ -1422,7 +1392,7 @@ class MainWindow(QMainWindow):
         self.create_label(target_PlotWidget, cfg.SVM_LABEL_NAME, cfg.SVM_LABEL_ANCHOR_X, cfg.SVM_LABEL_ANCHOR_Y, cfg.SVM_LABEL_COLOR)
 
         # tp1_recheck_lines[graph_tab_name] = self.tp1_rck_InfiniteLine
-        self.adc_fft_plot_TabWidget.addTab(target_PlotWidget, graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME])
+        self.svm_plot_TabWidget.addTab(target_PlotWidget, graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME])
 
         # # 피크 라벨 저장용 딕셔너리
         # if not hasattr(self, 'fft_peak_labels'):
@@ -1575,38 +1545,43 @@ class MainWindow(QMainWindow):
         (
             self.i_adc_buffer_len
             , self.i_adc_min
+            , self.i_adc_mid
             , self.i_adc_max
             , self.f_adc_avg
-            , self.i_adc_mid
+            , self.f_adc_std
             , self.A_adc_exclusion_zero_buffer
             , self.i_adc_exclusion_zero_buffer_len
             , self.i_adc_exclusion_zero_min
-            , self.i_adc_exclusion_zero_max
-            , self.i_adc_exclusion_zero_avg
             , self.i_adc_exclusion_zero_mid
+            , self.i_adc_exclusion_zero_max
+            , self.f_adc_exclusion_zero_avg
+            , self.f_adc_exclusion_zero_std
         ) = self.get_adc_buffer_info(self.A_adc_buffer)
 
         (
             self.A_fft_frequencies
             , self.A_fft_magnitudes
             , self.f_fft_gain
-            , self.f_fft_mean_adc
+            , self.f_fft_adc_avg
             , self.i_fft_peak_idx
-            , self.i_fft_peak_freq
-            , self.i_fft_peak_mag
+            , self.f_fft_peak_freq
+            , self.f_fft_peak_mag
         ) = self.fft_handle.fft(self.A_adc_buffer, self.fft_gain_SpinBox.value())
 
-        self.svm_handle.A_frequencies = self.A_fft_frequencies
-        self.svm_handle.A_magnitudes  = self.A_fft_magnitudes
-        self.svm_handle.i_mag_mean    = self.f_fft_mean_adc
-        self.svm_handle.i_peak_idx    = self.f_fft_mean_freq
-        self.svm_handle.f_peak_freq   = self.i_fft_peak_freq
-        self.svm_handle.i_peak_mag    = self.i_fft_peak_mag
+        # print(f"debugger_start.py | buffer_setting() | f_adc_avg : {self.f_adc_avg} == f_fft_adc_avg : {self.f_fft_adc_avg}")
 
-        if self.svm_handle.b_is_trained:
-            A_feature = self.svm_handle.extract_features(self.A_fft_magnitudes, self.A_fft_frequencies)
-        else:
-            A_feature = None
+        # if self.svm_handle.b_is_trained:
+        #     A_feature = self.svm_handle.extract_features(self.A_fft_magnitudes, self.A_fft_frequencies)
+        # else:
+        #     A_feature = None
+
+
+        # self.svm_handle.svm(self.A_fft_magnitudes, self.A_fft_frequencies)
+        (
+            self.A_svm_probabilty
+            , self.i_svm_label
+            , self.f_svm_confidence
+        ) = self.svm_handle.svm(self.A_fft_frequencies, self.A_fft_magnitudes)
 
 
 
@@ -1688,14 +1663,15 @@ class MainWindow(QMainWindow):
             if isinstance(item, pyqtgraph.TextItem) and getattr(item, 'role', None) == cfg.ADC_LABEL_NAME:
                 target_label = item
 
-        (
-            self.i_adc_buffer_len
-            ,self.i_exclusion_zero_adc_buffer_len
-            ,self.i_adc_min
-            ,self.i_adc_max
-            ,self.i_adc_avg
-            ,self.i_adc_mid
-        ) = self.get_adc_buffer_info(self.A_adc_buffer)
+######## TODO : get_adc_buffer_info 수정하기
+        # (
+        #     self.i_adc_buffer_len
+        #     ,self.i_exclusion_zero_adc_buffer_len
+        #     ,self.i_adc_min
+        #     ,self.i_adc_max
+        #     ,self.i_adc_avg
+        #     ,self.i_adc_mid
+        # ) = self.get_adc_buffer_info(self.A_adc_buffer)
 
         (
             self.i_tp1_over_count
@@ -1704,11 +1680,13 @@ class MainWindow(QMainWindow):
 
         s_stats_text = (
             f"총 Len : {self.i_adc_buffer_len}개\n"
-            f"실제 값 Len : {self.i_exclusion_zero_adc_buffer_len}개)\n"
-            f"실제 값 Min : {self.i_adc_min}\n"
-            f"실제 값 Max : {self.i_adc_max}\n"
-            f"실제 값 Avg : {self.i_adc_avg:.1f}\n"
-            f"실제 값 Mid : {self.i_adc_mid}\n"
+            f"실제 값 Len : {self.i_adc_exclusion_zero_buffer_len}개)\n"
+            f"실제 값 Min : {self.i_adc_exclusion_zero_min}\n"
+            f"실제 값 Mid : {self.i_adc_exclusion_zero_mid}\n"
+            f"실제 값 Max : {self.i_adc_exclusion_zero_max}\n"
+            f"실제 값 Avg : {self.f_adc_exclusion_zero_avg:.1f}\n"
+            f"실제 값 Std : {self.f_adc_exclusion_zero_std:.1f}\n"
+            
             f"TP1 : {self.i_tp1_over_count}\n"
             f"TP1_RCK : {self.i_tp1_rck_over_count}\n"
         )
@@ -1817,16 +1795,12 @@ class MainWindow(QMainWindow):
             if isinstance(item, pyqtgraph.TextItem) and getattr(item, 'role', None) == cfg.FFT_LABEL_NAME:
                 target_label = item
 
-
-
-
-
-
         s_stats_text = (
-            f"DC Mean : {self.i_fft_mean_freq:.1f}\n"
-            f"Peak 위치 : {self.i_fft_peak_idx:.1f}\n"
-            f"Peak Freq(주파수) : {self.i_fft_peak_freq:.2f} Hz\n"
-            f"Peak Mag(진폭/세기) : {self.i_fft_peak_mag:.1f}\n"
+            f"Gain : {self.f_fft_gain:.1f}\n"
+            f"DC Mean : {self.f_fft_adc_avg:.1f}\n"
+            f"Mag Peak 위치 : {self.i_fft_peak_idx}\n"
+            f"Peak Freq(주파수) : {self.f_fft_peak_freq:.2f} Hz\n"
+            f"Peak Mag(진폭/세기) : {self.f_fft_peak_mag:.1f}\n"
         )
 
         target_label.setText(s_stats_text)
@@ -1840,15 +1814,15 @@ class MainWindow(QMainWindow):
     def update_svm_graph(self, inter_Widget:QWidget):
 
         # ############################# COPILOT EDIT START (Phase 1+2+3+A: 실시간 SVM 분류 + 산점도 + 히스토리 + 파형 뷰)
-        # Phase A: 파형 뷰 실시간 라인 갱신 (SVM 학습 여부 무관하게 항상 업데이트)
+        # # Phase A: 파형 뷰 실시간 라인 갱신 (SVM 학습 여부 무관하게 항상 업데이트)
         # _x_wave = numpy.arange(len(self.A_adc_buffer)) / cfg.FFT_SAMPLING_RATE
         # self.svm_realtime_waveform.setData(_x_wave, list(self.A_adc_buffer))
 
-        if self.svm_handle.b_is_trained:
+        # if self.svm_handle.b_is_trained:
 
 
 
-            # A_feature = self.svm_handle.extract_features(self.A_fft_magnitudes, self.A_fft_frequencies)
+        #     A_feature = self.svm_handle.extract_features(self.A_fft_magnitudes, self.A_fft_frequencies)
 
 
 
@@ -1856,40 +1830,103 @@ class MainWindow(QMainWindow):
 
 
             
-            i_label, f_confidence = self.svm_handle.predict(A_feature)
+        #     i_label, f_confidence = self.svm_handle.predict(A_feature)
 
-            if i_label == svm.LABEL_HUMAN:
-                inter_Widget.setBackground((80, 0, 0, 180))
-                s_svm_result = f"● 사람 감지  ({f_confidence*100:.1f}%)"
-                rt_brush = pyqtgraph.mkBrush(255, 80, 80, 230)
-                self.svm_realtime_waveform.setPen(pyqtgraph.mkPen((255, 80, 80), width=2))  # 빨강
-            else:
-                inter_Widget.setBackground((0, 60, 0, 180))
-                s_svm_result = f"○ 배경  ({f_confidence*100:.1f}%)"
-                rt_brush = pyqtgraph.mkBrush(80, 255, 80, 230)
-                self.svm_realtime_waveform.setPen(pyqtgraph.mkPen((80, 255, 80), width=2))  # 초록
+            # (i_label, f_confidence)
+            # i_label      : LABEL_BACKGROUND(0) or LABEL_HUMAN(1)
+            # f_confidence : 신뢰도 0.0~1.0
+        if self.i_svm_label == svm.enum_label.LABEL_HUMAN:
 
-            target_label.setText(s_stats_text + f"SVM : {s_svm_result}")
-
-            # Phase 2: 산점도에 실시간 현재 위치 표시
-            f_peak_freq = float(self.A_fft_frequencies[self.i_fft_peak_idx])
-            f_peak_mag  = float(self.A_fft_magnitudes[self.i_fft_peak_idx])
-            self.svm_realtime_scatter.setData(
-                x=[f_peak_freq], y=[f_peak_mag],
-                brush=rt_brush
-            )
-            # Phase 3: 히스토리 deque 에 레이블 추가 → 히스토리 탭 갱신
-            self._svm_history.append(i_label)
-            self._update_svm_history_display()
-
+            # inter_Widget.setBackground((80, 0, 0, 180))
+            s_svm_result = f"● 사람 감지  ({self.f_svm_confidence*100:.1f}%)"
+            rt_brush = pyqtgraph.mkBrush(255, 80, 80, 230)
+            # self.svm_realtime_waveform.setPen(pyqtgraph.mkPen((255, 80, 80), width=2))  # 빨강
 
         else:
-            inter_Widget.setBackground('default')
-            self.svm_realtime_waveform.setPen(pyqtgraph.mkPen('w', width=2))  # 미학습 → 흰색
+
+            # inter_Widget.setBackground((0, 60, 0, 180))
+            s_svm_result = f"○ 배경  ({self.f_svm_confidence*100:.1f}%)"
+            rt_brush = pyqtgraph.mkBrush(80, 255, 80, 230)
+            # self.svm_realtime_waveform.setPen(pyqtgraph.mkPen((80, 255, 80), width=2))  # 초록
+
+
+
+
+
+        #     target_label.setText(s_stats_text + f"SVM : {s_svm_result}")
+
+        #     # Phase 2: 산점도에 실시간 현재 위치 표시
+        #     f_peak_freq = float(self.A_fft_frequencies[self.i_fft_peak_idx])
+        #     f_peak_mag  = float(self.A_fft_magnitudes[self.i_fft_peak_idx])
+        #     self.svm_realtime_scatter.setData(
+        #         x=[f_peak_freq], y=[f_peak_mag],
+        #         brush=rt_brush
+        #     )
+        #     # Phase 3: 히스토리 deque 에 레이블 추가 → 히스토리 탭 갱신
+        #     self._svm_history.append(i_label)
+        #     self._update_svm_history_display()
+
+
+        # else:
+        #     inter_Widget.setBackground('default')
+        #     self.svm_realtime_waveform.setPen(pyqtgraph.mkPen('w', width=2))  # 미학습 → 흰색
 
 
         # ############################# COPILOT EDIT END
 
+
+
+##################### TODO : 여기 꾸며야 함
+
+        # with open(self.svm_handle.str_svm_csv_path, 'r') as f:
+        #     reader = csv.reader(f)
+        #     next(reader, None)  # 헤더 스킵
+        #     for row in reader:
+        #         if len(row) < 2:
+        #             continue
+        #         # peak_freq = 인덱스 151 (mag_0~150 다음)
+        #         # peak_mag  = 인덱스 152
+        #         f_peak_freq = float(row[151])
+        #         f_peak_mag  = float(row[152])
+        #         i_label     = int(row[-1])
+        #         if i_label == svm.enum_label.LABEL_BACKGROUND:
+        #             A_bg_x.append(f_peak_freq)
+        #             A_bg_y.append(f_peak_mag)
+        #         else:
+        #             A_human_x.append(f_peak_freq)
+        #             A_human_y.append(f_peak_mag)
+
+
+
+        A_bg_x, A_bg_y = [], []
+        A_human_x, A_human_y = [], []
+
+        for item in list(self.svm_scatter_PlotWidget.listDataItems()):
+            if item is not self.svm_realtime_scatter:
+                self.svm_scatter_PlotWidget.removeItem(item)
+
+        # 배경 점 (초록)
+        if A_bg_x:
+            scatter_bg = pyqtgraph.ScatterPlotItem(
+                x=A_bg_x, y=A_bg_y,
+                size=8, pen=pyqtgraph.mkPen(None),
+                brush=pyqtgraph.mkBrush(0, 200, 0, 180),
+                symbol='o', name='배경'
+            )
+            self.svm_scatter_PlotWidget.addItem(scatter_bg)
+
+        # 사람 점 (빨강)
+        if A_human_x:
+            scatter_human = pyqtgraph.ScatterPlotItem(
+                x=A_human_x, y=A_human_y,
+                size=8, pen=pyqtgraph.mkPen(None),
+                brush=pyqtgraph.mkBrush(220, 0, 0, 180),
+                symbol='t', name='사람'
+            )
+            self.svm_scatter_PlotWidget.addItem(scatter_human)
+
+##################### TODO : 여기 꾸며야 함
+        
 
 
 
@@ -1958,60 +1995,138 @@ class MainWindow(QMainWindow):
     #         self.uart_thread.stop()
     #     event.accept()
 
-    def log_TextEdit_print_sensor_data(self, input_sensor_parser_data:updm.SensorData):
-        """센서 데이터를 로그 문자열로 변환"""
-        s_data_name = upcfg.get_data_type_name(input_sensor_parser_data.i_data_type)
+
+
+
+
+    # # ############################# COPILOT EDIT START (Phase 2: update_svm_scatter)
+    # def update_svm_scatter(self):
+    #     """
+    #     CSV 데이터로 산점도 갱신 (학습 완료 후 호출)
+    #     X축: peak_freq  Y축: peak_mag
+    #     """
+    #     # import csv as _csv
+    #     # import os
+
+    #     if not os.path.exists(self.svm_handle.str_svm_csv_path):
+    #         return
+
+    #     A_bg_x, A_bg_y = [], []
+    #     A_human_x, A_human_y = [], []
+
+    #     # with open(self.svm_handle.str_svm_csv_path, 'r') as f:
+    #     #     reader = csv.reader(f)
+    #     #     next(reader, None)  # 헤더 스킵
+    #     #     for row in reader:
+    #     #         if len(row) < 2:
+    #     #             continue
+    #     #         # peak_freq = 인덱스 151 (mag_0~150 다음)
+    #     #         # peak_mag  = 인덱스 152
+    #     #         f_peak_freq = float(row[151])
+    #     #         f_peak_mag  = float(row[152])
+    #     #         i_label     = int(row[-1])
+    #     #         if i_label == svm.enum_label.LABEL_BACKGROUND:
+    #     #             A_bg_x.append(f_peak_freq)
+    #     #             A_bg_y.append(f_peak_mag)
+    #     #         else:
+    #     #             A_human_x.append(f_peak_freq)
+    #     #             A_human_y.append(f_peak_mag)
+
+    #     # 기존 배경/사람 점 제거
+    #     for item in list(self.svm_scatter_PlotWidget.listDataItems()):
+    #         if item is not self.svm_realtime_scatter:
+    #             self.svm_scatter_PlotWidget.removeItem(item)
+
+    #     # 배경 점 (초록)
+    #     if A_bg_x:
+    #         scatter_bg = pyqtgraph.ScatterPlotItem(
+    #             x=A_bg_x, y=A_bg_y,
+    #             size=8, pen=pyqtgraph.mkPen(None),
+    #             brush=pyqtgraph.mkBrush(0, 200, 0, 180),
+    #             symbol='o', name='배경'
+    #         )
+    #         self.svm_scatter_PlotWidget.addItem(scatter_bg)
+
+    #     # 사람 점 (빨강)
+    #     if A_human_x:
+    #         scatter_human = pyqtgraph.ScatterPlotItem(
+    #             x=A_human_x, y=A_human_y,
+    #             size=8, pen=pyqtgraph.mkPen(None),
+    #             brush=pyqtgraph.mkBrush(220, 0, 0, 180),
+    #             symbol='t', name='사람'
+    #         )
+    #         self.svm_scatter_PlotWidget.addItem(scatter_human)
+    # # ############################# COPILOT EDIT END
+
+
+
+
+
+
+    def update_svm_label_count(self):
+        # i_bg, i_human = self.svm_handle.get_sample_counts(self.svm_handle.str_svm_csv_path)
+        # i_bg_count, i_human_count = self.svm_handle.get_label_counts()
+        # self.svm_count_Label.setText(f"BG: {i_bg_count}  |  Human: {i_human_count}")
+        self.svm_handle.update_label_counts()
+        self.svm_count_Label.setText(f"BackGround: {self.svm_handle.i_bg_count}  |  Occupancy: {self.svm_handle.i_human_count}")
+
+    # # def log_TextEdit_print_sensor_data(self, input_sensor_parser_data:updm.SensorData):
+    # #     """센서 데이터를 로그 문자열로 변환"""
+    # #     s_data_name = upcfg.get_data_type_name(input_sensor_parser_data.i_data_type)
         
-        s_chksum_pass_status = "✓" if input_sensor_parser_data.UartReceiveData_raw.b_chksum_pass else "✗"
-        s_header_text = (f"{s_chksum_pass_status}\n"
-                        f"UartReceiveData[{input_sensor_parser_data.UartReceiveData_raw.timestamp.strftime('%H:%M:%S.%f')[:-3]}],\n"
-                        f"SensorData[{input_sensor_parser_data.timestamp.strftime('%H:%M:%S.%f')[:-3]}],\n"
-                        f"Type: {s_data_name},\n"
-                        f"bytes_data_length: {input_sensor_parser_data.UartReceiveData_raw.bytes_data_length},\n"
-                        f"bytes_data: {input_sensor_parser_data.UartReceiveData_raw.bytes_data},\n"
-                        f"bytes_checksum: 0x{input_sensor_parser_data.UartReceiveData_raw.bytes_checksum},\n"
-                        f"Checksum: 0x{input_sensor_parser_data.UartReceiveData_raw.bytes_checksum},\n"
-                        f"i_data_type: {input_sensor_parser_data.i_data_type},\n"
-                        f"i_adc_raw: {input_sensor_parser_data.i_adc_raw},\n"
-                        f"A_adc_buffer: {input_sensor_parser_data.A_adc_buffer},\n"
-                        f"settings: {input_sensor_parser_data.settings},\n"
-                        f")\n")
+    # #     s_chksum_pass_status = "✓" if input_sensor_parser_data.UartReceiveData_raw.b_chksum_pass else "✗"
+    # #     s_header_text = (f"{s_chksum_pass_status}\n"
+    # #                     f"UartReceiveData[{input_sensor_parser_data.UartReceiveData_raw.timestamp.strftime('%H:%M:%S.%f')[:-3]}],\n"
+    # #                     f"SensorData[{input_sensor_parser_data.timestamp.strftime('%H:%M:%S.%f')[:-3]}],\n"
+    # #                     f"Type: {s_data_name},\n"
+    # #                     f"bytes_data_length: {input_sensor_parser_data.UartReceiveData_raw.bytes_data_length},\n"
+    # #                     f"bytes_data: {input_sensor_parser_data.UartReceiveData_raw.bytes_data},\n"
+    # #                     f"bytes_checksum: 0x{input_sensor_parser_data.UartReceiveData_raw.bytes_checksum},\n"
+    # #                     f"Checksum: 0x{input_sensor_parser_data.UartReceiveData_raw.bytes_checksum},\n"
+    # #                     f"i_data_type: {input_sensor_parser_data.i_data_type},\n"
+    # #                     f"i_adc_raw: {input_sensor_parser_data.i_adc_raw},\n"
+    # #                     f"A_adc_buffer: {input_sensor_parser_data.A_adc_buffer},\n"
+    # #                     f"settings: {input_sensor_parser_data.settings},\n"
+    # #                     f")\n")
 
-        A_s_log_lines = [s_header_text]
+    # #     A_s_log_lines = [s_header_text]
 
-        # --- 버퍼 데이터 처리 ---
-        A_target_buffer, s_target_name = None, None
-        if input_sensor_parser_data.A_adc_buffer:
-            A_target_buffer, s_target_name = input_sensor_parser_data.A_adc_buffer, "ADC Buffer"
+    # #     # --- 버퍼 데이터 처리 ---
+    # #     A_target_buffer, s_target_name = None, None
+    # #     if input_sensor_parser_data.A_adc_buffer:
+    # #         A_target_buffer, s_target_name = input_sensor_parser_data.A_adc_buffer, "ADC Buffer"
 
-        if A_target_buffer is not None and s_target_name is not None:
-            i_buffer_len, i_exclusion_zero_buffer_len, i_min, i_max, i_avg, i_mid = self.get_adc_buffer_info(A_target_buffer)
-            s_stats_text = (
-                f"총 Len: {i_buffer_len}개\n"
-                f"실제 값 Len: {i_exclusion_zero_buffer_len}개)\n"
-                f"실제 값 Min: {i_min}\n"
-                f"실제 값 Max: {i_max}\n"
-                f"실제 값 Avg: {i_avg:.1f}\n"
-                f"실제 값 Mid: {i_mid}"
-            )
-            A_s_log_lines.append(s_stats_text)
+    # #     if A_target_buffer is not None and s_target_name is not None:
 
-        # --- 설정값 처리 ---
-        elif input_sensor_parser_data.settings:
-            SettingsData_handle = input_sensor_parser_data.settings
-            s_occupancy_status = "🟢 재실 O" if SettingsData_handle.b_occu_status else "⚪ 재실 X"
-            A_s_log_lines.append(f"Settings : {s_occupancy_status}")
-            A_s_log_lines.append(f" - TP1 : {SettingsData_handle.i_tp1}")
-            A_s_log_lines.append(f" - TP1 Recheck : {SettingsData_handle.i_tp1_recheck}")
-            A_s_log_lines.append(f" - TP2 : {SettingsData_handle.i_tp2}")
-            A_s_log_lines.append(f" - LED : Max={SettingsData_handle.i_led_max_per}%, Min={SettingsData_handle.i_led_min_per}%, Dim={SettingsData_handle.i_led_dim_per}%")
-            A_s_log_lines.append(f" - LED Step : {SettingsData_handle.i_led_work_ms} ms, Work : {SettingsData_handle.i_led_step_ms} ms, Delay : {SettingsData_handle.i_led_delay_ms} ms")
-            A_s_log_lines.append(f" - Occupancy Timeout : {SettingsData_handle.i_occu_chk_timeout_us} us")
-            A_s_log_lines.append(f" - Sleep Time : {SettingsData_handle.i_sleep_time_us} us")
-            A_s_log_lines.append(f" - Occupancy : {SettingsData_handle.b_occu_status}")
-            A_s_log_lines.append(f" - PIR Output : {SettingsData_handle.b_pir_status}")
+    # #         #### TODO : get_adc_buffer_info 수정하기
+    # #         i_buffer_len, i_exclusion_zero_buffer_len, i_min, i_max, i_avg, i_mid = self.get_adc_buffer_info(A_target_buffer)
 
-        return "\n".join(A_s_log_lines) # 리스트의 각 항목을 \n(줄바꿈)으로 이어 붙여 하나의 문자열로 만듭니다.
+    # #         s_stats_text = (
+    # #             f"총 Len: {i_buffer_len}개\n"
+    # #             f"실제 값 Len: {i_exclusion_zero_buffer_len}개)\n"
+    # #             f"실제 값 Min: {i_min}\n"
+    # #             f"실제 값 Max: {i_max}\n"
+    # #             f"실제 값 Avg: {i_avg:.1f}\n"
+    # #             f"실제 값 Mid: {i_mid}"
+    # #         )
+    # #         A_s_log_lines.append(s_stats_text)
+
+    # #     # --- 설정값 처리 ---
+    # #     elif input_sensor_parser_data.settings:
+    # #         SettingsData_handle = input_sensor_parser_data.settings
+    # #         s_occupancy_status = "🟢 재실 O" if SettingsData_handle.b_occu_status else "⚪ 재실 X"
+    # #         A_s_log_lines.append(f"Settings : {s_occupancy_status}")
+    # #         A_s_log_lines.append(f" - TP1 : {SettingsData_handle.i_tp1}")
+    # #         A_s_log_lines.append(f" - TP1 Recheck : {SettingsData_handle.i_tp1_recheck}")
+    # #         A_s_log_lines.append(f" - TP2 : {SettingsData_handle.i_tp2}")
+    # #         A_s_log_lines.append(f" - LED : Max={SettingsData_handle.i_led_max_per}%, Min={SettingsData_handle.i_led_min_per}%, Dim={SettingsData_handle.i_led_dim_per}%")
+    # #         A_s_log_lines.append(f" - LED Step : {SettingsData_handle.i_led_work_ms} ms, Work : {SettingsData_handle.i_led_step_ms} ms, Delay : {SettingsData_handle.i_led_delay_ms} ms")
+    # #         A_s_log_lines.append(f" - Occupancy Timeout : {SettingsData_handle.i_occu_chk_timeout_us} us")
+    # #         A_s_log_lines.append(f" - Sleep Time : {SettingsData_handle.i_sleep_time_us} us")
+    # #         A_s_log_lines.append(f" - Occupancy : {SettingsData_handle.b_occu_status}")
+    # #         A_s_log_lines.append(f" - PIR Output : {SettingsData_handle.b_pir_status}")
+
+    # #     return "\n".join(A_s_log_lines) # 리스트의 각 항목을 \n(줄바꿈)으로 이어 붙여 하나의 문자열로 만듭니다.
 
     @PyQt6.QtCore.pyqtSlot(object)
     def event_update_ui(self, input_sensor_parser_data:updm.SensorData):
@@ -2076,6 +2191,7 @@ class MainWindow(QMainWindow):
             )
             self.connect_status_Label.setText(settings_str)
 
+        self.update_svm_label_count()
 
         # """UI 업데이트: 로그, 그래프, 설정 표시"""
         # # 1. 로그 텍스트 업데이트 (최대 500줄 제한)
