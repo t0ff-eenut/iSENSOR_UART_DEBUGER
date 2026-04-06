@@ -2,7 +2,7 @@
 WINDOW_TITLE:str        = 'iSENSOR PIR SENSOR DEBUG'
 WINDOW_POSITION_X:int   = 100
 WINDOW_POSITION_Y:int   = 100
-WINDOW_WIDTH:int        = 1200
+WINDOW_WIDTH:int        = 2400
 WINDOW_HEIGHT:int       = 800
 LEFT_BOX_WIDTH:int      = 400
 
@@ -48,13 +48,32 @@ FFT_LABEL_COLOR:str         = "#898989"
 FFT_SAMPLING_RATE           = 100
 
 
-SVM_NOW_POINT_NAME:str  = 'SVM_now_scatter_name'
-SVM_NOW_POINT_COLOR:str = "#FF0000"
+SVM_NOW_POINT_NAME:str          = 'SVM_now_scatter_name'
+SVM_NOW_POINT_COLOR:str         = "#FF0000"
+SVM_BACKGROUND_POINT_NAME:str   = 'svm_background_scatter_name'
+SVM_BACKGROUND_POINT_COLOR:str  = "#FFAE00"
+SVM_OCCUPANCY_POINT_NAME:str    = 'svm_occupancy_scatter_name'
+SVM_OCCUPANCY_POINT_COLOR:str   = "#09FF00"
+
 
 SVM_LABEL_NAME:str          = 'svm_graph_value_info'
 SVM_LABEL_ANCHOR_X:int      = 1 
 SVM_LABEL_ANCHOR_Y:int      = 0
 SVM_LABEL_COLOR:str         = "#898989"
+
+SVM_BOUNDARY_IMAGE_NAME:str = 'svm_boundary_image'
+
+SVM_PCA_NAME:str                    = 'SVM PCA'
+SVM_PCA_BG_POINT_NAME:str           = 'svm_pca_bg_scatter'
+SVM_PCA_OCCU_POINT_NAME:str         = 'svm_pca_occu_scatter'
+SVM_PCA_NOW_POINT_NAME:str          = 'svm_pca_now_scatter'
+SVM_PCA_BOUNDARY_IMAGE_NAME:str     = 'svm_pca_boundary_image'
+SVM_PCA_LABEL_NAME:str              = 'svm_pca_label'
+SVM_PCA_BG_POINT_COLOR:str          = '#FFAE00'
+SVM_PCA_OCCU_POINT_COLOR:str        = '#09FF00'
+SVM_PCA_NOW_POINT_COLOR:str         = '#FF0000'
+
+
 
 MAX_LOG_LINES:int           = 500
 

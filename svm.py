@@ -14,10 +14,36 @@ import csv
 import os
 from sklearn.svm       import SVC
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 
 class enum_label(enum.IntEnum):
     LABEL_BACKGROUND = 0
     LABEL_HUMAN = LABEL_BACKGROUND + 1
+
+
+# CSV 컬럼 인덱스
+# | 0~150      | magnitudes_0 ~ magnitudes_150  (151개) |
+# | 151        | peak_freq                              |
+# | 152        | peak_mag                               |
+# | 153        | avg_mag                                |
+# | 154        | std_mag                                |
+# | 155        | centroid                               |
+# | 156        | low_energy                             |
+# | 157        | mid_energy                             |
+# | 158        | high_energy                            |
+# | 159        | rms                                    |
+# | -1 (마지막) | label                                  |
+I_MAGNITUDES_COUNT = 151
+class enum_csv_col(enum.IntEnum):
+    PEAK_FREQ   = I_MAGNITUDES_COUNT + 0   # 151
+    PEAK_MAG    = I_MAGNITUDES_COUNT + 1   # 152
+    AVG_MAG     = I_MAGNITUDES_COUNT + 2   # 153
+    STD_MAG     = I_MAGNITUDES_COUNT + 3   # 154
+    CENTROID    = I_MAGNITUDES_COUNT + 4   # 155
+    LOW_ENERGY  = I_MAGNITUDES_COUNT + 5   # 156
+    MID_ENERGY  = I_MAGNITUDES_COUNT + 6   # 157
+    HIGH_ENERGY = I_MAGNITUDES_COUNT + 7   # 158
+    RMS         = I_MAGNITUDES_COUNT + 8   # 159
 
 
 class SVM_Module():
@@ -53,7 +79,10 @@ class SVM_Module():
         self.i_human_count = 0
 
         self.scaler:StandardScaler  = StandardScaler()
-        self.svm_model:SVC          = SVC(kernel='rbf', C=1.0, gamma='scale', probability=True) # probability=True = 거리값을 확률로 변환 -> 내부적으로는 Platt Scaling 이라는 방법
+        self.svm_model:SVC          = SVC(kernel='rbf', C=1.0, gamma='scale', probability=True)
+
+        self.pca:PCA                    = None   # 학습 후 생성
+        self.A_pca_train_2d:numpy.ndarray = None # shape: (N, 2) — 훈련 데이터 PCA 투영
 
 
 
@@ -243,19 +272,22 @@ class SVM_Module():
         if not os.path.exists(self.str_svm_csv_path):
             return self.i_bg_count, self.i_human_count
 
+        A_labels = []
         with open(self.str_svm_csv_path, 'r') as f:
             reader = csv.reader(f)
             next(reader, None)  # 헤더 스킵
             for row in reader:
                 if len(row) == 0:
                     continue
-                A_labels = int(float(row[-1]))    # 끝 항목
-                # if label == enum_label.LABEL_BACKGROUND:
+                # i_label = int(float(row[-1]))    # 끝 항목
+                # if i_label == enum_label.LABEL_BACKGROUND:
                 #     self.i_bg_count += 1
-                # elif label == enum_label.LABEL_HUMAN:
+                # elif i_label == enum_label.LABEL_HUMAN:
                 #     self.i_human_count += 1
-                self.i_bg_count    = A_labels.count(enum_label.LABEL_BACKGROUND)
-                self.i_human_count = A_labels.count(enum_label.LABEL_HUMAN)
+                A_labels.append(int(float(row[-1])))             # (정답 레이블)
+
+        self.i_bg_count    = A_labels.count(enum_label.LABEL_BACKGROUND)
+        self.i_human_count = A_labels.count(enum_label.LABEL_HUMAN)
 
         # return self.i_bg_count, self.i_human_count
 
@@ -296,19 +328,15 @@ class SVM_Module():
         Y = numpy.array(A_labels)
 
         X_scaled = self.scaler.fit_transform(X) # 표준화(정규화)
-        self.svm_model.fit(X_scaled, Y)         # 경계면 학습       
-        # w1 곱하기 rms + w2 곱하기 centroid + ... + w160 곱하기 마지막특징 + b 라는 수식 하나를 계산
-        # 두 그룹 사이의 마진이 최대가 되는 가중치 조합을 수학적으로 찾아내고, 그게 최종 w1~w160
-        # 두 클래스 사이의 마진(Margin, 간격)을 최대화
-        # 서포트 벡터(Support Vectors): 경계면과 가장 가까이 있는 데이터 포인트들을 말합니다.
-        # 마진: 이 서포트 벡터들과 경계면 사이의 거리입니다. 이 거리가 멀수록(두꺼울수록) 새로운 데이터가 들어왔을 때 더 정확하게 분류할 확률이 높다고 판단합니다.
-        # 라그랑주 승수법(Lagrange Multipliers) 기법 사용
+        self.svm_model.fit(X_scaled, Y)         # 경계면 학습
 
-        # SMO(Sequential Minimal Optimization): scikit-learn의 SVM은 내부적으로 libsvm 라이브러리를 사용하는데, 여기서 주로 SMO 알고리즘이 돌아갑니다. 수천 개의 데이터를 한꺼번에 계산하기 힘드니, 한 번에 2개씩 골라서 최적의 가중치를 조금씩 업데이트하며 전체적인 최적값을 찾아가는 방식입니다.
-
-        print(self.svm_model.coef_) # 학습된 가중치
+        # PCA 2차원 투영 (표준화된 데이터 기준)
+        self.pca = PCA(n_components=2)
+        self.A_pca_train_2d = self.pca.fit_transform(X_scaled)  # shape: (N, 2)
 
         self.b_is_trained = True
+        self.A_train_features = A_features  # 메모리에 보관 → 그래프에서 CSV 재파싱 없이 사용
+        self.A_train_labels   = A_labels
         
         return True
     
@@ -337,9 +365,8 @@ class SVM_Module():
             self.f_confidence   = 0.0
             return
 
-        A_features = numpy.array([
-            self.i_peak_idx
-            , self.f_peak_freq
+        A_stat_features = numpy.array([
+            self.f_peak_freq
             , self.f_peak_mag
             , self.f_avg_mag
             , self.f_std_mag
@@ -349,7 +376,9 @@ class SVM_Module():
             , self.f_high_energy 
             , self.f_rms
             ])
-        
+        # 학습 시와 동일한 구조: magnitudes(151개) + stat(9개) = 160개
+        A_features = numpy.concatenate([self.A_magnitudes, A_stat_features])
+
         # predict 와 predict_proba 가 이 2차원 구조를 기대하기 때문에 [A_features] 로 일부러 감싼 것
         A_scaler_features   = self.scaler.transform([A_features])                   # 정규화(표준화) / 모든 특징값을 "평균 0, 표준편차 1" 기준으로 변환합니다.
         # array([[ 0.23, -1.45,  2.11, -0.33,  0.87, -0.12,  1.54, -0.78,  0.45,  0.99]])
@@ -358,6 +387,23 @@ class SVM_Module():
         self.f_confidence = float(self.A_probabilty[self.i_label])
 
         # return i_label, f_confidence
+
+    def get_pca_now(self) -> tuple:
+        """현재 프레임 특징벡터를 PCA 2D 공간으로 변환
+
+        Returns:
+            (pc1, pc2) — 현재 위치의 PCA 좌표. 미학습 시 (0.0, 0.0)
+        """
+        if not self.b_is_trained or self.pca is None:
+            return 0.0, 0.0
+        A_stat_features = numpy.array([
+            self.f_peak_freq, self.f_peak_mag, self.f_avg_mag, self.f_std_mag,
+            self.f_centroid, self.f_low_energy, self.f_mid_energy, self.f_high_energy, self.f_rms
+        ])
+        A_features = numpy.concatenate([self.A_magnitudes, A_stat_features])
+        A_scaled   = self.scaler.transform([A_features])
+        pca_2d     = self.pca.transform(A_scaled)  # shape: (1, 2)
+        return float(pca_2d[0, 0]), float(pca_2d[0, 1])
 
     # # -------------------------------------------------------
     # # 파형 데이터 저장/로드 (SVM 학습 CSV와 분리된 별도 CSV)

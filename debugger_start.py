@@ -74,6 +74,19 @@ class enum_graph_plot_index(enum.IntEnum):
     STR_LINE_COLOR          = STR_GRAPH_Y_LABEL + 1
     STR_LEGEND_TEXT         = STR_LINE_COLOR + 1
 
+class SvmTrainWorker(PyQt6.QtCore.QThread):
+    """SVM 학습을 백그라운드에서 실행하는 워커 스레드"""
+    finished = PyQt6.QtCore.pyqtSignal(bool)  # 학습 성공 여부
+
+    def __init__(self, svm_handle):
+        super().__init__()
+        self._svm_handle = svm_handle
+
+    def run(self):
+        result = self._svm_handle.train()
+        self.finished.emit(result)
+
+
 class UartWorker(PyQt6.QtCore.QThread):
     """
     UART 통신을 처리하는 워커 스레드
@@ -254,7 +267,12 @@ class MainWindow(QMainWindow):
         # # ############################# COPILOT EDIT START (svm 핸들 초기화 + Phase 3 히스토리)
         self.svm_handle:svm.SVM_Module  = svm.SVM_Module()
 
+        self.svm_x_col:svm.enum_csv_col = svm.enum_csv_col.CENTROID
+        self.svm_y_col:svm.enum_csv_col = svm.enum_csv_col.MID_ENERGY
 
+        # 결정 경계 재계산 캐시 (뷰 범위/축 변경 시에만 재계산)
+        self._svm_boundary_cache        = None   # (x_min, x_max, y_min, y_max, x_col, y_col)
+        self._svm_pca_boundary_cache    = None   # (x_min, x_max, y_min, y_max)
 
         self.A_svm_probabilty           = []
         self.i_svm_label                = 0
@@ -368,10 +386,10 @@ class MainWindow(QMainWindow):
         self.graph_legend_setting('FFT 분포', enum_graph_plot_num.ADC_FFT)
 
         self.graph_title_setting(SVM_NAME, enum_graph_plot_num.SVM, enum_graph_plot_range_opt.ALL)
-        self.graph_x_range_setting(self.f_sampling_rate / 2, enum_graph_plot_num.SVM)
+        # self.graph_x_range_setting(self.f_sampling_rate / 2, enum_graph_plot_num.SVM)
         self.graph_x_label_pos_setting("bottom", enum_graph_plot_num.SVM)
         self.graph_x_label_setting("피크 주파수(Hz)", enum_graph_plot_num.SVM)
-        self.graph_y_range_setting(self.adc_bit_2_range(12) / 2, enum_graph_plot_num.SVM, enum_graph_plot_range_opt.ALL)
+        # self.graph_y_range_setting(self.adc_bit_2_range(12) / 2, enum_graph_plot_num.SVM, enum_graph_plot_range_opt.ALL)
         self.graph_y_label_pos_setting("left", enum_graph_plot_num.SVM)
         self.graph_y_label_setting("피크 강도", enum_graph_plot_num.SVM)
         self.graph_line_color_setting(cfg.SVM_LINE_COLOR, enum_graph_plot_num.SVM)
@@ -749,6 +767,24 @@ class MainWindow(QMainWindow):
         self.svm_clear_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.svm_clear_PushButton.clicked.connect(self.event_svm_clear)
         self.svm_collect_GridLayout.addWidget(self.svm_clear_PushButton, 4, 0, 1, 2)
+
+        # X/Y 축 선택 콤보박스
+        self.svm_collect_GridLayout.addWidget(QLabel("Y축:"), 5, 0)
+        self.svm_y_ComboBox = QComboBox()
+        for col in svm.enum_csv_col:
+            self.svm_y_ComboBox.addItem(self._SVM_COL_LABEL_MAP.get(col, col.name), userData=col)
+        self.svm_y_ComboBox.setCurrentIndex(list(svm.enum_csv_col).index(svm.enum_csv_col.MID_ENERGY))
+        self.svm_collect_GridLayout.addWidget(self.svm_y_ComboBox, 5, 1)
+
+        self.svm_collect_GridLayout.addWidget(QLabel("X축:"), 6, 0)
+        self.svm_x_ComboBox = QComboBox()
+        for col in svm.enum_csv_col:
+            self.svm_x_ComboBox.addItem(self._SVM_COL_LABEL_MAP.get(col, col.name), userData=col)
+        self.svm_x_ComboBox.setCurrentIndex(list(svm.enum_csv_col).index(svm.enum_csv_col.CENTROID))
+        self.svm_collect_GridLayout.addWidget(self.svm_x_ComboBox, 6, 1)
+
+        self.svm_x_ComboBox.currentIndexChanged.connect(self.on_svm_axis_changed)
+        self.svm_y_ComboBox.currentIndexChanged.connect(self.on_svm_axis_changed)
         # ############################# COPILOT EDIT END
 ############################################################################################################ SVM
 
@@ -812,7 +848,7 @@ class MainWindow(QMainWindow):
         # --- SVM Plots 그룹 (ADC FFT Plot 아래) ---
         self.svm_graph_GroupBox = QGroupBox("SVM Plots")
         self.svm_graph_GroupBox.setStyleSheet("" + MACRO_PADDING.format(10))
-        self.right_VBoxLayout.addWidget(self.svm_graph_GroupBox, stretch=2)
+        self.main_HBoxLayout.addWidget(self.svm_graph_GroupBox, stretch=2)
         self.svm_graph_VBoxLayout = QVBoxLayout()
         self.svm_graph_GroupBox.setLayout(self.svm_graph_VBoxLayout)
         self.svm_plot_TabWidget = QTabWidget()
@@ -821,6 +857,7 @@ class MainWindow(QMainWindow):
         self.svm_graph_VBoxLayout.addWidget(self.svm_plot_TabWidget)
 
         self.create_svm_plot_tab(self.A_graph_plot_value[enum_graph_plot_num.SVM][enum_graph_plot_range_opt.SVM])
+        self.create_svm_pca_tab()
 
         # self.svm_scatter_PlotWidget = pyqtgraph.PlotWidget()
         # self.svm_scatter_PlotWidget.setTitle("SVM Feature Space")
@@ -1042,17 +1079,22 @@ class MainWindow(QMainWindow):
         self.log_TextEdit.append("[SVM] 재실 샘플 저장 완료")
 
     def event_svm_train(self):
-        """CSV 데이터로 SVM 학습"""
+        """CSV 데이터로 SVM 학습 (백그라운드 스레드)"""
+        self.svm_train_PushButton.setEnabled(False)
+        self.svm_status_Label.setText("학습 중...")
 
-        # b_ok = self.svm_handle.train(self.svm_handle.str_svm_csv_path)
-        b_train_done = self.svm_handle.train()
+        self._svm_train_worker = SvmTrainWorker(self.svm_handle)
+        self._svm_train_worker.finished.connect(self._on_svm_train_finished)
+        self._svm_train_worker.start()
+
+    def _on_svm_train_finished(self, b_train_done: bool):
+        """학습 완료 후 UI 업데이트 (메인 스레드에서 실행)"""
+        self.svm_train_PushButton.setEnabled(True)
+        self._svm_boundary_cache     = None
+        self._svm_pca_boundary_cache = None
         if b_train_done:
-            # i_bg, i_human = self.svm_handle.get_sample_counts(self.svm_handle.str_svm_csv_path)
             self.svm_status_Label.setText(f"학습 완료  BG:{self.svm_handle.i_bg_count} / Human:{self.svm_handle.i_human_count}")
             self.log_TextEdit.append(f"[SVM] 학습 완료  BG:{self.svm_handle.i_bg_count} / Human:{self.svm_handle.i_human_count}")
-
-            self.update_svm_scatter()           # 학습 완료 후 산점도 갱신
-            # self.update_svm_waveform_overlay()  # 파형 오버레이 갱신
         else:
             self.svm_status_Label.setText("학습 실패 - 데이터 부족")
             QMessageBox.warning(self, "학습 실패", "데이터가 부족합니다.\n10개 이상 수집하세요.")
@@ -1080,6 +1122,8 @@ class MainWindow(QMainWindow):
         # if os.path.exists(self.str_svm_waveform_csv_path):
         #     os.remove(self.str_svm_waveform_csv_path)
         self.svm_handle = svm.SVM_Module()  # 완전 초기화
+        self._svm_boundary_cache     = None  # 경계 캐시 무효화
+        self._svm_pca_boundary_cache = None
 
 
         self.svm_status_Label.setText("미학습")
@@ -1251,6 +1295,23 @@ class MainWindow(QMainWindow):
 
 
 #############################################################
+        # 'o'	원 (circle)
+        # 's'	사각형 (square)
+        # 't'	삼각형 위 (triangle up)
+        # 't1'	삼각형 위 (triangle up, alias)
+        # 't2'	삼각형 오른쪽
+        # 't3'	삼각형 왼쪽
+        # 'd'	다이아몬드 (diamond)
+        # '+'	플러스
+        # 'x'	X자
+        # 'p'	오각형 (pentagon)
+        # 'h'	육각형 (hexagon)
+        # 'star'	별 (star)
+        # 'arrow_up'	화살표 위
+        # 'arrow_right'	화살표 오른쪽
+        # 'arrow_down'	화살표 아래
+        # 'arrow_left'	화살표 왼쪽
+        # 'crosshair'	크로스헤어
     def create_scatter(self, target_PlotWidget, s_inter_name, s_color_code):
         point_ScatterPlotItem = pyqtgraph.ScatterPlotItem(
             pen=None,
@@ -1260,6 +1321,7 @@ class MainWindow(QMainWindow):
         )
         point_ScatterPlotItem.role = s_inter_name
         target_PlotWidget.addItem(point_ScatterPlotItem, ignoreBounds=True)
+        # target_PlotWidget.addItem(point_ScatterPlotItem)
 
         return point_ScatterPlotItem
     
@@ -1271,10 +1333,35 @@ class MainWindow(QMainWindow):
             symbol='star'
         )
         point_ScatterPlotItem.role = s_inter_name
-        target_PlotWidget.addItem(point_ScatterPlotItem, ignoreBounds=True)
+        # target_PlotWidget.addItem(point_ScatterPlotItem, ignoreBounds=True)
+        target_PlotWidget.addItem(point_ScatterPlotItem)
 
         return point_ScatterPlotItem
 
+    def create_svm_bg_scatter(self, target_PlotWidget, s_inter_name, s_color_code):
+        point_ScatterPlotItem = pyqtgraph.ScatterPlotItem(
+            pen=pyqtgraph.mkPen('w', width=2),
+            brush=pyqtgraph.mkBrush(s_color_code),
+            size=14,
+            symbol='x'
+        )
+        point_ScatterPlotItem.role = s_inter_name
+        # target_PlotWidget.addItem(point_ScatterPlotItem, ignoreBounds=True)
+        target_PlotWidget.addItem(point_ScatterPlotItem)
+
+        return point_ScatterPlotItem
+    
+    def create_svm_occu_scatter(self, target_PlotWidget, s_inter_name, s_color_code):
+        point_ScatterPlotItem = pyqtgraph.ScatterPlotItem(
+            pen=pyqtgraph.mkPen('w', width=2),
+            brush=pyqtgraph.mkBrush(s_color_code),
+            size=14,
+            symbol='o'
+        )
+        point_ScatterPlotItem.role = s_inter_name
+        # target_PlotWidget.addItem(point_ScatterPlotItem, ignoreBounds=True)
+        target_PlotWidget.addItem(point_ScatterPlotItem)
+        return point_ScatterPlotItem
 
     def create_adc_plot_tab(self, graph_plot_value:list):
 
@@ -1358,32 +1445,25 @@ class MainWindow(QMainWindow):
     def create_svm_plot_tab(self, graph_plot_value:list):
 
         target_PlotWidget = pyqtgraph.PlotWidget()
-        # 마우스 드래그(팬) 및 휠 줌 비활성화
-        target_PlotWidget.setMouseEnabled(x=False, y=False)
+        # SVM 그래프는 데이터에 따라 범위가 달라지므로 마우스 조작 허용
+        target_PlotWidget.setMouseEnabled(x=True, y=True)
         target_PlotWidget.setMenuEnabled(False)
     
         target_PlotWidget.setTitle(f"{graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME]}")
         target_PlotWidget.setLabel(f"{graph_plot_value[enum_graph_plot_index.STR_GRAPH_X_LABEL_POS]}", f"{graph_plot_value[enum_graph_plot_index.STR_GRAPH_X_LABEL]}", **{'font-size': '14pt'})
-        if graph_plot_value[enum_graph_plot_index.INT_GRAPH_X_RANGE]:
-            target_PlotWidget.setXRange(0, graph_plot_value[enum_graph_plot_index.INT_GRAPH_X_RANGE], padding=0)
         target_PlotWidget.setLabel(f"{graph_plot_value[enum_graph_plot_index.STR_GRAPH_Y_LABEL_POS]}", graph_plot_value[enum_graph_plot_index.STR_GRAPH_Y_LABEL], **{'font-size': '14pt'})
-        if graph_plot_value[enum_graph_plot_index.INT_GRAPH_Y_RANGE]:
-            target_PlotWidget.setYRange(0, graph_plot_value[enum_graph_plot_index.INT_GRAPH_Y_RANGE], padding=0)
-        target_PlotWidget.getPlotItem().getViewBox().setLimits(yMin=0) # 하한 0 고정
+        # 고정 범위/하한 제거 → enableAutoRange()로 대신 처리
 
-        target_PlotWidget.addLegend(offset=(10,10))            # 범례 추가(옵션: offset)
-        target_PlotWidget.plot(
-            pen=pyqtgraph.mkPen(
-                color=graph_plot_value[enum_graph_plot_index.STR_LINE_COLOR]                       # 선 색 (문자열 'r', 색 이름, 16진 문자열 '#ff0000', (R,G,B) 또는 (R,G,B,A) 튜플, 또는 QtGui.QColor 가능).
-                , width=1                               # 선 굵기(픽셀)
-                , style=pyqtgraph.QtCore.Qt.PenStyle.DashLine     # 선 스타일(점선/실선 등). SolidLine (실선), DashLine (대시선), DotLine (점선), DashDotLine, DashDotDotLine, NoPen (그리지 않음)
-                )
-            , fillLevel=0
-            , fillBrush=(0, 255, 255, 80)
-            , name=graph_plot_value[enum_graph_plot_index.STR_LEGEND_TEXT]
-        )
+        # 결정 경계 배경 이미지 (스캐터 점 뒤에 배치)
+        boundary_ImageItem = pyqtgraph.ImageItem()
+        boundary_ImageItem.role = cfg.SVM_BOUNDARY_IMAGE_NAME
+        boundary_ImageItem.setZValue(-10)  # 스캐터 점보다 뒤에 배치
+        target_PlotWidget.addItem(boundary_ImageItem, ignoreBounds=True)
 
         self.create_svm_now_scatter(target_PlotWidget, cfg.SVM_NOW_POINT_NAME, cfg.SVM_NOW_POINT_COLOR)
+
+        self.create_svm_bg_scatter(target_PlotWidget, cfg.SVM_BACKGROUND_POINT_NAME, cfg.SVM_BACKGROUND_POINT_COLOR)
+        self.create_svm_occu_scatter(target_PlotWidget, cfg.SVM_OCCUPANCY_POINT_NAME, cfg.SVM_OCCUPANCY_POINT_COLOR)
 
         # # 피크 주파수 표시용 텍스트 아이템
         # peak_TextItem = pyqtgraph.TextItem(anchor=(0, 1), color='y')
@@ -1399,9 +1479,29 @@ class MainWindow(QMainWindow):
         #     self.fft_peak_labels = {}
         # self.fft_peak_labels[graph_tab_name] = peak_label
 
+    def create_svm_pca_tab(self):
+        """PCA 2D 투영 탭 생성 — SVM 결정 경계를 PC1/PC2 축으로 시각화"""
+        target_PlotWidget = pyqtgraph.PlotWidget()
+        target_PlotWidget.setMouseEnabled(x=True, y=True)
+        target_PlotWidget.setMenuEnabled(False)
+        target_PlotWidget.setTitle(cfg.SVM_PCA_NAME)
+        target_PlotWidget.setLabel('bottom', 'PC1', **{'font-size': '14pt'})
+        target_PlotWidget.setLabel('left',   'PC2', **{'font-size': '14pt'})
 
+        # 결정 경계 배경 이미지 (스캐터 점 뒤에 배치)
+        boundary_ImageItem = pyqtgraph.ImageItem()
+        boundary_ImageItem.role = cfg.SVM_PCA_BOUNDARY_IMAGE_NAME
+        boundary_ImageItem.setZValue(-10)
+        target_PlotWidget.addItem(boundary_ImageItem, ignoreBounds=True)
 
-        
+        self.create_svm_now_scatter(target_PlotWidget, cfg.SVM_PCA_NOW_POINT_NAME,  cfg.SVM_PCA_NOW_POINT_COLOR)
+        self.create_svm_bg_scatter (target_PlotWidget, cfg.SVM_PCA_BG_POINT_NAME,   cfg.SVM_PCA_BG_POINT_COLOR)
+        self.create_svm_occu_scatter(target_PlotWidget, cfg.SVM_PCA_OCCU_POINT_NAME, cfg.SVM_PCA_OCCU_POINT_COLOR)
+
+        self.create_label(target_PlotWidget, cfg.SVM_PCA_LABEL_NAME,
+                          cfg.SVM_LABEL_ANCHOR_X, cfg.SVM_LABEL_ANCHOR_Y, cfg.SVM_LABEL_COLOR)
+
+        self.svm_plot_TabWidget.addTab(target_PlotWidget, cfg.SVM_PCA_NAME)
 
     # def _compute_fft(self, adc_buffer, apply_window=True):
     #     """ADC 버퍼에 FFT 적용
@@ -1536,6 +1636,10 @@ class MainWindow(QMainWindow):
         for i_index in range(self.adc_fft_plot_TabWidget.count()):
             if self.adc_fft_plot_TabWidget.tabText(i_index) == input_plot_name:
                 return self.adc_fft_plot_TabWidget.widget(i_index)
+
+        for i_index in range(self.svm_plot_TabWidget.count()):
+            if self.svm_plot_TabWidget.tabText(i_index) == input_plot_name:
+                return self.svm_plot_TabWidget.widget(i_index)
 
         return None
 
@@ -1811,6 +1915,26 @@ class MainWindow(QMainWindow):
         target_label.setPos(x_max, y_max)
 
 
+    _SVM_COL_LABEL_MAP = {
+        svm.enum_csv_col.PEAK_FREQ   : "피크 주파수(Hz)",
+        svm.enum_csv_col.PEAK_MAG    : "피크 강도",
+        svm.enum_csv_col.AVG_MAG     : "평균 강도",
+        svm.enum_csv_col.STD_MAG     : "강도 표준편차",
+        svm.enum_csv_col.CENTROID    : "무게중심 주파수(Hz)",
+        svm.enum_csv_col.LOW_ENERGY  : "저주파 에너지",
+        svm.enum_csv_col.MID_ENERGY  : "중주파 에너지",
+        svm.enum_csv_col.HIGH_ENERGY : "고주파 에너지",
+        svm.enum_csv_col.RMS         : "RMS 에너지",
+    }
+    def set_svm_axis_labels(self, inter_Widget:QWidget, x_col:svm.enum_csv_col, y_col:svm.enum_csv_col):
+        inter_Widget.setLabel('bottom', self._SVM_COL_LABEL_MAP.get(x_col, str(x_col)), **{'font-size': '14pt'})
+        inter_Widget.setLabel('left',   self._SVM_COL_LABEL_MAP.get(y_col, str(y_col)), **{'font-size': '14pt'})
+
+    def on_svm_axis_changed(self):
+        self.svm_x_col = self.svm_x_ComboBox.currentData()
+        self.svm_y_col = self.svm_y_ComboBox.currentData()
+        self._svm_boundary_cache = None  # 축 변경 시 캐시 무효화
+
     def update_svm_graph(self, inter_Widget:QWidget):
 
         # ############################# COPILOT EDIT START (Phase 1+2+3+A: 실시간 SVM 분류 + 산점도 + 히스토리 + 파형 뷰)
@@ -1835,19 +1959,19 @@ class MainWindow(QMainWindow):
             # (i_label, f_confidence)
             # i_label      : LABEL_BACKGROUND(0) or LABEL_HUMAN(1)
             # f_confidence : 신뢰도 0.0~1.0
-        if self.i_svm_label == svm.enum_label.LABEL_HUMAN:
+        # if self.i_svm_label == svm.enum_label.LABEL_HUMAN:
 
-            # inter_Widget.setBackground((80, 0, 0, 180))
-            s_svm_result = f"● 사람 감지  ({self.f_svm_confidence*100:.1f}%)"
-            rt_brush = pyqtgraph.mkBrush(255, 80, 80, 230)
-            # self.svm_realtime_waveform.setPen(pyqtgraph.mkPen((255, 80, 80), width=2))  # 빨강
+        #     # inter_Widget.setBackground((80, 0, 0, 180))
+        #     s_svm_result = f"● 사람 감지  ({self.f_svm_confidence*100:.1f}%)"
+        #     rt_brush = pyqtgraph.mkBrush(255, 80, 80, 230)
+        #     # self.svm_realtime_waveform.setPen(pyqtgraph.mkPen((255, 80, 80), width=2))  # 빨강
 
-        else:
+        # else:
 
-            # inter_Widget.setBackground((0, 60, 0, 180))
-            s_svm_result = f"○ 배경  ({self.f_svm_confidence*100:.1f}%)"
-            rt_brush = pyqtgraph.mkBrush(80, 255, 80, 230)
-            # self.svm_realtime_waveform.setPen(pyqtgraph.mkPen((80, 255, 80), width=2))  # 초록
+        #     # inter_Widget.setBackground((0, 60, 0, 180))
+        #     s_svm_result = f"○ 배경  ({self.f_svm_confidence*100:.1f}%)"
+        #     rt_brush = pyqtgraph.mkBrush(80, 255, 80, 230)
+        #     # self.svm_realtime_waveform.setPen(pyqtgraph.mkPen((80, 255, 80), width=2))  # 초록
 
 
 
@@ -1898,38 +2022,262 @@ class MainWindow(QMainWindow):
 
 
 
-        A_bg_x, A_bg_y = [], []
-        A_human_x, A_human_y = [], []
+        A_svm_bg_x, A_svm_bg_y = [], []
+        A_svm_occu_x, A_svm_occu_y = [], []
 
-        for item in list(self.svm_scatter_PlotWidget.listDataItems()):
-            if item is not self.svm_realtime_scatter:
-                self.svm_scatter_PlotWidget.removeItem(item)
+        # target_scatter = None
+        # PlotItem = inter_Widget.getPlotItem()
+        # items = getattr(PlotItem, 'items', None)  # 일부 버전은 속성, 일부는 다른 구조일 수 있음
+        # for item in items:
+        #     if isinstance(item, pyqtgraph.ScatterPlotItem) and getattr(item, 'role', None) == cfg.SVM_BACKGROUND_NAME:
+        #         target_scatter = item
+        # # ScatterPlot 업데이트
+        # target_scatter.setData(A_i_tp1_over_x, A_i_tp1_over_y)
+        # # 초과 개수 라벨 업데이트 (우측 상단 위치)
 
-        # 배경 점 (초록)
-        if A_bg_x:
-            scatter_bg = pyqtgraph.ScatterPlotItem(
-                x=A_bg_x, y=A_bg_y,
-                size=8, pen=pyqtgraph.mkPen(None),
-                brush=pyqtgraph.mkBrush(0, 200, 0, 180),
-                symbol='o', name='배경'
+
+
+        # for item in list(inter_Widget.listDataItems()):
+        #     if item is not self.svm_realtime_scatter:
+        #         inter_Widget.removeItem(item)
+
+        self.set_svm_axis_labels(inter_Widget, self.svm_x_col, self.svm_y_col)
+
+        for features, label in zip(self.svm_handle.A_train_features, self.svm_handle.A_train_labels):
+            x = features[self.svm_x_col]
+            y = features[self.svm_y_col]
+            if label == svm.enum_label.LABEL_BACKGROUND:
+                A_svm_bg_x.append(x)
+                A_svm_bg_y.append(y)
+            else:
+                A_svm_occu_x.append(x)
+                A_svm_occu_y.append(y)
+
+        # 배경 점
+        target_scatter = None
+        PlotItem = inter_Widget.getPlotItem()
+        items = getattr(PlotItem, 'items', None)
+        for item in items:
+            if isinstance(item, pyqtgraph.ScatterPlotItem) and getattr(item, 'role', None) == cfg.SVM_BACKGROUND_POINT_NAME:
+                target_scatter = item
+        if target_scatter is not None:
+            target_scatter.setData(A_svm_bg_x, A_svm_bg_y)
+
+        # 사람 점
+        target_scatter = None
+        PlotItem = inter_Widget.getPlotItem()
+        items = getattr(PlotItem, 'items', None)
+        for item in items:
+            if isinstance(item, pyqtgraph.ScatterPlotItem) and getattr(item, 'role', None) == cfg.SVM_OCCUPANCY_POINT_NAME:
+                target_scatter = item
+        if target_scatter is not None:
+            target_scatter.setData(A_svm_occu_x, A_svm_occu_y)
+
+        # 모든 데이터에 맞게 X/Y 범위 자동 조정
+        inter_Widget.enableAutoRange()
+
+
+        # 실시간 현재 위치 점 (star) 업데이트
+        now_scatter = None
+        PlotItem = inter_Widget.getPlotItem()
+        items = getattr(PlotItem, 'items', None)
+        for item in items:
+            if isinstance(item, pyqtgraph.ScatterPlotItem) and getattr(item, 'role', None) == cfg.SVM_NOW_POINT_NAME:
+                now_scatter = item
+        if now_scatter is not None:
+            now_x = self.svm_handle.A_train_features[-1][self.svm_x_col] if self.svm_handle.A_train_features else None
+            # 현재 프레임의 특징값을 직접 svm_handle 멤버에서 읽기
+            _col_to_attr = {
+                svm.enum_csv_col.PEAK_FREQ   : 'f_peak_freq',
+                svm.enum_csv_col.PEAK_MAG    : 'f_peak_mag',
+                svm.enum_csv_col.AVG_MAG     : 'f_avg_mag',
+                svm.enum_csv_col.STD_MAG     : 'f_std_mag',
+                svm.enum_csv_col.CENTROID    : 'f_centroid',
+                svm.enum_csv_col.LOW_ENERGY  : 'f_low_energy',
+                svm.enum_csv_col.MID_ENERGY  : 'f_mid_energy',
+                svm.enum_csv_col.HIGH_ENERGY : 'f_high_energy',
+                svm.enum_csv_col.RMS         : 'f_rms',
+            }
+            now_x = getattr(self.svm_handle, _col_to_attr[self.svm_x_col], 0.0)
+            now_y = getattr(self.svm_handle, _col_to_attr[self.svm_y_col], 0.0)
+            now_scatter.setData(x=[now_x], y=[now_y])
+
+        # 결정 경계 배경 렌더링 (학습된 경우만)
+        boundary_item = None
+        for item in getattr(inter_Widget.getPlotItem(), 'items', []):
+            if isinstance(item, pyqtgraph.ImageItem) and getattr(item, 'role', None) == cfg.SVM_BOUNDARY_IMAGE_NAME:
+                boundary_item = item
+        if boundary_item is not None:
+            if self.svm_handle.b_is_trained and self.svm_handle.A_train_features:
+                ViewBox = inter_Widget.getPlotItem().getViewBox()
+                x_min, x_max = ViewBox.viewRange()[0]
+                y_min, y_max = ViewBox.viewRange()[1]
+                _cache_key = (round(x_min, 4), round(x_max, 4), round(y_min, 4), round(y_max, 4),
+                              self.svm_x_col, self.svm_y_col)
+                if self._svm_boundary_cache != _cache_key:
+                    self._svm_boundary_cache = _cache_key
+                    N = 40  # 격자 해상도
+                    x_grid = numpy.linspace(x_min, x_max, N)
+                    y_grid = numpy.linspace(y_min, y_max, N)
+                    # 나머지 특징은 훈련 데이터 평균값으로 고정
+                    X_train = numpy.array(self.svm_handle.A_train_features)
+                    mean_features = X_train.mean(axis=0)
+                    # 격자 생성: indexing='ij' → Z[i,j] = (x_grid[i], y_grid[j])
+                    xx, yy = numpy.meshgrid(x_grid, y_grid, indexing='ij')
+                    grid_flat = numpy.tile(mean_features, (N * N, 1))
+                    grid_flat[:, int(self.svm_x_col)] = xx.ravel()
+                    grid_flat[:, int(self.svm_y_col)] = yy.ravel()
+                    grid_scaled = self.svm_handle.scaler.transform(grid_flat)
+                    Z = self.svm_handle.svm_model.predict(grid_scaled).reshape(N, N)
+                    # RGBA 이미지: 배경=노란색, 사람=초록색, 반투명
+                    img = numpy.zeros((N, N, 4), dtype=numpy.uint8)
+                    img[Z == svm.enum_label.LABEL_BACKGROUND] = [255, 200,  0, 50]
+                    img[Z == svm.enum_label.LABEL_HUMAN]      = [  0, 180, 80, 50]
+                    boundary_item.setImage(img)
+                    boundary_item.setRect(pyqtgraph.QtCore.QRectF(
+                        x_min, y_min, x_max - x_min, y_max - y_min
+                    ))
+            else:
+                boundary_item.clear()
+                self._svm_boundary_cache = None
+
+        # 우측 상단 범위 텍스트 라벨 업데이트
+        target_label = None
+        PlotItem_label = inter_Widget.getPlotItem()
+        for item in getattr(PlotItem_label, 'items', []):
+            if isinstance(item, pyqtgraph.TextItem) and getattr(item, 'role', None) == cfg.SVM_LABEL_NAME:
+                target_label = item
+        if target_label is not None:
+            ViewBox = PlotItem_label.getViewBox()
+            x_min, x_max = ViewBox.viewRange()[0]
+            y_min, y_max = ViewBox.viewRange()[1]
+            x_label = self._SVM_COL_LABEL_MAP.get(self.svm_x_col, str(self.svm_x_col))
+            y_label = self._SVM_COL_LABEL_MAP.get(self.svm_y_col, str(self.svm_y_col))
+            target_label.setText(
+                f"X ({x_label})\n"
+                f"  {x_min:.3f} ~ {x_max:.3f}\n"
+                f"Y ({y_label})\n"
+                f"  {y_min:.3f} ~ {y_max:.3f}"
             )
-            self.svm_scatter_PlotWidget.addItem(scatter_bg)
-
-        # 사람 점 (빨강)
-        if A_human_x:
-            scatter_human = pyqtgraph.ScatterPlotItem(
-                x=A_human_x, y=A_human_y,
-                size=8, pen=pyqtgraph.mkPen(None),
-                brush=pyqtgraph.mkBrush(220, 0, 0, 180),
-                symbol='t', name='사람'
-            )
-            self.svm_scatter_PlotWidget.addItem(scatter_human)
-
-##################### TODO : 여기 꾸며야 함
-        
+            target_label.setPos(x_max, y_max)
 
 
+    def update_svm_pca_graph(self, inter_Widget: QWidget):
+        """PCA 2D 투영 탭 실시간 업데이트"""
+        if inter_Widget is None:
+            return
 
+        A_pca_bg_x,   A_pca_bg_y   = [], []
+        A_pca_occu_x, A_pca_occu_y = [], []
+
+        PlotItem = inter_Widget.getPlotItem()
+        items = getattr(PlotItem, 'items', [])
+
+        if self.svm_handle.b_is_trained and self.svm_handle.A_pca_train_2d is not None:
+            for pca_point, label in zip(self.svm_handle.A_pca_train_2d, self.svm_handle.A_train_labels):
+                if label == svm.enum_label.LABEL_BACKGROUND:
+                    A_pca_bg_x.append(float(pca_point[0]))
+                    A_pca_bg_y.append(float(pca_point[1]))
+                else:
+                    A_pca_occu_x.append(float(pca_point[0]))
+                    A_pca_occu_y.append(float(pca_point[1]))
+
+        # 배경 / 사람 스캐터 업데이트
+        for item in items:
+            role = getattr(item, 'role', None)
+            if not isinstance(item, pyqtgraph.ScatterPlotItem):
+                continue
+            if role == cfg.SVM_PCA_BG_POINT_NAME:
+                item.setData(A_pca_bg_x, A_pca_bg_y)
+            elif role == cfg.SVM_PCA_OCCU_POINT_NAME:
+                item.setData(A_pca_occu_x, A_pca_occu_y)
+
+        inter_Widget.enableAutoRange()
+
+        # 현재 위치 (now) star 업데이트
+        pc1, pc2 = self.svm_handle.get_pca_now()
+        for item in items:
+            if isinstance(item, pyqtgraph.ScatterPlotItem) and getattr(item, 'role', None) == cfg.SVM_PCA_NOW_POINT_NAME:
+                item.setData(x=[pc1], y=[pc2])
+
+        # 결정 경계 배경 이미지
+        for item in items:
+            if not (isinstance(item, pyqtgraph.ImageItem) and getattr(item, 'role', None) == cfg.SVM_PCA_BOUNDARY_IMAGE_NAME):
+                continue
+            if self.svm_handle.b_is_trained and self.svm_handle.pca is not None:
+                ViewBox = PlotItem.getViewBox()
+                x_min, x_max = ViewBox.viewRange()[0]
+                y_min, y_max = ViewBox.viewRange()[1]
+                _cache_key = (round(x_min, 4), round(x_max, 4), round(y_min, 4), round(y_max, 4))
+                if self._svm_pca_boundary_cache != _cache_key:
+                    self._svm_pca_boundary_cache = _cache_key
+                    N = 40
+                    pc1_grid = numpy.linspace(x_min, x_max, N)
+                    pc2_grid = numpy.linspace(y_min, y_max, N)
+                    xx, yy = numpy.meshgrid(pc1_grid, pc2_grid, indexing='ij')
+                    grid_2d = numpy.column_stack([xx.ravel(), yy.ravel()])
+                    # PCA 역변환 → 이미 스케일된 160D 공간 → SVM 직접 예측
+                    grid_160d = self.svm_handle.pca.inverse_transform(grid_2d)
+                    Z = self.svm_handle.svm_model.predict(grid_160d).reshape(N, N)
+                    img = numpy.zeros((N, N, 4), dtype=numpy.uint8)
+                    img[Z == svm.enum_label.LABEL_BACKGROUND] = [255, 200,  0, 50]
+                    img[Z == svm.enum_label.LABEL_HUMAN]      = [  0, 180, 80, 50]
+                    item.setImage(img)
+                    item.setRect(pyqtgraph.QtCore.QRectF(x_min, y_min, x_max - x_min, y_max - y_min))
+            else:
+                item.clear()
+                self._svm_pca_boundary_cache = None
+
+        # 범위 텍스트 라벨 업데이트
+        for item in items:
+            if isinstance(item, pyqtgraph.TextItem) and getattr(item, 'role', None) == cfg.SVM_PCA_LABEL_NAME:
+                ViewBox = PlotItem.getViewBox()
+                x_min, x_max = ViewBox.viewRange()[0]
+                y_min, y_max = ViewBox.viewRange()[1]
+
+                h = self.svm_handle
+                if h.b_is_trained and len(h.A_probabilty) >= 2:
+                    prob_bg    = h.A_probabilty[svm.enum_label.LABEL_BACKGROUND] * 100
+                    prob_occu  = h.A_probabilty[svm.enum_label.LABEL_HUMAN]      * 100
+                    label_str  = "Occupancy" if h.i_label == svm.enum_label.LABEL_HUMAN else "Background"
+                    s_info = (
+                        f"[ 판정 ] {label_str}  ({h.f_confidence*100:.1f}%)\n"
+                        f"  Background : {prob_bg:.1f}%\n"
+                        f"  Occupancy  : {prob_occu:.1f}%\n"
+                        f"\n"
+                        f"[ PCA 좌표 ]\n"
+                        f"  PC1 : {pc1:+.4f}\n"
+                        f"  PC2 : {pc2:+.4f}\n"
+                        f"\n"
+                        f"[ 특징값 ]\n"
+                        f"  peak_freq  : {h.f_peak_freq:.3f} Hz\n"
+                        f"  peak_mag   : {h.f_peak_mag:.4f}\n"
+                        f"  avg_mag    : {h.f_avg_mag:.4f}\n"
+                        f"  std_mag    : {h.f_std_mag:.4f}\n"
+                        f"  centroid   : {h.f_centroid:.3f} Hz\n"
+                        f"  low_energy : {h.f_low_energy:.4f}\n"
+                        f"  mid_energy : {h.f_mid_energy:.4f}\n"
+                        f"  high_energy: {h.f_high_energy:.4f}\n"
+                        f"  rms        : {h.f_rms:.4f}\n"
+                        f"\n"
+                        f"[ 학습 샘플 ]\n"
+                        f"  BG     : {h.i_bg_count}\n"
+                        f"  Occu   : {h.i_human_count}\n"
+                        f"\n"
+                        f"[ 뷰 범위 ]\n"
+                        f"  PC1 : {x_min:.3f} ~ {x_max:.3f}\n"
+                        f"  PC2 : {y_min:.3f} ~ {y_max:.3f}"
+                    )
+                else:
+                    s_info = (
+                        f"[ 판정 ] 미학습\n"
+                        f"\n"
+                        f"[ 뷰 범위 ]\n"
+                        f"  PC1 : {x_min:.3f} ~ {x_max:.3f}\n"
+                        f"  PC2 : {y_min:.3f} ~ {y_max:.3f}"
+                    )
+                item.setText(s_info)
+                item.setPos(x_max, y_max)
 
 
     # def send_get_settings_command(self):
@@ -2147,12 +2495,14 @@ class MainWindow(QMainWindow):
             get_Widget = self.get_TabWidget(ADC_FFT_ZOOM_SCALE_NAME)
             self.update_fft_graph(get_Widget)
 
-            # ★ SVM 분석 및 그래프 업데이트
-            # self._update_fft_plot(input_sensor_parser_data.A_adc_buffer)
-            get_Widget = self.get_TabWidget(SVM_NAME)
-            self.update_svm_graph(get_Widget)
+            # ★ SVM 분석 및 그래프 업데이트 (학습된 경우에만)
+            if self.svm_handle.b_is_trained:
+                get_Widget = self.get_TabWidget(SVM_NAME)
+                self.update_svm_graph(get_Widget)
+                get_Widget = self.get_TabWidget(cfg.SVM_PCA_NAME)
+                self.update_svm_pca_graph(get_Widget)
 
-            
+
 
         # 3. 설정값 업데이트
         if input_sensor_parser_data.settings:
