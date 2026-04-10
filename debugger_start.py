@@ -1,4 +1,4 @@
-"""
+﻿"""
 iSENSOR UART Debugger - GUI 버전
 
 PyQt6와 pyqtgraph를 사용한 UART 데이터 시각화 도구
@@ -6,6 +6,8 @@ PyQt6와 pyqtgraph를 사용한 UART 데이터 시각화 도구
 import sys
 import os
 from typing import List, Optional
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
 import numpy
 import enum
 import pyqtgraph
@@ -18,8 +20,9 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QComboBox, QPushButton, QGridLayout, QLabel, QTextEdit, QGroupBox, QTabWidget,
     QSpinBox, QDoubleSpinBox, QAbstractSpinBox, QMessageBox,
-    QSizePolicy
+    QSizePolicy, QDialog, QCheckBox, QScrollArea, QDialogButtonBox
 )
+from PyQt6.QtGui import QShortcut, QKeySequence
 
 import config                               as cfg
 import uart_protocol.uart_protocol_config   as upcfg
@@ -74,6 +77,90 @@ class enum_graph_plot_index(enum.IntEnum):
     STR_LINE_COLOR          = STR_GRAPH_Y_LABEL + 1
     STR_LEGEND_TEXT         = STR_LINE_COLOR + 1
 
+class SvmFeatureDialog(QDialog):
+    """SVM 학습/예측에 사용할 특징을 선택하는 다이얼로그
+
+    Features:
+        - 스펙트럼 전체 (magnitudes_0 ~ _150, 인덱스 0~150)
+        - 통계 특징 9개 (인덱스 151~159) 개별 선택
+    """
+    # (표시 라벨, 시작 인덱스, 끝 인덱스+1)
+    # ⭐ = 권장 선택 (기본 ON)  |  그 외 = 기본 OFF
+    _FEATURE_DEFS = [
+        # ── 스펙트럼 빈 (대역별 분리) ──────────────────────────────────────
+        ("DC 성분  (빈 0, 0Hz)  — 노이즈, 제거 권장",
+            0, 1),
+        ("⭐ 저주파 스펙트럼  (빈 1~15,  0.3~5Hz,  15개)  — 인체 신호 핵심",
+            1, 16),
+        ("중주파 스펙트럼  (빈 16~30,  5~10Hz,  15개)",
+            16, 31),
+        ("고주파 스펙트럼  (빈 31~150,  10~50Hz,  120개)  — 노이즈, 제거 권장",
+            31, svm.I_MAGNITUDES_COUNT),
+        # ── 통계 특징 ───────────────────────────────────────────────────────
+        ("⭐ peak_freq   —  피크 주파수 (Hz)",           int(svm.enum_csv_col.PEAK_FREQ),        int(svm.enum_csv_col.PEAK_FREQ)        + 1),
+        ("⭐ peak_mag   —  피크 진폭",                   int(svm.enum_csv_col.PEAK_MAG),         int(svm.enum_csv_col.PEAK_MAG)         + 1),
+        ("⭐ std_mag   —  진폭 표준편차",                int(svm.enum_csv_col.STD_MAG),          int(svm.enum_csv_col.STD_MAG)          + 1),
+        ("⭐ centroid   —  무게중심 주파수 (Hz)",         int(svm.enum_csv_col.CENTROID),         int(svm.enum_csv_col.CENTROID)         + 1),
+        ("⭐ low_energy   —  저주파 에너지  (0~5 Hz)",   int(svm.enum_csv_col.LOW_ENERGY),       int(svm.enum_csv_col.LOW_ENERGY)       + 1),
+        ("⭐ mid_energy   —  중주파 에너지  (5~10 Hz)",  int(svm.enum_csv_col.MID_ENERGY),       int(svm.enum_csv_col.MID_ENERGY)       + 1),
+        ("⭐ rms   —  RMS 에너지",                       int(svm.enum_csv_col.RMS),              int(svm.enum_csv_col.RMS)              + 1),
+        ("⭐ low_ratio   —  저주파 에너지 비율  low/(low+mid+high)",
+                                                        int(svm.enum_csv_col.LOW_RATIO),        int(svm.enum_csv_col.LOW_RATIO)        + 1),
+        ("⭐ spectral_entropy   —  스펙트럼 엔트로피  -Σp·log(p)",
+                                                        int(svm.enum_csv_col.SPECTRAL_ENTROPY), int(svm.enum_csv_col.SPECTRAL_ENTROPY) + 1),
+        ("⭐ peak_to_mean   —  피크-투-평균 비율  peak/avg",
+                                                        int(svm.enum_csv_col.PEAK_TO_MEAN),     int(svm.enum_csv_col.PEAK_TO_MEAN)     + 1),
+    ]
+
+    def __init__(self, current_indices: list, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("SVM 특징 선택")
+        self.setMinimumWidth(380)
+
+        layout = QVBoxLayout(self)
+
+        info_label = QLabel("학습·예측에 사용할 특징을 선택하세요.\n(변경 후 재학습이 필요합니다)")
+        info_label.setStyleSheet("font-weight: bold; padding: 4px;")
+        layout.addWidget(info_label)
+
+        # 체크박스 생성
+        self._checkboxes: list[QCheckBox] = []
+        current_set = set(current_indices)
+        for label, i_start, i_end in self._FEATURE_DEFS:
+            cb = QCheckBox(label)
+            # 해당 범위 인덱스가 모두 포함돼 있으면 체크
+            cb.setChecked(all(i in current_set for i in range(i_start, i_end)))
+            layout.addWidget(cb)
+            self._checkboxes.append(cb)
+
+        # 경고 레이블
+        self._warn_label = QLabel("")
+        self._warn_label.setStyleSheet("color: #e05050; padding: 2px;")
+        layout.addWidget(self._warn_label)
+
+        # 버튼
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.accepted.connect(self._on_accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def _on_accept(self):
+        if not any(cb.isChecked() for cb in self._checkboxes):
+            self._warn_label.setText("⚠ 최소 하나 이상 선택해야 합니다.")
+            return
+        self.accept()
+
+    def get_feature_indices(self) -> list:
+        """선택된 특징의 컬럼 인덱스 목록(정렬) 반환"""
+        indices = []
+        for cb, (_, i_start, i_end) in zip(self._checkboxes, self._FEATURE_DEFS):
+            if cb.isChecked():
+                indices.extend(range(i_start, i_end))
+        return sorted(indices)
+
+
 class SvmTrainWorker(PyQt6.QtCore.QThread):
     """SVM 학습을 백그라운드에서 실행하는 워커 스레드"""
     finished = PyQt6.QtCore.pyqtSignal(bool)  # 학습 성공 여부
@@ -85,6 +172,28 @@ class SvmTrainWorker(PyQt6.QtCore.QThread):
     def run(self):
         result = self._svm_handle.train()
         self.finished.emit(result)
+
+
+class SvmRebuild2dWorker(PyQt6.QtCore.QThread):
+    """X/Y 2D SVM 재학습을 백그라운드에서 실행"""
+    finished = PyQt6.QtCore.pyqtSignal(object, object, object, object)  # scaler, model, x_col, y_col
+
+    def __init__(self, X_full, y, xi_col, yi_col, x_col, y_col):
+        super().__init__()
+        self._X_full  = X_full
+        self._y       = y
+        self._xi_col  = xi_col
+        self._yi_col  = yi_col
+        self._x_col   = x_col
+        self._y_col   = y_col
+
+    def run(self):
+        X_2d      = self._X_full[:, [self._xi_col, self._yi_col]]
+        scaler_2d = StandardScaler()
+        X_scaled  = scaler_2d.fit_transform(X_2d)
+        model_2d  = SVC(kernel='rbf', C=1.0, gamma='scale', probability=True)
+        model_2d.fit(X_scaled, self._y)
+        self.finished.emit(scaler_2d, model_2d, self._x_col, self._y_col)
 
 
 class UartWorker(PyQt6.QtCore.QThread):
@@ -235,6 +344,9 @@ class MainWindow(QMainWindow):
         self.uart_thread = None
         self.command_sender = upcs.CommandSender()  # 명령 송신 객체
 
+        self.b_auto_save_bg:bool    = False  # 배경 자동 저장 토글 상태
+        self.b_auto_save_human:bool = False  # 사람 자동 저장 토글 상태
+
         self.A_adc_buffer     = []
         self.i_adc_buffer_len = 0
         self.i_adc_min        = 0
@@ -267,12 +379,25 @@ class MainWindow(QMainWindow):
         # # ############################# COPILOT EDIT START (svm 핸들 초기화 + Phase 3 히스토리)
         self.svm_handle:svm.SVM_Module  = svm.SVM_Module()
 
-        self.svm_x_col:svm.enum_csv_col = svm.enum_csv_col.CENTROID
-        self.svm_y_col:svm.enum_csv_col = svm.enum_csv_col.MID_ENERGY
+        self.svm_x_col:svm.enum_csv_col = svm.enum_csv_col.SPECTRAL_ENTROPY
+        self.svm_y_col:svm.enum_csv_col = svm.enum_csv_col.LOW_RATIO
 
         # 결정 경계 재계산 캐시 (뷰 범위/축 변경 시에만 재계산)
         self._svm_boundary_cache        = None   # (x_min, x_max, y_min, y_max, x_col, y_col)
         self._svm_pca_boundary_cache    = None   # (x_min, x_max, y_min, y_max)
+
+        # 사용자가 직접 zoom/pan 했는지 여부 (True면 autoRange 호출 안 함)
+        self._b_svm_user_zoomed:bool     = False
+        self._b_svm_pca_user_zoomed:bool = False
+
+        # X/Y 2특징 전용 SVM (2D 판정용)
+        self._svm_2d_model   = None   # SVC (2D)
+        self._svm_2d_scaler  = None   # StandardScaler (2D)
+        self._svm_2d_x_col   = None   # 마지막으로 학습한 x_col
+        self._svm_2d_y_col   = None   # 마지막으로 학습한 y_col
+        self._svm_2d_label   = 0
+        self._svm_2d_conf    = 0.0
+        self._svm_2d_proba   = []
 
         self.A_svm_probabilty           = []
         self.i_svm_label                = 0
@@ -751,41 +876,79 @@ class MainWindow(QMainWindow):
         self.svm_human_PushButton.clicked.connect(self.event_svm_save_occupancy)
         self.svm_collect_GridLayout.addWidget(self.svm_human_PushButton, 1, 1)
 
+        # 자동 저장 토글 버튼
+        _TOGGLE_STYLE = (
+            "QPushButton { font-weight: bold; border: 1px solid gray; border-radius: 4px; padding: 3px; }"
+            "QPushButton:checked { background-color: #2e8b2e; color: white; border: 1px solid #1a5c1a; }"
+        )
+        self.svm_auto_bg_ToggleButton = QPushButton("🔴 배경 자동 OFF  [1]")
+        self.svm_auto_bg_ToggleButton.setCheckable(True)
+        self.svm_auto_bg_ToggleButton.setStyleSheet(_TOGGLE_STYLE)
+        self.svm_auto_bg_ToggleButton.toggled.connect(self.event_svm_auto_bg_toggled)
+        self.svm_collect_GridLayout.addWidget(self.svm_auto_bg_ToggleButton, 2, 0)
+
+        self.svm_auto_human_ToggleButton = QPushButton("🔴 사람 자동 OFF  [2]")
+        self.svm_auto_human_ToggleButton.setCheckable(True)
+        self.svm_auto_human_ToggleButton.setStyleSheet(_TOGGLE_STYLE)
+        self.svm_auto_human_ToggleButton.toggled.connect(self.event_svm_auto_human_toggled)
+        self.svm_collect_GridLayout.addWidget(self.svm_auto_human_ToggleButton, 2, 1)
+
+        # 단축키: 1=배경 자동 토글, 2=사람 자동 토글, 3=학습 데이터 삭제
+        QShortcut(QKeySequence("1"), self).activated.connect(
+            lambda: self.svm_auto_bg_ToggleButton.setChecked(not self.svm_auto_bg_ToggleButton.isChecked())
+        )
+        QShortcut(QKeySequence("2"), self).activated.connect(
+            lambda: self.svm_auto_human_ToggleButton.setChecked(not self.svm_auto_human_ToggleButton.isChecked())
+        )
+        QShortcut(QKeySequence("3"), self).activated.connect(self.event_svm_clear)
+
         # SVM 학습 버튼
         self.svm_train_PushButton = QPushButton("🤖 SVM 학습")
         self.svm_train_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.svm_train_PushButton.clicked.connect(self.event_svm_train)
-        self.svm_collect_GridLayout.addWidget(self.svm_train_PushButton, 2, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_train_PushButton, 3, 0, 1, 2)
 
         # 학습 상태 레이블
         self.svm_status_Label = QLabel("미학습")
         self.svm_status_Label.setStyleSheet("" + MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
-        self.svm_collect_GridLayout.addWidget(self.svm_status_Label, 3, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_status_Label, 4, 0, 1, 2)
 
         # 학습 데이터 삭제 버튼
-        self.svm_clear_PushButton = QPushButton("🗑 학습 데이터 삭제")
+        self.svm_clear_PushButton = QPushButton("🗑 학습 데이터 삭제  [3]")
         self.svm_clear_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.svm_clear_PushButton.clicked.connect(self.event_svm_clear)
-        self.svm_collect_GridLayout.addWidget(self.svm_clear_PushButton, 4, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_clear_PushButton, 5, 0, 1, 2)
+
+        # 특징 선택 버튼
+        self.svm_feature_PushButton = QPushButton("⚙ 특징 선택...")
+        self.svm_feature_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.svm_feature_PushButton.clicked.connect(self.event_svm_feature_select)
+        self.svm_collect_GridLayout.addWidget(self.svm_feature_PushButton, 6, 0, 1, 2)
+
+        # 현재 선택된 특징 수 표시 레이블
+        self.svm_feature_count_Label = QLabel(f"선택된 특징: 24개 (권장 세트)")
+        self.svm_feature_count_Label.setStyleSheet("" + MACRO_BORDER_STYLE.format('none'))
+        self.svm_collect_GridLayout.addWidget(self.svm_feature_count_Label, 7, 0, 1, 2)
 
         # X/Y 축 선택 콤보박스
-        self.svm_collect_GridLayout.addWidget(QLabel("Y축:"), 5, 0)
+        self.svm_collect_GridLayout.addWidget(QLabel("Y축:"), 8, 0)
         self.svm_y_ComboBox = QComboBox()
         for col in svm.enum_csv_col:
             self.svm_y_ComboBox.addItem(self._SVM_COL_LABEL_MAP.get(col, col.name), userData=col)
-        self.svm_y_ComboBox.setCurrentIndex(list(svm.enum_csv_col).index(svm.enum_csv_col.MID_ENERGY))
-        self.svm_collect_GridLayout.addWidget(self.svm_y_ComboBox, 5, 1)
+        self.svm_y_ComboBox.setCurrentIndex(list(svm.enum_csv_col).index(svm.enum_csv_col.LOW_RATIO))
+        self.svm_collect_GridLayout.addWidget(self.svm_y_ComboBox, 8, 1)
 
-        self.svm_collect_GridLayout.addWidget(QLabel("X축:"), 6, 0)
+        self.svm_collect_GridLayout.addWidget(QLabel("X축:"), 9, 0)
         self.svm_x_ComboBox = QComboBox()
         for col in svm.enum_csv_col:
             self.svm_x_ComboBox.addItem(self._SVM_COL_LABEL_MAP.get(col, col.name), userData=col)
-        self.svm_x_ComboBox.setCurrentIndex(list(svm.enum_csv_col).index(svm.enum_csv_col.CENTROID))
-        self.svm_collect_GridLayout.addWidget(self.svm_x_ComboBox, 6, 1)
+        self.svm_x_ComboBox.setCurrentIndex(list(svm.enum_csv_col).index(svm.enum_csv_col.SPECTRAL_ENTROPY))
+        self.svm_collect_GridLayout.addWidget(self.svm_x_ComboBox, 9, 1)
 
         self.svm_x_ComboBox.currentIndexChanged.connect(self.on_svm_axis_changed)
         self.svm_y_ComboBox.currentIndexChanged.connect(self.on_svm_axis_changed)
-        # ############################# COPILOT EDIT END
+        self._refresh_axis_combos()  # 초기 특징 선택과 동기화
+
 ############################################################################################################ SVM
 
         # --- 우측 패널 (그래프 + 로그) ---
@@ -1028,6 +1191,32 @@ class MainWindow(QMainWindow):
     #     """마지막 FFT raw magnitudes 반환 (게인 미적용)"""
     #     return getattr(self, '_last_fft_raw', None), getattr(self, '_last_fft_freqs', None)
 
+    def event_svm_auto_bg_toggled(self, b_checked: bool):
+        """배경 자동 저장 토글 상태 변경"""
+        self.b_auto_save_bg = b_checked
+        if b_checked:
+            # 사람 자동 저장과 상호 배제
+            if self.b_auto_save_human:
+                self.svm_auto_human_ToggleButton.setChecked(False)
+            self.svm_auto_bg_ToggleButton.setText("🟢 배경 자동 ON  [1]")
+            self.log_TextEdit.append("[SVM] 배경 자동 저장 ON — 데이터 수신마다 배경으로 저장됩니다.")
+        else:
+            self.svm_auto_bg_ToggleButton.setText("🔴 배경 자동 OFF  [1]")
+            self.log_TextEdit.append("[SVM] 배경 자동 저장 OFF")
+
+    def event_svm_auto_human_toggled(self, b_checked: bool):
+        """사람 자동 저장 토글 상태 변경"""
+        self.b_auto_save_human = b_checked
+        if b_checked:
+            # 배경 자동 저장과 상호 배제
+            if self.b_auto_save_bg:
+                self.svm_auto_bg_ToggleButton.setChecked(False)
+            self.svm_auto_human_ToggleButton.setText("🟢 사람 자동 ON  [2]")
+            self.log_TextEdit.append("[SVM] 사람 자동 저장 ON — 데이터 수신마다 사람으로 저장됩니다.")
+        else:
+            self.svm_auto_human_ToggleButton.setText("🔴 사람 자동 OFF  [2]")
+            self.log_TextEdit.append("[SVM] 사람 자동 저장 OFF")
+
     def event_svm_save_background(self):
         """현재 FFT 결과를 배경(0) 레이블로 저장"""
         # A_mags_raw, A_freqs = self._get_last_fft_raw()
@@ -1078,6 +1267,33 @@ class MainWindow(QMainWindow):
         self.update_svm_label_count()
         self.log_TextEdit.append("[SVM] 재실 샘플 저장 완료")
 
+    def event_svm_feature_select(self):
+        """특징 선택 다이얼로그 열기"""
+        dlg = SvmFeatureDialog(self.svm_handle.A_feature_indices, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        new_indices = dlg.get_feature_indices()
+        if new_indices == self.svm_handle.A_feature_indices:
+            return  # 변경 없으면 아무것도 안 함
+
+        self.svm_handle.A_feature_indices = new_indices
+        self._refresh_axis_combos()  # 콤보박스를 새 특징 목록에 맞게 갱신
+
+        # 특징 변경 시 기존 학습 모델 무효화
+        self.svm_handle.b_is_trained = False
+        self._svm_boundary_cache     = None
+        self._svm_pca_boundary_cache = None
+        self.svm_status_Label.setText("미학습 (특징 변경됨)")
+
+        # 레이블 업데이트
+        n = len(new_indices)
+        total = svm.I_MAGNITUDES_COUNT + len(svm.enum_csv_col)
+        _I_RECOMMENDED = 24
+        suffix = "(전체)" if n == total else "(권장 세트)" if n == _I_RECOMMENDED else ""
+        self.svm_feature_count_Label.setText(f"선택된 특징: {n}개 {suffix}".strip())
+        self.log_TextEdit.append(f"[SVM] 특징 {n}개 선택 — 재학습 필요")
+
     def event_svm_train(self):
         """CSV 데이터로 SVM 학습 (백그라운드 스레드)"""
         self.svm_train_PushButton.setEnabled(False)
@@ -1093,6 +1309,7 @@ class MainWindow(QMainWindow):
         self._svm_boundary_cache     = None
         self._svm_pca_boundary_cache = None
         if b_train_done:
+            self._rebuild_svm_2d()  # 2D 모델 학습
             self.svm_status_Label.setText(f"학습 완료  BG:{self.svm_handle.i_bg_count} / Human:{self.svm_handle.i_human_count}")
             self.log_TextEdit.append(f"[SVM] 학습 완료  BG:{self.svm_handle.i_bg_count} / Human:{self.svm_handle.i_human_count}")
         else:
@@ -1122,8 +1339,10 @@ class MainWindow(QMainWindow):
         # if os.path.exists(self.str_svm_waveform_csv_path):
         #     os.remove(self.str_svm_waveform_csv_path)
         self.svm_handle = svm.SVM_Module()  # 완전 초기화
-        self._svm_boundary_cache     = None  # 경계 캐시 무효화
+        self._svm_boundary_cache     = None
         self._svm_pca_boundary_cache = None
+        self._svm_2d_model  = None
+        self._svm_2d_scaler = None
 
 
         self.svm_status_Label.setText("미학습")
@@ -1329,10 +1548,11 @@ class MainWindow(QMainWindow):
         point_ScatterPlotItem = pyqtgraph.ScatterPlotItem(
             pen=pyqtgraph.mkPen('w', width=2),
             brush=pyqtgraph.mkBrush(s_color_code),
-            size=14,
+            size=32,
             symbol='star'
         )
         point_ScatterPlotItem.role = s_inter_name
+        point_ScatterPlotItem.setZValue(10)  # 다른 모든 아이템 위에 표시
         # target_PlotWidget.addItem(point_ScatterPlotItem, ignoreBounds=True)
         target_PlotWidget.addItem(point_ScatterPlotItem)
 
@@ -1471,7 +1691,16 @@ class MainWindow(QMainWindow):
 
         self.create_label(target_PlotWidget, cfg.SVM_LABEL_NAME, cfg.SVM_LABEL_ANCHOR_X, cfg.SVM_LABEL_ANCHOR_Y, cfg.SVM_LABEL_COLOR)
 
-        # tp1_recheck_lines[graph_tab_name] = self.tp1_rck_InfiniteLine
+        # 사용자가 마우스로 zoom/pan 하면 자동 범위 조정 비활성화
+        target_PlotWidget.getPlotItem().getViewBox().sigRangeChangedManually.connect(
+            lambda: setattr(self, '_b_svm_user_zoomed', True)
+        )
+        # 더블클릭 시 zoom 초기화
+        target_PlotWidget.scene().sigMouseClicked.connect(
+            lambda e: (setattr(self, '_b_svm_user_zoomed', False), target_PlotWidget.enableAutoRange())
+            if e.double() else None
+        )
+
         self.svm_plot_TabWidget.addTab(target_PlotWidget, graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME])
 
         # # 피크 라벨 저장용 딕셔너리
@@ -1495,11 +1724,21 @@ class MainWindow(QMainWindow):
         target_PlotWidget.addItem(boundary_ImageItem, ignoreBounds=True)
 
         self.create_svm_now_scatter(target_PlotWidget, cfg.SVM_PCA_NOW_POINT_NAME,  cfg.SVM_PCA_NOW_POINT_COLOR)
-        self.create_svm_bg_scatter (target_PlotWidget, cfg.SVM_PCA_BG_POINT_NAME,   cfg.SVM_PCA_BG_POINT_COLOR)
+        self.create_svm_bg_scatter(target_PlotWidget, cfg.SVM_PCA_BG_POINT_NAME,   cfg.SVM_PCA_BG_POINT_COLOR)
         self.create_svm_occu_scatter(target_PlotWidget, cfg.SVM_PCA_OCCU_POINT_NAME, cfg.SVM_PCA_OCCU_POINT_COLOR)
 
         self.create_label(target_PlotWidget, cfg.SVM_PCA_LABEL_NAME,
                           cfg.SVM_LABEL_ANCHOR_X, cfg.SVM_LABEL_ANCHOR_Y, cfg.SVM_LABEL_COLOR)
+
+        # 사용자가 마우스로 zoom/pan 하면 자동 범위 조정 비활성화
+        target_PlotWidget.getPlotItem().getViewBox().sigRangeChangedManually.connect(
+            lambda: setattr(self, '_b_svm_pca_user_zoomed', True)
+        )
+        # 더블클릭 시 zoom 초기화
+        target_PlotWidget.scene().sigMouseClicked.connect(
+            lambda e: (setattr(self, '_b_svm_pca_user_zoomed', False), target_PlotWidget.enableAutoRange())
+            if e.double() else None
+        )
 
         self.svm_plot_TabWidget.addTab(target_PlotWidget, cfg.SVM_PCA_NAME)
 
@@ -1686,7 +1925,6 @@ class MainWindow(QMainWindow):
             , self.i_svm_label
             , self.f_svm_confidence
         ) = self.svm_handle.svm(self.A_fft_frequencies, self.A_fft_magnitudes)
-
 
 
     def update_threshold_lines(self, inter_Widget:QWidget):
@@ -1916,16 +2154,77 @@ class MainWindow(QMainWindow):
 
 
     _SVM_COL_LABEL_MAP = {
-        svm.enum_csv_col.PEAK_FREQ   : "피크 주파수(Hz)",
-        svm.enum_csv_col.PEAK_MAG    : "피크 강도",
-        svm.enum_csv_col.AVG_MAG     : "평균 강도",
-        svm.enum_csv_col.STD_MAG     : "강도 표준편차",
-        svm.enum_csv_col.CENTROID    : "무게중심 주파수(Hz)",
-        svm.enum_csv_col.LOW_ENERGY  : "저주파 에너지",
-        svm.enum_csv_col.MID_ENERGY  : "중주파 에너지",
-        svm.enum_csv_col.HIGH_ENERGY : "고주파 에너지",
-        svm.enum_csv_col.RMS         : "RMS 에너지",
+        svm.enum_csv_col.PEAK_FREQ        : "피크 주파수(Hz)",
+        svm.enum_csv_col.PEAK_MAG         : "피크 강도",
+        svm.enum_csv_col.AVG_MAG          : "평균 강도",
+        svm.enum_csv_col.STD_MAG          : "강도 표준편차",
+        svm.enum_csv_col.CENTROID         : "무게중심 주파수(Hz)",
+        svm.enum_csv_col.LOW_ENERGY       : "저주파 에너지",
+        svm.enum_csv_col.MID_ENERGY       : "중주파 에너지",
+        svm.enum_csv_col.HIGH_ENERGY      : "고주파 에너지",
+        svm.enum_csv_col.RMS              : "RMS 에너지",
+        svm.enum_csv_col.LOW_RATIO        : "저주파 에너지 비율",
+        svm.enum_csv_col.SPECTRAL_ENTROPY : "스펙트럼 엔트로피",
+        svm.enum_csv_col.PEAK_TO_MEAN     : "피크-투-평균 비율",
     }
+    def _rebuild_svm_2d(self):
+        """현재 X/Y 축 2개 특징만으로 SVM을 백그라운드에서 학습"""
+        if not self.svm_handle.b_is_trained or not self.svm_handle.A_train_features:
+            self._svm_2d_model  = None
+            self._svm_2d_scaler = None
+            return
+        X_full = numpy.array(self.svm_handle.A_train_features)
+        y      = numpy.array(self.svm_handle.A_train_labels)
+        worker = SvmRebuild2dWorker(
+            X_full, y,
+            int(self.svm_x_col), int(self.svm_y_col),
+            self.svm_x_col, self.svm_y_col
+        )
+        worker.finished.connect(self._on_svm_2d_rebuilt)
+        worker.finished.connect(worker.deleteLater)
+        self._svm_2d_worker = worker  # GC 방지
+        worker.start()
+
+    @PyQt6.QtCore.pyqtSlot(object, object, object, object)
+    def _on_svm_2d_rebuilt(self, scaler_2d, model_2d, x_col, y_col):
+        """2D SVM 학습 완료 콜백 (메인 스레드)"""
+        # 현재 콤보박스 값과 같을 때만 적용 (도중에 축이 바뀐 경우를 충돌 제거)
+        if x_col != self.svm_x_col or y_col != self.svm_y_col:
+            return
+        self._svm_2d_scaler = scaler_2d
+        self._svm_2d_model  = model_2d
+        self._svm_2d_x_col  = x_col
+        self._svm_2d_y_col  = y_col
+        self._svm_boundary_cache = None
+        # 경계 즉시 갱신
+        get_Widget = self.get_TabWidget(SVM_NAME)
+        if get_Widget is not None:
+            self.update_svm_graph(get_Widget)
+
+    def _refresh_axis_combos(self):
+        """선택된 A_feature_indices 에 포함된 enum_csv_col 항목만 콤보박스에 표시"""
+        feat_set = set(self.svm_handle.A_feature_indices)
+        prev_x = self.svm_x_col
+        prev_y = self.svm_y_col
+
+        for combo, attr in [(self.svm_x_ComboBox, 'svm_x_col'), (self.svm_y_ComboBox, 'svm_y_col')]:
+            combo.blockSignals(True)
+            combo.clear()
+            prev_val = getattr(self, attr)
+            new_idx  = 0
+            for i, col in enumerate(svm.enum_csv_col):
+                if int(col) in feat_set:
+                    combo.addItem(self._SVM_COL_LABEL_MAP.get(col, col.name), userData=col)
+                    if col == prev_val:
+                        new_idx = combo.count() - 1
+            combo.setCurrentIndex(new_idx)
+            setattr(self, attr, combo.currentData())
+            combo.blockSignals(False)
+
+        # X/Y 가 바뀐 경우 캐시 무효화
+        if self.svm_x_col != prev_x or self.svm_y_col != prev_y:
+            self._svm_boundary_cache = None
+
     def set_svm_axis_labels(self, inter_Widget:QWidget, x_col:svm.enum_csv_col, y_col:svm.enum_csv_col):
         inter_Widget.setLabel('bottom', self._SVM_COL_LABEL_MAP.get(x_col, str(x_col)), **{'font-size': '14pt'})
         inter_Widget.setLabel('left',   self._SVM_COL_LABEL_MAP.get(y_col, str(y_col)), **{'font-size': '14pt'})
@@ -1933,8 +2232,9 @@ class MainWindow(QMainWindow):
     def on_svm_axis_changed(self):
         self.svm_x_col = self.svm_x_ComboBox.currentData()
         self.svm_y_col = self.svm_y_ComboBox.currentData()
-        self._svm_boundary_cache = None  # 축 변경 시 캐시 무효화
-
+        self._svm_boundary_cache = None
+        self._svm_2d_model = None   # 이전 모델 즉시 무효화 (학습 완료 전까지 경계 숨김)
+        self._rebuild_svm_2d()      # 백그라운드에서 재학습 시작 (뇌택 X)
     def update_svm_graph(self, inter_Widget:QWidget):
 
         # ############################# COPILOT EDIT START (Phase 1+2+3+A: 실시간 SVM 분류 + 산점도 + 히스토리 + 파형 뷰)
@@ -2073,8 +2373,10 @@ class MainWindow(QMainWindow):
         if target_scatter is not None:
             target_scatter.setData(A_svm_occu_x, A_svm_occu_y)
 
-        # 모든 데이터에 맞게 X/Y 범위 자동 조정
-        inter_Widget.enableAutoRange()
+        # 사용자가 직접 zoom/pan 하지 않은 경우에만 자동 범위 조정
+        # (경계 배경 표시 중에는 autoRange 비활성화 → 뷰 안정화로 캐시 히트율 향상)
+        if not self._b_svm_user_zoomed and not self.svm_handle.b_is_trained:
+            inter_Widget.enableAutoRange()
 
 
         # 실시간 현재 위치 점 (star) 업데이트
@@ -2088,19 +2390,34 @@ class MainWindow(QMainWindow):
             now_x = self.svm_handle.A_train_features[-1][self.svm_x_col] if self.svm_handle.A_train_features else None
             # 현재 프레임의 특징값을 직접 svm_handle 멤버에서 읽기
             _col_to_attr = {
-                svm.enum_csv_col.PEAK_FREQ   : 'f_peak_freq',
-                svm.enum_csv_col.PEAK_MAG    : 'f_peak_mag',
-                svm.enum_csv_col.AVG_MAG     : 'f_avg_mag',
-                svm.enum_csv_col.STD_MAG     : 'f_std_mag',
-                svm.enum_csv_col.CENTROID    : 'f_centroid',
-                svm.enum_csv_col.LOW_ENERGY  : 'f_low_energy',
-                svm.enum_csv_col.MID_ENERGY  : 'f_mid_energy',
-                svm.enum_csv_col.HIGH_ENERGY : 'f_high_energy',
-                svm.enum_csv_col.RMS         : 'f_rms',
+                svm.enum_csv_col.PEAK_FREQ        : 'f_peak_freq',
+                svm.enum_csv_col.PEAK_MAG         : 'f_peak_mag',
+                svm.enum_csv_col.AVG_MAG          : 'f_avg_mag',
+                svm.enum_csv_col.STD_MAG          : 'f_std_mag',
+                svm.enum_csv_col.CENTROID         : 'f_centroid',
+                svm.enum_csv_col.LOW_ENERGY       : 'f_low_energy',
+                svm.enum_csv_col.MID_ENERGY       : 'f_mid_energy',
+                svm.enum_csv_col.HIGH_ENERGY      : 'f_high_energy',
+                svm.enum_csv_col.RMS              : 'f_rms',
+                svm.enum_csv_col.LOW_RATIO        : 'f_low_ratio',
+                svm.enum_csv_col.SPECTRAL_ENTROPY : 'f_spectral_entropy',
+                svm.enum_csv_col.PEAK_TO_MEAN     : 'f_peak_to_mean',
             }
             now_x = getattr(self.svm_handle, _col_to_attr[self.svm_x_col], 0.0)
             now_y = getattr(self.svm_handle, _col_to_attr[self.svm_y_col], 0.0)
             now_scatter.setData(x=[now_x], y=[now_y])
+
+        # 2D SVM 실시간 판정 (모델이 준비된 경우)
+        if self._svm_2d_model is not None and self._svm_2d_scaler is not None:
+            _now_x2 = getattr(self.svm_handle, _col_to_attr.get(self.svm_x_col, ''), 0.0) \
+                      if hasattr(self.svm_handle, _col_to_attr.get(self.svm_x_col, '_')) else 0.0
+            _now_y2 = getattr(self.svm_handle, _col_to_attr.get(self.svm_y_col, ''), 0.0) \
+                      if hasattr(self.svm_handle, _col_to_attr.get(self.svm_y_col, '_')) else 0.0
+            _v2 = self._svm_2d_scaler.transform([[_now_x2, _now_y2]])
+            self._svm_2d_label = int(self._svm_2d_model.predict(_v2)[0])
+            _p2 = self._svm_2d_model.predict_proba(_v2)[0]
+            self._svm_2d_conf  = float(_p2[self._svm_2d_label])
+            self._svm_2d_proba = _p2
 
         # 결정 경계 배경 렌더링 (학습된 경우만)
         boundary_item = None
@@ -2108,7 +2425,7 @@ class MainWindow(QMainWindow):
             if isinstance(item, pyqtgraph.ImageItem) and getattr(item, 'role', None) == cfg.SVM_BOUNDARY_IMAGE_NAME:
                 boundary_item = item
         if boundary_item is not None:
-            if self.svm_handle.b_is_trained and self.svm_handle.A_train_features:
+            if self.svm_handle.b_is_trained and self._svm_2d_model is not None:
                 ViewBox = inter_Widget.getPlotItem().getViewBox()
                 x_min, x_max = ViewBox.viewRange()[0]
                 y_min, y_max = ViewBox.viewRange()[1]
@@ -2116,20 +2433,13 @@ class MainWindow(QMainWindow):
                               self.svm_x_col, self.svm_y_col)
                 if self._svm_boundary_cache != _cache_key:
                     self._svm_boundary_cache = _cache_key
-                    N = 40  # 격자 해상도
+                    N = 40
                     x_grid = numpy.linspace(x_min, x_max, N)
                     y_grid = numpy.linspace(y_min, y_max, N)
-                    # 나머지 특징은 훈련 데이터 평균값으로 고정
-                    X_train = numpy.array(self.svm_handle.A_train_features)
-                    mean_features = X_train.mean(axis=0)
-                    # 격자 생성: indexing='ij' → Z[i,j] = (x_grid[i], y_grid[j])
                     xx, yy = numpy.meshgrid(x_grid, y_grid, indexing='ij')
-                    grid_flat = numpy.tile(mean_features, (N * N, 1))
-                    grid_flat[:, int(self.svm_x_col)] = xx.ravel()
-                    grid_flat[:, int(self.svm_y_col)] = yy.ravel()
-                    grid_scaled = self.svm_handle.scaler.transform(grid_flat)
-                    Z = self.svm_handle.svm_model.predict(grid_scaled).reshape(N, N)
-                    # RGBA 이미지: 배경=노란색, 사람=초록색, 반투명
+                    grid_2d        = numpy.column_stack([xx.ravel(), yy.ravel()])   # (N*N, 2)
+                    grid_2d_scaled = self._svm_2d_scaler.transform(grid_2d)         # (N*N, 2)
+                    Z = self._svm_2d_model.predict(grid_2d_scaled).reshape(N, N)
                     img = numpy.zeros((N, N, 4), dtype=numpy.uint8)
                     img[Z == svm.enum_label.LABEL_BACKGROUND] = [255, 200,  0, 50]
                     img[Z == svm.enum_label.LABEL_HUMAN]      = [  0, 180, 80, 50]
@@ -2153,12 +2463,49 @@ class MainWindow(QMainWindow):
             y_min, y_max = ViewBox.viewRange()[1]
             x_label = self._SVM_COL_LABEL_MAP.get(self.svm_x_col, str(self.svm_x_col))
             y_label = self._SVM_COL_LABEL_MAP.get(self.svm_y_col, str(self.svm_y_col))
-            target_label.setText(
-                f"X ({x_label})\n"
-                f"  {x_min:.3f} ~ {x_max:.3f}\n"
-                f"Y ({y_label})\n"
-                f"  {y_min:.3f} ~ {y_max:.3f}"
-            )
+
+            h = self.svm_handle
+            if h.b_is_trained and len(h.A_probabilty) >= 2:
+                prob_bg   = h.A_probabilty[svm.enum_label.LABEL_BACKGROUND] * 100
+                prob_occu = h.A_probabilty[svm.enum_label.LABEL_HUMAN]      * 100
+                svm_label_str = "Occupancy" if h.i_label == svm.enum_label.LABEL_HUMAN else "Background"
+                pc1, pc2  = h.get_pca_now()
+                # 2D 판정
+                if self._svm_2d_model is not None and len(self._svm_2d_proba) >= 2:
+                    d2_bg   = self._svm_2d_proba[svm.enum_label.LABEL_BACKGROUND] * 100
+                    d2_occu = self._svm_2d_proba[svm.enum_label.LABEL_HUMAN]      * 100
+                    d2_str  = "Occupancy" if self._svm_2d_label == svm.enum_label.LABEL_HUMAN else "Background"
+                    s_2d = (
+                        f"[ 2D 판정 (X/Y만) ] {d2_str}  ({self._svm_2d_conf*100:.1f}%)\n"
+                        f"  Background : {d2_bg:.1f}%\n"
+                        f"  Occupancy  : {d2_occu:.1f}%\n\n"
+                    )
+                else:
+                    s_2d = "[ 2D 판정 (X/Y만) ] 비대기\n\n"
+                s_info = (
+                    f"[ SVM 판정 (24D 전체) ] {svm_label_str}  ({h.f_confidence*100:.1f}%)\n"
+                    f"  Background : {prob_bg:.1f}%\n"
+                    f"  Occupancy  : {prob_occu:.1f}%\n\n"
+                    + s_2d +
+                    f"[ PCA 좌표 ]\n"
+                    f"  PC1 : {pc1:+.4f}\n"
+                    f"  PC2 : {pc2:+.4f}\n\n"
+                    f"[ 뷰 범위 ]\n"
+                    f"  X ({x_label})\n"
+                    f"    {x_min:.3f} ~ {x_max:.3f}\n"
+                    f"  Y ({y_label})\n"
+                    f"    {y_min:.3f} ~ {y_max:.3f}"
+                )
+            else:
+                s_info = (
+                    f"[ SVM 판정 ] 미학습\n\n"
+                    f"[ 뷰 범위 ]\n"
+                    f"  X ({x_label})\n"
+                    f"    {x_min:.3f} ~ {x_max:.3f}\n"
+                    f"  Y ({y_label})\n"
+                    f"    {y_min:.3f} ~ {y_max:.3f}"
+                )
+            target_label.setText(s_info)
             target_label.setPos(x_max, y_max)
 
 
@@ -2192,7 +2539,9 @@ class MainWindow(QMainWindow):
             elif role == cfg.SVM_PCA_OCCU_POINT_NAME:
                 item.setData(A_pca_occu_x, A_pca_occu_y)
 
-        inter_Widget.enableAutoRange()
+        # 사용자가 직접 zoom/pan 하지 않은 경우에만 자동 범위 조정
+        if not self._b_svm_pca_user_zoomed:
+            inter_Widget.enableAutoRange()
 
         # 현재 위치 (now) star 업데이트
         pc1, pc2 = self.svm_handle.get_pca_now()
@@ -2337,11 +2686,12 @@ class MainWindow(QMainWindow):
     #     else:
     #         self.log_TextEdit.append(f"⚠️ 플롯 '{plot_name}'을 찾을 수 없습니다.")
 
-    # def closeEvent(self, event):
-    #     """윈도우 종료 이벤트"""
-    #     if self.uart_thread and self.uart_thread.isRunning():
-    #         self.uart_thread.stop()
-    #     event.accept()
+    def closeEvent(self, event):
+        """윈도우 종료 이벤트 — 버퍼에 남은 데이터를 CSV에 기록 후 종료"""
+        self.svm_handle.flush_write_buffer()
+        if self.uart_thread and self.uart_thread.isRunning():
+            self.uart_thread.stop()
+        event.accept()
 
 
 
@@ -2501,6 +2851,15 @@ class MainWindow(QMainWindow):
                 self.update_svm_graph(get_Widget)
                 get_Widget = self.get_TabWidget(cfg.SVM_PCA_NAME)
                 self.update_svm_pca_graph(get_Widget)
+
+            # ★ 자동 저장 (토글 ON 상태일 때 FFT 데이터가 준비된 경우에만 저장)
+            if self.svm_handle.A_magnitudes is not None:
+                if self.b_auto_save_bg:
+                    self.svm_handle.save_sample(svm.enum_label.LABEL_BACKGROUND)
+                    self.update_svm_label_count()
+                elif self.b_auto_save_human:
+                    self.svm_handle.save_sample(svm.enum_label.LABEL_HUMAN)
+                    self.update_svm_label_count()
 
 
 

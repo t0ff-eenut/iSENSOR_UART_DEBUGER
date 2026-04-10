@@ -7,6 +7,10 @@
 # 빈 150 (mag_150)	~50 Hz	50Hz 신호 세기
 
 
+# 지금 특징 중 rms, low_energy, centroid 3개만으로도 꽤 잘 구분 가능
+# 추가하면 좋은 건 DC 성분과 저주파 에너지 비율
+# magnitudes 151개는 오히려 차원이 너무 높아서 소량 데이터에서 overfitting 위험 있음
+
 # ############################# COPILOT EDIT START (svm.py 신규 생성)
 import enum
 import numpy
@@ -32,18 +36,24 @@ class enum_label(enum.IntEnum):
 # | 157        | mid_energy                             |
 # | 158        | high_energy                            |
 # | 159        | rms                                    |
+# | 160        | low_ratio      (저주파 에너지 비율)      |
+# | 161        | spectral_entropy (스펙트럼 엔트로피)     |
+# | 162        | peak_to_mean   (피크-투-평균 비율)       |
 # | -1 (마지막) | label                                  |
 I_MAGNITUDES_COUNT = 151
 class enum_csv_col(enum.IntEnum):
-    PEAK_FREQ   = I_MAGNITUDES_COUNT + 0   # 151
-    PEAK_MAG    = I_MAGNITUDES_COUNT + 1   # 152
-    AVG_MAG     = I_MAGNITUDES_COUNT + 2   # 153
-    STD_MAG     = I_MAGNITUDES_COUNT + 3   # 154
-    CENTROID    = I_MAGNITUDES_COUNT + 4   # 155
-    LOW_ENERGY  = I_MAGNITUDES_COUNT + 5   # 156
-    MID_ENERGY  = I_MAGNITUDES_COUNT + 6   # 157
-    HIGH_ENERGY = I_MAGNITUDES_COUNT + 7   # 158
-    RMS         = I_MAGNITUDES_COUNT + 8   # 159
+    PEAK_FREQ        = I_MAGNITUDES_COUNT + 0   # 151
+    PEAK_MAG         = I_MAGNITUDES_COUNT + 1   # 152
+    AVG_MAG          = I_MAGNITUDES_COUNT + 2   # 153
+    STD_MAG          = I_MAGNITUDES_COUNT + 3   # 154
+    CENTROID         = I_MAGNITUDES_COUNT + 4   # 155
+    LOW_ENERGY       = I_MAGNITUDES_COUNT + 5   # 156
+    MID_ENERGY       = I_MAGNITUDES_COUNT + 6   # 157
+    HIGH_ENERGY      = I_MAGNITUDES_COUNT + 7   # 158
+    RMS              = I_MAGNITUDES_COUNT + 8   # 159
+    LOW_RATIO        = I_MAGNITUDES_COUNT + 9   # 160  저주파 에너지 비율
+    SPECTRAL_ENTROPY = I_MAGNITUDES_COUNT + 10  # 161  스펙트럼 엔트로피
+    PEAK_TO_MEAN     = I_MAGNITUDES_COUNT + 11  # 162  피크-투-평균 비율
 
 
 class SVM_Module():
@@ -70,10 +80,13 @@ class SVM_Module():
         self.A_b_low_mask  = []
         self.A_b_mid_mask  = []
         self.A_b_high_mask = []
-        self.f_low_energy  = 0.0
-        self.f_mid_energy  = 0.0
-        self.f_high_energy = 0.0
-        self.f_rms         = 0.0
+        self.f_low_energy       = 0.0
+        self.f_mid_energy       = 0.0
+        self.f_high_energy      = 0.0
+        self.f_rms              = 0.0
+        self.f_low_ratio        = 0.0  # 저주파 에너지 비율  low / (low+mid+high)
+        self.f_spectral_entropy = 0.0  # 스펙트럼 엔트로피  -Σ p·log(p)
+        self.f_peak_to_mean     = 0.0  # 피크-투-평균 비율  peak_mag / avg_mag
 
         self.i_bg_count    = 0
         self.i_human_count = 0
@@ -91,20 +104,66 @@ class SVM_Module():
         self.A_probabilty   = []
         self.f_confidence   = 0.0
 
+        # 학습/예측에 사용할 컬럼 인덱스 (0~150: magnitudes, 151~162: 통계+파생 특징)
+        # 기본값: 권장 세트 24개
+        #   - 저주파 스펙트럼 빈 1~15 (0.3~5Hz, 15개)
+        #   - 핵심 통계 9개: peak_freq, peak_mag, std_mag, centroid,
+        #                   low_energy, mid_energy, rms, low_ratio, spectral_entropy, peak_to_mean
+        _A_low_spec = list(range(1, 16))  # 빈 1~15
+        _A_stat     = [
+            int(enum_csv_col.PEAK_FREQ),         # 151
+            int(enum_csv_col.PEAK_MAG),          # 152
+            int(enum_csv_col.STD_MAG),           # 154  (avg_mag 제외)
+            int(enum_csv_col.CENTROID),          # 155
+            int(enum_csv_col.LOW_ENERGY),        # 156
+            int(enum_csv_col.MID_ENERGY),        # 157  (high_energy 제외)
+            int(enum_csv_col.RMS),               # 159
+            int(enum_csv_col.LOW_RATIO),         # 160
+            int(enum_csv_col.SPECTRAL_ENTROPY),  # 161
+            int(enum_csv_col.PEAK_TO_MEAN),      # 162
+        ]
+        self.A_feature_indices: list = sorted(_A_low_spec + _A_stat)  # 24개
 
-        
         self.b_is_trained:bool      = False
 
         self.A_train_features:list  = []   # 학습 특징 벡터 목록
         self.A_train_labels:list    = []   # 학습 레이블 목록
 
+        # 배치 쓰기 버퍼
+        self._I_FLUSH_EVERY:int     = 20   # 20개 모이면 한 번에 CSV flush
+        self._write_buffer:list     = []   # (row_list,) 형태로 쌓아 둠
+        self._b_need_header:bool    = not os.path.exists(self.str_svm_csv_path)
+
+        # 앱 시작 시 기존 CSV에서 카운터 초기화
+        self._load_counts_from_csv()
+
+
+    def _load_counts_from_csv(self):
+        """앱 시작 시 기존 CSV 파일에서 BG/Human 개수를 메모리에 로드"""
+        if not os.path.exists(self.str_svm_csv_path):
+            return
+        try:
+            with open(self.str_svm_csv_path, 'r') as f:
+                reader = csv.reader(f)
+                next(reader, None)  # 헤더 스킵
+                for row in reader:
+                    if not row:
+                        continue
+                    label = int(float(row[-1]))
+                    if label == enum_label.LABEL_BACKGROUND:
+                        self.i_bg_count += 1
+                    elif label == enum_label.LABEL_HUMAN:
+                        self.i_human_count += 1
+        except Exception:
+            pass
 
     def svm(self, inter_A_freq, inter_A_mag):
         self.A_frequencies  = inter_A_freq
         self.A_magnitudes   = inter_A_mag
         
         self.extract_features()     # 특징 추출
-        self.predict()              # 예측
+        if self.b_is_trained:
+            self.predict()          # 예측 (학습된 경우에만)
 
         return (
             self.A_probabilty
@@ -159,6 +218,23 @@ class SVM_Module():
         # self.f_rms = numpy.sqrt(numpy.mean(self.A_magnitudes[1:] ** 2))
         self.f_rms = numpy.sqrt(self.f_std_mag**2 + self.f_avg_mag**2) # 두 에너지의 합 = 전체 에너지
 
+        # 10. 저주파 에너지 비율 — 사람이면 0.6↑, 배경이면 0.3↓ / 스케일 불변
+        _band_total = self.f_low_energy + self.f_mid_energy + self.f_high_energy
+        self.f_low_ratio = self.f_low_energy / _band_total if _band_total > 0 else 0.0
+
+        # 11. 스펙트럼 엔트로피 — 사람이면 에너지 집중(낮음), 배경이면 고르게 분산(높음)
+        _A_mag_dc_excl = self.A_magnitudes[1:]
+        _mag_sum = numpy.sum(_A_mag_dc_excl)
+        if _mag_sum > 0:
+            _A_prob = _A_mag_dc_excl / _mag_sum                         # 확률 분포
+            _A_prob_nz = _A_prob[_A_prob > 0]                           # 0 제거 (log 연산 안전)
+            self.f_spectral_entropy = float(-numpy.sum(_A_prob_nz * numpy.log(_A_prob_nz)))
+        else:
+            self.f_spectral_entropy = 0.0
+
+        # 12. 피크-투-평균 비율 — 사람이면 특정 주파수가 뾰족하게 솟음(큼), 배경이면 고름(낮음)
+        self.f_peak_to_mean = self.f_peak_mag / self.f_avg_mag if self.f_avg_mag > 0 else 0.0
+
         # 10. 임계값 이상 피크 개수 (평균 + 2*표준편차 초과)
         # self.f_threshold  = self.f_avg_mag + 2.0 * self.f_std_mag
         # self.i_peak_count = int(numpy.sum(self.A_magnitudes[1:] > self.f_threshold))
@@ -203,7 +279,7 @@ class SVM_Module():
     # def save_sample(self, A_feature_vector:numpy.ndarray, i_label:int, str_csv_path:str):
     def save_sample(self, input_i_label:int):
 
-        A_features = numpy.array([
+        A_row = list(self.A_magnitudes) + [
             self.f_peak_freq
             , self.f_peak_mag
             , self.f_avg_mag
@@ -213,51 +289,45 @@ class SVM_Module():
             , self.f_mid_energy  
             , self.f_high_energy 
             , self.f_rms
-            , input_i_label         # 이것도 float으로 저장됨
-            ])
+            , self.f_low_ratio        # 160
+            , self.f_spectral_entropy # 161
+            , self.f_peak_to_mean     # 162
+            , float(input_i_label)
+        ]
 
-        """특징 벡터 + 레이블을 CSV에 한 줄 추가
+        # 메모리 카운터 즉시 증가 (CSV 읽기 불필요)
+        if input_i_label == enum_label.LABEL_BACKGROUND:
+            self.i_bg_count += 1
+        else:
+            self.i_human_count += 1
 
-        Args:
-            A_feature_vector : 특징 벡터 (161개)
-            i_label          : LABEL_BACKGROUND(0) or LABEL_HUMAN(1)
-            str_csv_path     : 저장할 CSV 파일 경로
-        """
-        b_write_header = not os.path.exists(self.str_svm_csv_path)
+        self._write_buffer.append(A_row)
+
+        # 버퍼가 가득 찼을 때만 파일 flush
+        if len(self._write_buffer) >= self._I_FLUSH_EVERY:
+            self.flush_write_buffer()
+
+    def flush_write_buffer(self):
+        """버퍼에 쌓인 행들을 CSV에 한 번에 씁니다."""
+        if not self._write_buffer:
+            return
+
+        b_write_header = self._b_need_header
         with open(self.str_svm_csv_path, 'a', newline='') as f:
             writer = csv.writer(f)
             if b_write_header:
-                # 헤더 생성
-                A_header = [f"magnitudes_{i}" for i in range(len(self.A_magnitudes))]
-                
-                # self.i_peak_idx
-                # , self.f_peak_freq
-                # , self.f_peak_mag
-                # , self.f_avg_mag
-                # , self.f_std_mag
-                # , self.f_centroid
-                # , self.f_low_energy  
-                # , self.f_mid_energy  
-                # , self.f_high_energy 
-                # , self.f_rms
-
-                # centroid (X) vs mid_energy (Y): 사람 존재 시 중주파대에 에너지가 몰리고, 무게중심도 이동하므로 분리가 잘 됨
-                # rms (X) vs peak_mag (Y): 전체 에너지 세기 vs 최대 피크 세기
-                # low_energy (X) vs mid_energy (Y): 저/중주파 에너지 비율로 분류
-                
+                A_header = [f"magnitudes_{i}" for i in range(I_MAGNITUDES_COUNT)]
                 A_header += [
-                    "peak_freq"
-                    , "peak_mag"
-                    , "avg_mag"
-                    , "std_mag"
-                    , "centroid"
-                    , "low_energy"
-                    , "mid_energy"
-                    , "high_energy"
-                    , "rms"
+                    "peak_freq", "peak_mag", "avg_mag", "std_mag",
+                    "centroid", "low_energy", "mid_energy", "high_energy", "rms",
+                    "low_ratio", "spectral_entropy", "peak_to_mean",
+                    "label"
                 ]
                 writer.writerow(A_header)
-            writer.writerow(list(self.A_magnitudes) + list(A_features))
+                self._b_need_header = False
+            writer.writerows(self._write_buffer)
+
+        self._write_buffer.clear()
 
     # def get_label_counts(self, str_csv_path:str) -> tuple:
     def update_label_counts(self) -> tuple:
@@ -266,35 +336,13 @@ class SVM_Module():
         Returns:
             (i_background_count, i_human_count)
         """
-        # i_bg_count    = 0
-        # i_human_count = 0
-
-        if not os.path.exists(self.str_svm_csv_path):
-            return self.i_bg_count, self.i_human_count
-
-        A_labels = []
-        with open(self.str_svm_csv_path, 'r') as f:
-            reader = csv.reader(f)
-            next(reader, None)  # 헤더 스킵
-            for row in reader:
-                if len(row) == 0:
-                    continue
-                # i_label = int(float(row[-1]))    # 끝 항목
-                # if i_label == enum_label.LABEL_BACKGROUND:
-                #     self.i_bg_count += 1
-                # elif i_label == enum_label.LABEL_HUMAN:
-                #     self.i_human_count += 1
-                A_labels.append(int(float(row[-1])))             # (정답 레이블)
-
-        self.i_bg_count    = A_labels.count(enum_label.LABEL_BACKGROUND)
-        self.i_human_count = A_labels.count(enum_label.LABEL_HUMAN)
-
-        # return self.i_bg_count, self.i_human_count
+        # 메모리 카운터를 그대로 사용 — CSV 재읽기 없음
+        # (save_sample 호출 시 즉시 증가되므로 항상 정확)
+        pass  # i_bg_count / i_human_count 는 save_sample 에서 직접 관리
 
     # # -------------------------------------------------------
     # # 학습
     # # -------------------------------------------------------
-    # def train(self, str_csv_path:str) -> bool:
     def train(self) -> bool:
         """CSV 파일로 SVM 학습
 
@@ -305,7 +353,8 @@ class SVM_Module():
         if not os.path.exists(self.str_svm_csv_path):
             return False
 
-        A_features = []
+        A_features      = []   # 마스킹된 특징 (SVM 학습용)
+        A_full_features = []   # 전체 163개 행 (그래프 표시용)
         A_labels = []
         with open(self.str_svm_csv_path, 'r') as f:
             reader = csv.reader(f)
@@ -313,7 +362,9 @@ class SVM_Module():
             for row in reader:
                 if len(row) < 2: # 2차원 그래프라서?
                     continue
-                A_features.append([float(v) for v in row[:-1]])    # (학습 입력, 160개 float)
+                A_full_row = [float(v) for v in row[:-1]]        # 163개 전체
+                A_features.append([A_full_row[i] for i in self.A_feature_indices])  # 선택된 특징만
+                A_full_features.append(A_full_row)               # 전체 행 보존 (그래프용)
                 A_labels.append(int(float(row[-1])))             # (정답 레이블)
 
         if len(A_features) < 10:
@@ -324,10 +375,19 @@ class SVM_Module():
         if i_bg_count == 0 or i_human_count == 0:
             return False
 
-        X = numpy.array(A_features)
+        # 메모리 카운터를 CSV 실제 데이터 기준으로 동기화 (앱 재시작 후에도 정확하게 표시)
+        self.i_bg_count    = i_bg_count
+        self.i_human_count = i_human_count
+
+        X = numpy.array(A_features, dtype=float)
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
         Y = numpy.array(A_labels)
 
-        X_scaled = self.scaler.fit_transform(X) # 표준화(정규화)
+        # scaler/model 을 새로 생성해 이전 학습 상태 완전 초기화
+        self.scaler    = StandardScaler()
+        self.svm_model = SVC(kernel='rbf', C=1.0, gamma='scale', probability=True)
+        X_scaled = self.scaler.fit_transform(X)
         self.svm_model.fit(X_scaled, Y)         # 경계면 학습
 
         # PCA 2차원 투영 (표준화된 데이터 기준)
@@ -335,7 +395,7 @@ class SVM_Module():
         self.A_pca_train_2d = self.pca.fit_transform(X_scaled)  # shape: (N, 2)
 
         self.b_is_trained = True
-        self.A_train_features = A_features  # 메모리에 보관 → 그래프에서 CSV 재파싱 없이 사용
+        self.A_train_features = A_full_features  # 전체 163개 행 보관 → 그래프에서 원본 컬럼 인덱스로 접근
         self.A_train_labels   = A_labels
         
         return True
@@ -359,7 +419,7 @@ class SVM_Module():
             f_confidence : 신뢰도 0.0~1.0
         """
 
-        if not self.b_is_trained:
+        if not self.b_is_trained or not hasattr(self.scaler, 'mean_') or not isinstance(self.scaler.mean_, numpy.ndarray):
             # return LABEL_BACKGROUND, 0.0
             self.i_label        = enum_label.LABEL_BACKGROUND
             self.f_confidence   = 0.0
@@ -375,12 +435,16 @@ class SVM_Module():
             , self.f_mid_energy  
             , self.f_high_energy 
             , self.f_rms
+            , self.f_low_ratio
+            , self.f_spectral_entropy
+            , self.f_peak_to_mean
             ])
-        # 학습 시와 동일한 구조: magnitudes(151개) + stat(9개) = 160개
-        A_features = numpy.concatenate([self.A_magnitudes, A_stat_features])
+        # 학습 시와 동일한 구조: magnitudes(151개) + stat(12개) = 163개 → 선택된 인덱스만 추출
+        A_full = numpy.concatenate([numpy.asarray(self.A_magnitudes, dtype=float), A_stat_features])
+        A_features = A_full[self.A_feature_indices].reshape(1, -1)
 
-        # predict 와 predict_proba 가 이 2차원 구조를 기대하기 때문에 [A_features] 로 일부러 감싼 것
-        A_scaler_features   = self.scaler.transform([A_features])                   # 정규화(표준화) / 모든 특징값을 "평균 0, 표준편차 1" 기준으로 변환합니다.
+        # predict 와 predict_proba 가 이 2차원 구조를 기대하기 때문에 reshape(1,-1) 사용
+        A_scaler_features   = self.scaler.transform(A_features)                   # 정규화(표준화) / 모든 특징값을 "평균 0, 표준편차 1" 기준으로 변환합니다.
         # array([[ 0.23, -1.45,  2.11, -0.33,  0.87, -0.12,  1.54, -0.78,  0.45,  0.99]])
         self.i_label      = int(self.svm_model.predict(A_scaler_features)[0])     # 결과를 항상 배열로 감싸서 반환 [[0]] or [[1]]
         self.A_probabilty = self.svm_model.predict_proba(A_scaler_features)[0]    # 결과를 항상 배열로 감싸서 반환 [[0.87, 0.13]]
@@ -394,14 +458,16 @@ class SVM_Module():
         Returns:
             (pc1, pc2) — 현재 위치의 PCA 좌표. 미학습 시 (0.0, 0.0)
         """
-        if not self.b_is_trained or self.pca is None:
+        if not self.b_is_trained or self.pca is None or not hasattr(self.scaler, 'mean_') or not isinstance(self.scaler.mean_, numpy.ndarray):
             return 0.0, 0.0
         A_stat_features = numpy.array([
             self.f_peak_freq, self.f_peak_mag, self.f_avg_mag, self.f_std_mag,
-            self.f_centroid, self.f_low_energy, self.f_mid_energy, self.f_high_energy, self.f_rms
+            self.f_centroid, self.f_low_energy, self.f_mid_energy, self.f_high_energy, self.f_rms,
+            self.f_low_ratio, self.f_spectral_entropy, self.f_peak_to_mean
         ])
-        A_features = numpy.concatenate([self.A_magnitudes, A_stat_features])
-        A_scaled   = self.scaler.transform([A_features])
+        A_full     = numpy.concatenate([numpy.asarray(self.A_magnitudes, dtype=float), A_stat_features])
+        A_features = A_full[self.A_feature_indices].reshape(1, -1)
+        A_scaled   = self.scaler.transform(A_features)
         pca_2d     = self.pca.transform(A_scaled)  # shape: (1, 2)
         return float(pca_2d[0, 0]), float(pca_2d[0, 1])
 
