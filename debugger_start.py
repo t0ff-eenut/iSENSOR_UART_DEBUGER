@@ -5,6 +5,7 @@ PyQt6와 pyqtgraph를 사용한 UART 데이터 시각화 도구
 """
 import sys
 import os
+import time
 from typing import List, Optional
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
@@ -346,6 +347,8 @@ class MainWindow(QMainWindow):
 
         self.b_auto_save_bg:bool    = False  # 배경 자동 저장 토글 상태
         self.b_auto_save_human:bool = False  # 사람 자동 저장 토글 상태
+        self.f_auto_save_interval:float = 2.0   # 자동 저장 인터벌 (초)
+        self.f_last_auto_save_time:float = 0.0  # 마지막 자동 저장 시각
 
         self.A_adc_buffer     = []
         self.i_adc_buffer_len = 0
@@ -893,6 +896,19 @@ class MainWindow(QMainWindow):
         self.svm_auto_human_ToggleButton.toggled.connect(self.event_svm_auto_human_toggled)
         self.svm_collect_GridLayout.addWidget(self.svm_auto_human_ToggleButton, 2, 1)
 
+        # 자동 저장 인터벌 설정
+        _interval_label = QLabel("저장 주기(초):")
+        _interval_label.setStyleSheet("" + MACRO_FONT_BOLD)
+        self.svm_collect_GridLayout.addWidget(_interval_label, 3, 0)
+        self.svm_auto_save_interval_SpinBox = QDoubleSpinBox()
+        self.svm_auto_save_interval_SpinBox.setRange(0.5, 60.0)
+        self.svm_auto_save_interval_SpinBox.setSingleStep(0.5)
+        self.svm_auto_save_interval_SpinBox.setValue(2.0)
+        self.svm_auto_save_interval_SpinBox.setSuffix(" s")
+        self.svm_auto_save_interval_SpinBox.setDecimals(1)
+        self.svm_auto_save_interval_SpinBox.valueChanged.connect(self.event_svm_auto_save_interval_changed)
+        self.svm_collect_GridLayout.addWidget(self.svm_auto_save_interval_SpinBox, 3, 1)
+
         # 단축키: 1=배경 자동 토글, 2=사람 자동 토글, 3=학습 데이터 삭제
         QShortcut(QKeySequence("1"), self).activated.connect(
             lambda: self.svm_auto_bg_ToggleButton.setChecked(not self.svm_auto_bg_ToggleButton.isChecked())
@@ -906,48 +922,71 @@ class MainWindow(QMainWindow):
         self.svm_train_PushButton = QPushButton("🤖 SVM 학습")
         self.svm_train_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.svm_train_PushButton.clicked.connect(self.event_svm_train)
-        self.svm_collect_GridLayout.addWidget(self.svm_train_PushButton, 3, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_train_PushButton, 4, 0, 1, 2)
 
         # 학습 상태 레이블
         self.svm_status_Label = QLabel("미학습")
         self.svm_status_Label.setStyleSheet("" + MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
-        self.svm_collect_GridLayout.addWidget(self.svm_status_Label, 4, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_status_Label, 5, 0, 1, 2)
 
         # 학습 데이터 삭제 버튼
         self.svm_clear_PushButton = QPushButton("🗑 학습 데이터 삭제  [3]")
         self.svm_clear_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.svm_clear_PushButton.clicked.connect(self.event_svm_clear)
-        self.svm_collect_GridLayout.addWidget(self.svm_clear_PushButton, 5, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_clear_PushButton, 6, 0, 1, 2)
 
         # 특징 선택 버튼
         self.svm_feature_PushButton = QPushButton("⚙ 특징 선택...")
         self.svm_feature_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.svm_feature_PushButton.clicked.connect(self.event_svm_feature_select)
-        self.svm_collect_GridLayout.addWidget(self.svm_feature_PushButton, 6, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_feature_PushButton, 7, 0, 1, 2)
 
         # 현재 선택된 특징 수 표시 레이블
         self.svm_feature_count_Label = QLabel(f"선택된 특징: 24개 (권장 세트)")
         self.svm_feature_count_Label.setStyleSheet("" + MACRO_BORDER_STYLE.format('none'))
-        self.svm_collect_GridLayout.addWidget(self.svm_feature_count_Label, 7, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_feature_count_Label, 8, 0, 1, 2)
 
         # X/Y 축 선택 콤보박스
-        self.svm_collect_GridLayout.addWidget(QLabel("Y축:"), 8, 0)
+        self.svm_collect_GridLayout.addWidget(QLabel("Y축:"), 9, 0)
         self.svm_y_ComboBox = QComboBox()
         for col in svm.enum_csv_col:
             self.svm_y_ComboBox.addItem(self._SVM_COL_LABEL_MAP.get(col, col.name), userData=col)
         self.svm_y_ComboBox.setCurrentIndex(list(svm.enum_csv_col).index(svm.enum_csv_col.LOW_RATIO))
-        self.svm_collect_GridLayout.addWidget(self.svm_y_ComboBox, 8, 1)
+        self.svm_collect_GridLayout.addWidget(self.svm_y_ComboBox, 9, 1)
 
-        self.svm_collect_GridLayout.addWidget(QLabel("X축:"), 9, 0)
+        self.svm_collect_GridLayout.addWidget(QLabel("X축:"), 10, 0)
         self.svm_x_ComboBox = QComboBox()
         for col in svm.enum_csv_col:
             self.svm_x_ComboBox.addItem(self._SVM_COL_LABEL_MAP.get(col, col.name), userData=col)
         self.svm_x_ComboBox.setCurrentIndex(list(svm.enum_csv_col).index(svm.enum_csv_col.SPECTRAL_ENTROPY))
-        self.svm_collect_GridLayout.addWidget(self.svm_x_ComboBox, 9, 1)
+        self.svm_collect_GridLayout.addWidget(self.svm_x_ComboBox, 10, 1)
 
         self.svm_x_ComboBox.currentIndexChanged.connect(self.on_svm_axis_changed)
         self.svm_y_ComboBox.currentIndexChanged.connect(self.on_svm_axis_changed)
         self._refresh_axis_combos()  # 초기 특징 선택과 동기화
+
+        # 점 표시 토글 버튼
+        _TOGGLE_STYLE3 = (
+            "QPushButton { font-weight: bold; border: 1px solid gray; border-radius: 4px; padding: 3px; }"
+            "QPushButton:checked { background-color: #5a3a00; color: #ffcc44; border: 1px solid #886600; }"
+        )
+        _TOGGLE_STYLE4 = (
+            "QPushButton { font-weight: bold; border: 1px solid gray; border-radius: 4px; padding: 3px; }"
+            "QPushButton:checked { background-color: #0a4a20; color: #44ee80; border: 1px solid #116633; }"
+        )
+        self.svm_show_bg_ToggleButton = QPushButton("화면: 배경 표시")
+        self.svm_show_bg_ToggleButton.setCheckable(True)
+        self.svm_show_bg_ToggleButton.setChecked(True)
+        self.svm_show_bg_ToggleButton.setStyleSheet(_TOGGLE_STYLE3)
+        self.svm_show_bg_ToggleButton.toggled.connect(lambda checked: self._set_svm_point_visible(cfg.SVM_BACKGROUND_POINT_NAME, checked))
+        self.svm_collect_GridLayout.addWidget(self.svm_show_bg_ToggleButton, 11, 0)
+
+        self.svm_show_occu_ToggleButton = QPushButton("화면: 사람 표시")
+        self.svm_show_occu_ToggleButton.setCheckable(True)
+        self.svm_show_occu_ToggleButton.setChecked(True)
+        self.svm_show_occu_ToggleButton.setStyleSheet(_TOGGLE_STYLE4)
+        self.svm_show_occu_ToggleButton.toggled.connect(lambda checked: self._set_svm_point_visible(cfg.SVM_OCCUPANCY_POINT_NAME, checked))
+        self.svm_collect_GridLayout.addWidget(self.svm_show_occu_ToggleButton, 11, 1)
 
 ############################################################################################################ SVM
 
@@ -1198,8 +1237,9 @@ class MainWindow(QMainWindow):
             # 사람 자동 저장과 상호 배제
             if self.b_auto_save_human:
                 self.svm_auto_human_ToggleButton.setChecked(False)
+            self.f_last_auto_save_time = 0.0  # 즉시 첫 저장되도록 리셋
             self.svm_auto_bg_ToggleButton.setText("🟢 배경 자동 ON  [1]")
-            self.log_TextEdit.append("[SVM] 배경 자동 저장 ON — 데이터 수신마다 배경으로 저장됩니다.")
+            self.log_TextEdit.append(f"[SVM] 배경 자동 저장 ON — {self.f_auto_save_interval:.1f}초마다 배경으로 저장됩니다.")
         else:
             self.svm_auto_bg_ToggleButton.setText("🔴 배경 자동 OFF  [1]")
             self.log_TextEdit.append("[SVM] 배경 자동 저장 OFF")
@@ -1211,11 +1251,16 @@ class MainWindow(QMainWindow):
             # 배경 자동 저장과 상호 배제
             if self.b_auto_save_bg:
                 self.svm_auto_bg_ToggleButton.setChecked(False)
+            self.f_last_auto_save_time = 0.0  # 즉시 첫 저장되도록 리셋
             self.svm_auto_human_ToggleButton.setText("🟢 사람 자동 ON  [2]")
-            self.log_TextEdit.append("[SVM] 사람 자동 저장 ON — 데이터 수신마다 사람으로 저장됩니다.")
+            self.log_TextEdit.append(f"[SVM] 사람 자동 저장 ON — {self.f_auto_save_interval:.1f}초마다 사람으로 저장됩니다.")
         else:
             self.svm_auto_human_ToggleButton.setText("🔴 사람 자동 OFF  [2]")
             self.log_TextEdit.append("[SVM] 사람 자동 저장 OFF")
+
+    def event_svm_auto_save_interval_changed(self, f_value: float):
+        """자동 저장 인터벌 변경"""
+        self.f_auto_save_interval = f_value
 
     def event_svm_save_background(self):
         """현재 FFT 결과를 배경(0) 레이블로 저장"""
@@ -2167,6 +2212,15 @@ class MainWindow(QMainWindow):
         svm.enum_csv_col.SPECTRAL_ENTROPY : "스펙트럼 엔트로피",
         svm.enum_csv_col.PEAK_TO_MEAN     : "피크-투-평균 비율",
     }
+    def _set_svm_point_visible(self, role_name: str, visible: bool):
+        """SVM 그래프에서 특정 role의 ScatterPlotItem 표시/숨김"""
+        get_Widget = self.get_TabWidget(SVM_NAME)
+        if get_Widget is None:
+            return
+        for item in getattr(get_Widget.getPlotItem(), 'items', []):
+            if isinstance(item, pyqtgraph.ScatterPlotItem) and getattr(item, 'role', None) == role_name:
+                item.setVisible(visible)
+
     def _rebuild_svm_2d(self):
         """현재 X/Y 축 2개 특징만으로 SVM을 백그라운드에서 학습"""
         if not self.svm_handle.b_is_trained or not self.svm_handle.A_train_features:
@@ -2362,6 +2416,7 @@ class MainWindow(QMainWindow):
                 target_scatter = item
         if target_scatter is not None:
             target_scatter.setData(A_svm_bg_x, A_svm_bg_y)
+            target_scatter.setVisible(self.svm_show_bg_ToggleButton.isChecked())
 
         # 사람 점
         target_scatter = None
@@ -2372,6 +2427,7 @@ class MainWindow(QMainWindow):
                 target_scatter = item
         if target_scatter is not None:
             target_scatter.setData(A_svm_occu_x, A_svm_occu_y)
+            target_scatter.setVisible(self.svm_show_occu_ToggleButton.isChecked())
 
         # 사용자가 직접 zoom/pan 하지 않은 경우에만 자동 범위 조정
         # (경계 배경 표시 중에는 autoRange 비활성화 → 뷰 안정화로 캐시 히트율 향상)
@@ -2852,14 +2908,17 @@ class MainWindow(QMainWindow):
                 get_Widget = self.get_TabWidget(cfg.SVM_PCA_NAME)
                 self.update_svm_pca_graph(get_Widget)
 
-            # ★ 자동 저장 (토글 ON 상태일 때 FFT 데이터가 준비된 경우에만 저장)
+            # ★ 자동 저장 (토글 ON 상태일 때 FFT 데이터가 준비된 경우에만 저장, 인터벌 단위)
             if self.svm_handle.A_magnitudes is not None:
-                if self.b_auto_save_bg:
-                    self.svm_handle.save_sample(svm.enum_label.LABEL_BACKGROUND)
-                    self.update_svm_label_count()
-                elif self.b_auto_save_human:
-                    self.svm_handle.save_sample(svm.enum_label.LABEL_HUMAN)
-                    self.update_svm_label_count()
+                if self.b_auto_save_bg or self.b_auto_save_human:
+                    f_now = time.monotonic()
+                    if f_now - self.f_last_auto_save_time >= self.f_auto_save_interval:
+                        self.f_last_auto_save_time = f_now
+                        if self.b_auto_save_bg:
+                            self.svm_handle.save_sample(svm.enum_label.LABEL_BACKGROUND)
+                        else:
+                            self.svm_handle.save_sample(svm.enum_label.LABEL_HUMAN)
+                        self.update_svm_label_count()
 
 
 

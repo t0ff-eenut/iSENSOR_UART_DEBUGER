@@ -240,6 +240,11 @@ class DataParser:
         # PIR status (bool from uint8)
         SettingData_handle.b_pir_status = bool(econv.bytes_to_int_auto(bytes_data[b_pir_status_start:b_pir_status_end], endian='big'))
 
+
+        print(f"data_parser.py | settings_parser() | SettingData_handle.b_occu_status: {SettingData_handle.b_occu_status}")
+        print(f"data_parser.py | settings_parser() | SettingData_handle.b_pir_status: {SettingData_handle.b_pir_status}")
+
+
         return SettingData_handle
 
 
