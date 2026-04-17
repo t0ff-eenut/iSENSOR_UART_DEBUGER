@@ -16,6 +16,10 @@ __pycache__/
 *.swo
 *~
 
+# Node.js
+node_modules/
+AI/node_modules/
+
 # ESP-IDF Build Files
 build/
 sdkconfig.old
