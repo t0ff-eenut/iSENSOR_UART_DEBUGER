@@ -35,6 +35,11 @@ import fft
 # ############################# COPILOT EDIT START (import svm)
 import svm
 # ############################# COPILOT EDIT END
+# ############################# COPILOT EDIT START (import mlp)
+import sys as _sys
+_sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'AI'))
+import AI.nn_mlp as nn_mlp
+# ############################# COPILOT EDIT END
 
 MACRO_FONT_NAME = "font-family: {};"
 MACRO_FONT_BOLD = "font-weight: bold;"
@@ -381,6 +386,12 @@ class MainWindow(QMainWindow):
         self.f_fft_peak_mag            = 0
         # # ############################# COPILOT EDIT START (svm 핸들 초기화 + Phase 3 히스토리)
         self.svm_handle:svm.SVM_Module  = svm.SVM_Module()
+        # ############################# COPILOT EDIT START (mlp 핸들 초기화)
+        self.mlp_handle:nn_mlp.MLP_Module = nn_mlp.MLP_Module()
+        self.A_mlp_probability  = []
+        self.i_mlp_label        = 0
+        self.f_mlp_confidence   = 0.0
+        # ############################# COPILOT EDIT END
 
         self.svm_x_col:svm.enum_csv_col = svm.enum_csv_col.SPECTRAL_ENTROPY
         self.svm_y_col:svm.enum_csv_col = svm.enum_csv_col.LOW_RATIO
@@ -1970,6 +1981,15 @@ class MainWindow(QMainWindow):
             , self.i_svm_label
             , self.f_svm_confidence
         ) = self.svm_handle.svm(self.A_fft_frequencies, self.A_fft_magnitudes)
+
+        # ############################# COPILOT EDIT START (MLP 실시간 추론)
+        if self.mlp_handle.b_is_trained:
+            (
+                self.A_mlp_probability
+                , self.i_mlp_label
+                , self.f_mlp_confidence
+            ) = self.mlp_handle.mlp(self.A_fft_frequencies, self.A_fft_magnitudes)
+        # ############################# COPILOT EDIT END
 
 
     def update_threshold_lines(self, inter_Widget:QWidget):

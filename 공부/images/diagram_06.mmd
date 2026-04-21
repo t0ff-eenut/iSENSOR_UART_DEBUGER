@@ -1,0 +1,16 @@
+flowchart LR
+    subgraph A["📍 w=-1 / Loss=1.0\n미분값=-2 (음수)"]
+        A1["경사 왼쪽↓\n→ w를 오른쪽으로"]
+    end
+    subgraph B["📍 w=-0.5 / Loss=0.25\n미분값=-1 (완만)"]
+        B1["경사 완만\n→ 조금만 이동"]
+    end
+    subgraph C["🎯 w=0 / Loss=0\n미분값=0 (평탄)"]
+        C1["학습 완료 ✅"]
+    end
+    subgraph D["📍 w=+1 / Loss=1.0\n미분값=+2 (양수)"]
+        D1["경사 오른쪽↓\n→ w를 왼쪽으로"]
+    end
+    A -->|"w += -LR×(-2)"| B
+    B -->|"w += -LR×(-1)"| C
+    D -->|"w += -LR×(+2)"| C

@@ -122,7 +122,7 @@ class SVM_Module():
             int(enum_csv_col.SPECTRAL_ENTROPY),  # 161
             int(enum_csv_col.PEAK_TO_MEAN),      # 162
         ]
-        self.A_feature_indices: list = sorted(_A_low_spec + _A_stat)  # 24개
+        self.A_feature_indices: list = sorted(_A_low_spec + _A_stat)  # 25개 (저주파 15 + 통계 10)
 
         self.b_is_trained:bool      = False
 

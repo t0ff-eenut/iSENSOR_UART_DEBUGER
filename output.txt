@@ -1,0 +1,23 @@
+/Users/kimkanghyeon/Desktop/project/iSENSOR_UART_DEBUGER/AI/prepare_data.py:80: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[c] = 0.0
+/Users/kimkanghyeon/Desktop/project/iSENSOR_UART_DEBUGER/AI/prepare_data.py:80: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[c] = 0.0
+발견된 CSV 파일: 7개
+
+  ⏭️  label 컬럼 없음, 스킵: svm_data copy 2.csv
+  ⏭️  label 컬럼 없음, 스킵: svm_data copy 3.csv
+  ⚠️  누락 컬럼 3개 → 0 채움: ['low_ratio', 'spectral_entropy', 'peak_to_mean']
+  ✅ svm_data copy 4.csv                 총 6460행  (BG: 3184, Human: 3276)
+  ⚠️  누락 컬럼 3개 → 0 채움: ['low_ratio', 'spectral_entropy', 'peak_to_mean']
+  ✅ svm_data copy 5.csv                 총 15239행  (BG: 5236, Human: 10003)
+  ✅ svm_data copy 6.csv                 총 8321행  (BG: 4161, Human: 4160)
+  ⏭️  label 컬럼 없음, 스킵: svm_data copy.csv
+  ✅ svm_data.csv                        총  124행  (BG:  50, Human:  74)
+
+병합 결과: 총 30144행  (BG: 12631, Human: 17513)
+
+💾 병합 파일 저장: /Users/kimkanghyeon/Desktop/project/iSENSOR_UART_DEBUGER/AI/data_merged.csv
+💾 학습용 저장: /Users/kimkanghyeon/Desktop/project/iSENSOR_UART_DEBUGER/AI/data_train.csv  (24115행 | BG: 10105, Human: 14010)
+💾 검증용 저장: /Users/kimkanghyeon/Desktop/project/iSENSOR_UART_DEBUGER/AI/data_val.csv  (6029행 | BG: 2526, Human: 3503)
+
+✅ 데이터 준비 완료!

@@ -27,7 +27,9 @@
 """
 
 import os
+import sys
 import csv
+import json
 import pickle
 import numpy as np
 import torch
@@ -37,20 +39,58 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
+# svm.py는 상위 폴더에 위치하므로 경로 추가
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 # svm.py의 enum_label, A_feature_indices 재사용
 import svm
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  학습 로그 저장용 Tee (stdout → 콘솔 + 파일 동시 출력)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+class _Tee:
+    """sys.stdout을 콘솔과 파일에 동시에 기록하는 듀얼 스트림."""
+    def __init__(self, orig, f):
+        self._orig = orig
+        self._f    = f
+    def write(self, s):
+        self._orig.write(s)
+        self._f.write(s)
+    def flush(self):
+        self._orig.flush()
+        self._f.flush()
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  하이퍼파라미터 (튜닝이 필요하면 여기서 수정)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EPOCHS        = 100   # 전체 데이터를 몇 번 반복 학습할지 (많을수록 정확 but 느림)
-BATCH_SIZE    = 16    # 한 번에 처리할 샘플 수 (데이터가 적으면 8 또는 4로 줄임)
-LEARNING_RATE = 1e-3  # 학습률: 가중치를 얼마나 크게 업데이트할지 (0.001)
-DROPOUT_RATE  = 0.3   # 드롭아웃: 뉴런의 30%를 랜덤하게 끄기 → 과적합 방지
-HIDDEN_SIZE_1 = 64    # 1번째 은닉층 뉴런 수
-HIDDEN_SIZE_2 = 32    # 2번째 은닉층 뉴런 수
+
+# ── 학습 설정 ────────────────────────────────────────────────────
+EPOCHS        = 300   # 전체 데이터를 몇 번 반복 학습할지
+BATCH_SIZE    = 16    # 한 번에 처리할 샘플 수
+LEARNING_RATE = 5e-4  # 학습률
 VAL_RATIO     = 0.2   # 검증 데이터 비율 (전체의 20%)
+
+# ── 신경망 구조 ──────────────────────────────────────────────────
+# HIDDEN_LAYERS : 각 은닉층의 뉴런 수를 리스트로 지정
+#   예) [64, 32]       → 은닉층 2개
+#       [128, 64, 32]  → 은닉층 3개 ← 현재 (v3.0)
+#       [256]          → 은닉층 1개
+HIDDEN_LAYERS = [128, 64, 32]
+
+DROPOUT_RATE  = 0.3   # 드롭아웃: 첫 번째 은닉층 뒤 뉴런의 30%를 랜덤 OFF → 과적합 방지
+# ※ 학습/검증 차이가 5%+ 벌어지면 0.4~0.5로 올릴 것
+
+# ── 학습률 스케줄러 설정 ─────────────────────────────────────────
+# ReduceLROnPlateau: 검증 손실이 patience 에폭 동안 줄지 않으면
+# 학습률을 factor 배로 줄임 → 정체 구간에서 더 세밀하게 수렴
+LR_SCHEDULER_PATIENCE = 10    # 몇 에폭 동안 개선 없으면 낮출지
+LR_SCHEDULER_FACTOR   = 0.5   # 학습률을 몇 배로 낮출지 (0.5 = 절반)
+
+# ── 하위 호환용 (visualize.py 등에서 참조) ──────────────────────
+HIDDEN_SIZE_1 = HIDDEN_LAYERS[0]
+HIDDEN_SIZE_2 = HIDDEN_LAYERS[1] if len(HIDDEN_LAYERS) > 1 else HIDDEN_LAYERS[0]
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -86,58 +126,40 @@ class OccupancyDataset(Dataset):
 class OccupancyMLP(nn.Module):
     """
     재실 판단을 위한 MLP (다층 퍼셉트론) 신경망.
+    HIDDEN_LAYERS 리스트에 지정된 대로 은닉층을 동적으로 생성합니다.
 
-    ┌─────────────────────────────────────────────┐
-    │ 입력층  : 24개 FFT 특징                     │
-    │                  ↓                          │
-    │ 은닉층1 : Linear(24→64)                     │
-    │           BatchNorm1d(64) ─ 정규화          │
-    │           ReLU            ─ 활성화          │
-    │           Dropout(30%)    ─ 과적합 방지      │
-    │                  ↓                          │
-    │ 은닉층2 : Linear(64→32)                     │
-    │           ReLU                              │
-    │                  ↓                          │
-    │ 출력층  : Linear(32→2)                      │
-    │           [BACKGROUND 점수, HUMAN 점수]     │
-    └─────────────────────────────────────────────┘
+    예) HIDDEN_LAYERS = [64, 32]
+        입력(24) → Linear(24→64)→BN→ReLU→Dropout → Linear(64→32)→ReLU → Linear(32→2)
 
-    용어 설명:
-      Linear     : 행렬 곱 계산 (y = Wx + b), 완전연결층
-      BatchNorm  : 배치 내 값을 평균0/분산1로 정규화 → 학습 안정화
-      ReLU       : max(0, x) — 음수 제거, 비선형성 부여
-      Dropout    : 학습 시 일부 뉴런 랜덤 OFF → 과적합 방지
-                   (추론/평가 시에는 자동으로 전부 ON)
+    예) HIDDEN_LAYERS = [128, 64, 32]
+        입력(24) → 128 → 64 → 32 → 출력(2)  (은닉층 3개)
     """
 
     def __init__(self, input_size: int):
         super().__init__()
 
-        # nn.Sequential: 레이어를 순서대로 쌓는 컨테이너
-        self.net = nn.Sequential(
+        layers = []
+        in_size = input_size
 
-            # ── 은닉층 1 ─────────────────────────────────
-            nn.Linear(input_size, HIDDEN_SIZE_1),   # 입력 → 64
-            nn.BatchNorm1d(HIDDEN_SIZE_1),           # 배치 정규화
-            nn.ReLU(),                               # 활성화 함수
-            nn.Dropout(p=DROPOUT_RATE),              # 드롭아웃
+        for i, h_size in enumerate(HIDDEN_LAYERS):
+            layers.append(nn.Linear(in_size, h_size))
 
-            # ── 은닉층 2 ─────────────────────────────────
-            nn.Linear(HIDDEN_SIZE_1, HIDDEN_SIZE_2), # 64 → 32
-            nn.ReLU(),
+            # 첫 번째 은닉층에만 BatchNorm + Dropout 적용
+            if i == 0:
+                layers.append(nn.BatchNorm1d(h_size))
+                layers.append(nn.ReLU())
+                layers.append(nn.Dropout(p=DROPOUT_RATE))
+            else:
+                layers.append(nn.ReLU())
 
-            # ── 출력층 ───────────────────────────────────
-            # 2개의 점수(logit)를 출력 → 나중에 softmax로 확률 변환
-            # CrossEntropyLoss를 쓸 때는 softmax를 여기서 넣지 않음!
-            nn.Linear(HIDDEN_SIZE_2, 2),             # 32 → 2 (BG / Human)
-        )
+            in_size = h_size
+
+        # 출력층
+        layers.append(nn.Linear(in_size, 2))
+
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        순전파 (Forward Pass):
-        입력 x를 받아 각 클래스의 점수(logit)를 반환합니다.
-        학습 엔진이 자동으로 이 함수를 호출합니다.
-        """
         return self.net(x)
 
 
@@ -158,9 +180,10 @@ class MLP_Module:
       A_probability : [배경 확률, 사람 확률] 리스트
     """
 
-    # 모델 저장 경로 (models/ 폴더 아래)
-    MODEL_PATH  = "models/mlp_weights.pt"   # 신경망 가중치
-    SCALER_PATH = "models/mlp_scaler.pkl"   # StandardScaler 파라미터
+    # 모델 저장 경로 (AI/models/ 폴더 아래)
+    _AI_DIR     = os.path.dirname(os.path.abspath(__file__))          # AI/ 절대경로
+    MODEL_PATH  = os.path.join(_AI_DIR, 'models', 'mlp_weights.pt')  # 신경망 가중치
+    SCALER_PATH = os.path.join(_AI_DIR, 'models', 'mlp_scaler.pkl')  # StandardScaler 파라미터
 
     def __init__(self):
         # SVM_Module 인스턴스를 특징 추출기로 재활용
@@ -169,7 +192,7 @@ class MLP_Module:
 
         # SVM과 동일한 24개 특징 인덱스 사용
         self.feature_indices: list = self._svm_ref.A_feature_indices
-        self.input_size: int       = len(self.feature_indices)  # 24
+        self.input_size: int       = len(self.feature_indices)  # 25 (svm.A_feature_indices 기준)
 
         # 모델 & 스케일러 초기화
         self.model:  OccupancyMLP  = OccupancyMLP(self.input_size)
@@ -237,6 +260,18 @@ class MLP_Module:
         Returns:
             True: 학습 성공 / False: 데이터 부족 또는 파일 없음
         """
+        log_path    = self._make_log_path('train')
+        _log_f      = open(log_path, 'w', encoding='utf-8')
+        _orig_out   = sys.stdout
+        sys.stdout  = _Tee(_orig_out, _log_f)
+        try:
+            return self._train_impl(csv_path)
+        finally:
+            sys.stdout = _orig_out
+            _log_f.close()
+            print(f"[MLP] 📝 학습 로그 저장 → {log_path}")
+
+    def _train_impl(self, csv_path: str) -> bool:
         # ① CSV 로드
         X_raw, y = self._load_csv(csv_path)
         if X_raw is None:
@@ -290,10 +325,18 @@ class MLP_Module:
         #   SGD(확률적 경사하강법)의 개선판
         #   파라미터마다 학습률을 자동으로 조절 → 빠르고 안정적
         optimizer = optim.Adam(self.model.parameters(), lr=LEARNING_RATE)
-
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', patience=LR_SCHEDULER_PATIENCE,
+            factor=LR_SCHEDULER_FACTOR, min_lr=1e-6
+        )
         # ⑦ 에폭 반복 학습
-        print(f"[MLP] 학습 시작 (에폭: {EPOCHS}, 배치: {effective_batch})")
+        layers_str = ' → '.join(str(h) for h in HIDDEN_LAYERS)
+        print(f"[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(f"[MLP]  구조: {self.input_size} → {layers_str} → 2")
+        print(f"[MLP]  에폭: {EPOCHS}  배치: {effective_batch}  LR: {LEARNING_RATE:.0e}  Dropout: {DROPOUT_RATE}")
+        print(f"[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         best_val_acc = 0.0
+        history = {'epochs': [], 'loss': [], 'train_acc': [], 'val_acc': []}
 
         for epoch in range(1, EPOCHS + 1):
 
@@ -309,20 +352,255 @@ class MLP_Module:
                 optimizer.step()                       # 가중치 업데이트
                 total_loss += loss.item()
 
-            # ── 검증 단계 (매 10 에폭마다 출력) ──────────
+            avg_loss  = total_loss / len(train_loader)
+            train_acc = self._evaluate(train_loader)
+            val_acc   = self._evaluate(val_loader)
+            scheduler.step(avg_loss)
+
+            history['epochs'].append(epoch)
+            history['loss'].append(round(avg_loss, 6))
+            history['train_acc'].append(round(train_acc, 6))
+            history['val_acc'].append(round(val_acc, 6))
+
             if epoch % 10 == 0:
-                val_acc = self._evaluate(val_loader)
-                avg_loss = total_loss / len(train_loader)
-                print(f"  에폭 {epoch:3d}/{EPOCHS} | 손실: {avg_loss:.4f} | 검증 정확도: {val_acc:.1%}")
+                current_lr = optimizer.param_groups[0]['lr']
+                print(f"  에폭 {epoch:3d}/{EPOCHS} | 손실: {avg_loss:.4f} | 학습: {train_acc:.1%} | 검증: {val_acc:.1%} | lr: {current_lr:.2e}")
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
 
-        print(f"[MLP] ✅ 학습 완료 | 최고 검증 정확도: {best_val_acc:.1%}")
+        print(f"[MLP] ✅ 학습 완료 | [{layers_str}] | 최고 검증 정확도: {best_val_acc:.1%}")
 
         # ⑧ 모델 저장 후 완료 플래그 설정
         self._save_model()
+        self._save_history(history)
         self.b_is_trained = True
         return True
+
+    # ─────────────────────────────────────────────────────────
+    # 사전 분리된 학습/검증 파일로 학습 + 상세 평가
+    # ─────────────────────────────────────────────────────────
+    def train_eval(
+        self,
+        train_csv: str = 'AI/data_train.csv',
+        val_csv:   str = 'AI/data_val.csv',
+    ) -> bool:
+        """
+        prepare_data.py 로 만든 학습/검증 CSV를 각각 사용해
+        MLP를 학습하고 검증 데이터로 상세 평가를 출력합니다.
+
+        일반 train()과의 차이:
+          · train/val 분리를 외부에서 고정 — 재현성 보장
+          · 학습 완료 후 정밀도/재현율/F1 + 혼동 행렬 출력
+
+        Args:
+            train_csv : 학습용 CSV (prepare_data.py → AI/data_train.csv)
+            val_csv   : 검증용 CSV (prepare_data.py → AI/data_val.csv)
+
+        Returns:
+            True: 성공 / False: 실패
+        """
+        log_path    = self._make_log_path('train_eval')
+        _log_f      = open(log_path, 'w', encoding='utf-8')
+        _orig_out   = sys.stdout
+        sys.stdout  = _Tee(_orig_out, _log_f)
+        try:
+            return self._train_eval_impl(train_csv, val_csv)
+        finally:
+            sys.stdout = _orig_out
+            _log_f.close()
+            print(f"[MLP] 📝 학습 로그 저장 → {log_path}")
+
+    def _train_eval_impl(self, train_csv: str, val_csv: str) -> bool:
+        # ① 학습 데이터 로드
+        X_train_raw, y_train = self._load_csv(train_csv)
+        if X_train_raw is None:
+            print(f"[MLP] ❌ 학습 데이터 로드 실패: {train_csv}")
+            return False
+
+        # ② 검증 데이터 로드 (최소 샘플 수 체크 없이)
+        X_val_raw, y_val = self._load_csv(val_csv, min_check=False)
+        if X_val_raw is None:
+            print(f"[MLP] ❌ 검증 데이터 로드 실패: {val_csv}")
+            return False
+
+        n_train = len(y_train)
+        n_val   = len(y_val)
+        print(f"[MLP] 학습 데이터: {n_train}개 | 검증 데이터: {n_val}개")
+
+        # ③ 특징 선택
+        X_train = X_train_raw[:, self.feature_indices]
+        X_val   = X_val_raw[:,   self.feature_indices]
+
+        # ④ 정규화 (학습 기준으로 fit, 검증은 transform만)
+        self.scaler = StandardScaler()
+        X_train = self.scaler.fit_transform(X_train).astype(np.float32)
+        X_val   = self.scaler.transform(X_val).astype(np.float32)
+
+        # ⑤ DataLoader 생성
+        effective_batch = min(BATCH_SIZE, max(2, n_train // 4))
+        train_loader = DataLoader(
+            OccupancyDataset(X_train, y_train),
+            batch_size=effective_batch,
+            shuffle=True,
+        )
+        val_loader = DataLoader(
+            OccupancyDataset(X_val, y_val),
+            batch_size=effective_batch,
+        )
+
+        # ⑥ 모델 / 손실함수 / 옵티마이저 초기화
+        self.model = OccupancyMLP(self.input_size)
+        criterion  = nn.CrossEntropyLoss()
+        optimizer  = optim.Adam(self.model.parameters(), lr=LEARNING_RATE)
+        scheduler  = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', patience=LR_SCHEDULER_PATIENCE,
+            factor=LR_SCHEDULER_FACTOR, min_lr=1e-6
+        )
+        # ⑦ 에폭 반복 학습
+        layers_str = ' → '.join(str(h) for h in HIDDEN_LAYERS)
+        print(f"[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(f"[MLP]  구조: {self.input_size} → {layers_str} → 2")
+        print(f"[MLP]  에폭: {EPOCHS}  배치: {effective_batch}  LR: {LEARNING_RATE:.0e}  Dropout: {DROPOUT_RATE}")
+        print(f"[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        best_val_acc = 0.0
+        history = {'epochs': [], 'loss': [], 'train_acc': [], 'val_acc': []}
+
+        for epoch in range(1, EPOCHS + 1):
+            self.model.train()
+            total_loss = 0.0
+            for X_batch, y_batch in train_loader:
+                optimizer.zero_grad()
+                loss = criterion(self.model(X_batch), y_batch)
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+
+            avg_loss  = total_loss / len(train_loader)
+            train_acc = self._evaluate(train_loader)
+            val_acc   = self._evaluate(val_loader)
+            scheduler.step(avg_loss)
+
+            history['epochs'].append(epoch)
+            history['loss'].append(round(avg_loss, 6))
+            history['train_acc'].append(round(train_acc, 6))
+            history['val_acc'].append(round(val_acc, 6))
+
+            if epoch % 10 == 0:
+                current_lr = optimizer.param_groups[0]['lr']
+                print(f"  에폭 {epoch:3d}/{EPOCHS} | 손실: {avg_loss:.4f} | 학습: {train_acc:.1%} | 검증: {val_acc:.1%} | lr: {current_lr:.2e}")
+                if val_acc > best_val_acc:
+                    best_val_acc = val_acc
+
+        # ⑧ 최종 상세 평가
+        print(f"\n[MLP] ── 최종 검증 결과 ─────────────────────────────")
+        self._evaluate_detail(X_val, y_val)
+        print(f"[MLP] ✅ 학습 완료 | [{layers_str}] | 최고 검증 정확도: {best_val_acc:.1%}")
+
+        # ⑨ 모델 저장
+        self._save_model()
+        self._save_history(history)
+        self.b_is_trained = True
+        return True
+
+    def evaluate(self, val_csv: str = 'AI/data_val.csv') -> bool:
+        """
+        저장된 모델을 로드해 val_csv 전체를 추론하고 상세 결과를 출력합니다.
+        학습 없이 추론만 수행할 때 사용합니다.
+
+        Args:
+            val_csv : 검증용 CSV 경로 (기본값: AI/data_val.csv)
+
+        Returns:
+            True: 성공 / False: 모델 없음 또는 데이터 오류
+        """
+        if not self.b_is_trained:
+            print("[MLP] ❌ 저장된 모델 없음 — 먼저 학습을 실행하세요:")
+            print("     python3 AI/nn_mlp.py --mode split")
+            return False
+
+        X_raw, y = self._load_csv(val_csv, min_check=False)
+        if X_raw is None:
+            print(f"[MLP] ❌ 검증 데이터 로드 실패: {val_csv}")
+            return False
+
+        X = X_raw[:, self.feature_indices]
+        X = self.scaler.transform(X).astype(np.float32)
+
+        n_bg    = int((y == 0).sum())
+        n_human = int((y == 1).sum())
+        print(f"[MLP] 추론 대상: {len(y)}행  (BG: {n_bg}, Human: {n_human})")
+        print(f"[MLP] ── 추론 결과 ─────────────────────────────────────")
+        self._evaluate_detail(X, y)
+        return True
+
+    def _evaluate_detail(self, X_val: np.ndarray, y_val: np.ndarray) -> None:
+        """
+        검증 데이터에 대해 클래스별 정밀도/재현율/F1 및 혼동 행렬을 한글로 출력.
+        """
+        from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
+
+        self.model.eval()
+        with torch.no_grad():
+            preds = self.model(torch.tensor(X_val)).argmax(dim=1).numpy()
+
+        cm = confusion_matrix(y_val, preds)
+
+        # 클래스별 지표 계산
+        prec, rec, f1, sup = precision_recall_fscore_support(y_val, preds, labels=[0, 1])
+        # 전체 정확도
+        accuracy = float((preds == y_val).sum()) / len(y_val)
+        # macro / weighted 평균
+        prec_m,  rec_m,  f1_m,  _ = precision_recall_fscore_support(y_val, preds, average='macro')
+        prec_w,  rec_w,  f1_w,  _ = precision_recall_fscore_support(y_val, preds, average='weighted')
+
+        cls_names = ['배경(BG)', '사람(Human)']
+        w = 12  # 열 너비
+
+        # ── 지표 설명 출력 ─────────────────────────────────────────
+        # 정밀도 (Precision) : 모델이 '사람'이라고 예측한 것 중 실제로 사람인 비율
+        #                      → 오경보(배경→사람 오판) 얼마나 없는지
+        # 재현율 (Recall)    : 실제 '사람' 중 모델이 올바르게 잡아낸 비율
+        #                      → 놓침(사람→배경 오판) 얼마나 없는지  ← 재실 감지에서 가장 중요
+        # F1 점수            : 정밀도와 재현율의 조화 평균 (둘 다 높아야 높게 나옴)
+        # 단순 평균          : 클래스 수에 상관없이 클래스별 지표를 단순 평균
+        # 가중 평균          : 각 클래스의 샘플 수 비율로 가중해서 평균
+        print()
+        print("  ── 지표 설명 ──────────────────────────────────────────────────")
+        print("  정밀도(Precision) : '사람'이라 예측한 것 중 실제 사람인 비율   → 오경보 방지")
+        print("  재현율(Recall)    : 실제 사람 중 모델이 올바르게 잡아낸 비율   → 놓침 방지 ★")
+        print("  F1 점수           : 정밀도·재현율의 조화 평균 (둘 다 높아야 높음)")
+        print("  단순 평균         : 클래스별 지표를 동일 가중치로 평균")
+        print("  가중 평균         : 클래스별 샘플 수 비율로 가중하여 평균")
+        print()
+
+        # ── 지표 테이블 ────────────────────────────────────────────
+        header = f"  {'클래스':<{w}}  {'정밀도':>8}  {'재현율':>8}  {'F1 점수':>8}  {'샘플 수':>7}"
+        print(header)
+        print("  " + "-" * (len(header) - 2))
+        for i, name in enumerate(cls_names):
+            print(f"  {name:<{w}}  {prec[i]:>8.3f}  {rec[i]:>8.3f}  {f1[i]:>8.3f}  {int(sup[i]):>7}")
+        print()
+        print(f"  {'전체 정확도':<{w}}  {'':>8}  {'':>8}  {accuracy:>8.3f}  {len(y_val):>7}")
+        print(f"  {'단순 평균':<{w}}  {prec_m:>8.3f}  {rec_m:>8.3f}  {f1_m:>8.3f}  {len(y_val):>7}")
+        print(f"  {'가중 평균':<{w}}  {prec_w:>8.3f}  {rec_w:>8.3f}  {f1_w:>8.3f}  {len(y_val):>7}")
+
+        # ── 혼동 행렬 ──────────────────────────────────────────────
+        # 행(row) = 실제 정답, 열(col) = 모델 예측 결과
+        #
+        #                    예측: 배경    예측: 사람
+        #   실제: 배경    [ TN(맞음) ]  [ FP(오경보) ]  ← 배경을 사람으로 오판
+        #   실제: 사람    [ FN(놓침) ]  [ TP(맞음)  ]  ← 사람을 배경으로 오판 (위험!)
+        #
+        #   TN (True Negative)  : 배경 → 배경  ✅ 정확히 맞힘
+        #   FP (False Positive) : 배경 → 사람  ❌ 없는 사람 감지 (오경보)
+        #   FN (False Negative) : 사람 → 배경  ❌ 실제 사람을 놓침  ← 가장 위험한 오류
+        #   TP (True Positive)  : 사람 → 사람  ✅ 정확히 맞힘
+        print()
+        print("  ── 혼동 행렬 ──────────────────────────────")
+        print(f"  {'':16}  {'예측: 배경':>12}  {'예측: 사람':>12}")
+        print(f"  {'실제: 배경':16}  {cm[0][0]:>12}  {cm[0][1]:>12}")
+        print(f"  {'실제: 사람':16}  {cm[1][0]:>12}  {cm[1][1]:>12}")
+        print()
 
     # ─────────────────────────────────────────────────────────
     # 예측 (내부 전용)
@@ -362,10 +640,14 @@ class MLP_Module:
     # ─────────────────────────────────────────────────────────
     # 내부 유틸리티
     # ─────────────────────────────────────────────────────────
-    def _load_csv(self, csv_path: str):
+    def _load_csv(self, csv_path: str, min_check: bool = True):
         """
         CSV 파일을 읽어 (특징 행렬, 레이블 배열) 반환.
         데이터 부족 시 (None, None) 반환.
+
+        Args:
+            csv_path  : CSV 파일 경로
+            min_check : True면 최소 샘플(10개) + 양 클래스 존재 여부 확인
         """
         if not os.path.exists(csv_path):
             print(f"[MLP] ❌ 파일 없음: {csv_path}")
@@ -385,7 +667,7 @@ class MLP_Module:
         y = np.array(y_list)
 
         # 최소 조건: 샘플 10개 이상, 클래스가 배경+사람 둘 다 있어야 함
-        if len(X_list) < 10 or len(np.unique(y)) < 2:
+        if min_check and (len(X_list) < 10 or len(np.unique(y)) < 2):
             return None, None
 
         return np.array(X_list, dtype=np.float32), y
@@ -403,29 +685,127 @@ class MLP_Module:
         return correct / total if total > 0 else 0.0
 
     def _save_model(self) -> None:
-        """모델 가중치와 스케일러를 파일로 저장"""
-        os.makedirs("models", exist_ok=True)
-        # state_dict: 모델의 모든 가중치(W, b)를 담은 딕셔너리
+        """모델 가중치와 스케일러를 저장.
+        - 고정 경로(mlp_weights.pt): 추론 시 자동 로드용
+        - 버전 경로(mlp_L{layers}_ep{ep}_lr{lr}_{timestamp}.pt): 결과물 보관용
+        """
+        import datetime
+        os.makedirs(os.path.dirname(self.MODEL_PATH), exist_ok=True)
+
+        # ① 고정 경로 저장 (추론·로드용)
         torch.save(self.model.state_dict(), self.MODEL_PATH)
         with open(self.SCALER_PATH, 'wb') as f:
             pickle.dump(self.scaler, f)
-        print(f"[MLP] 💾 저장 완료 → {self.MODEL_PATH}")
+
+        # ② 버전 파일명 생성 (시각화 파일명과 동일한 패턴)
+        layers_str = '-'.join(str(h) for h in HIDDEN_LAYERS)
+        timestamp  = datetime.datetime.now().strftime('%m%d_%H%M')
+        lr_str     = f'{LEARNING_RATE:.0e}'
+        stem       = f'mlp_L{layers_str}_ep{EPOCHS}_lr{lr_str}_{timestamp}'
+
+        model_dir  = os.path.dirname(self.MODEL_PATH)
+        ver_model  = os.path.join(model_dir, stem + '.pt')
+        ver_scaler = os.path.join(model_dir, stem + '_scaler.pkl')
+
+        torch.save(self.model.state_dict(), ver_model)
+        with open(ver_scaler, 'wb') as f:
+            pickle.dump(self.scaler, f)
+
+        print(f"[MLP] 저장 완료 → {self.MODEL_PATH}  (추론용)")
+        print(f"[MLP] 버전 보관 → {ver_model}")
+
+    def _make_log_path(self, mode: str = 'train') -> str:
+        """학습 로그 파일 경로 생성 (AI/logs/ 폴더).
+        파일명: train_{layers}_{timestamp}.log
+        """
+        import datetime
+        log_dir    = os.path.join(self._AI_DIR, 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        layers_str = '-'.join(str(h) for h in HIDDEN_LAYERS)
+        ts         = datetime.datetime.now().strftime('%m%d_%H%M%S')
+        return os.path.join(log_dir, f'{mode}_L{layers_str}_ep{EPOCHS}_{ts}.log')
+
+    def _save_history(self, history: dict) -> None:
+        """에폭별 학습 이력을 JSON으로 저장하고, 이전 결과와 비교 출력"""
+        history_path = os.path.join(self._AI_DIR, 'models', 'train_history.json')
+        os.makedirs(os.path.dirname(history_path), exist_ok=True)
+
+        # 이전 결과 로드 (있으면)
+        prev = None
+        if os.path.exists(history_path):
+            try:
+                with open(history_path, encoding='utf-8') as f:
+                    prev = json.load(f)
+            except Exception:
+                pass
+
+        # 현재 결과 저장
+        with open(history_path, 'w', encoding='utf-8') as f:
+            json.dump(history, f)
+        print(f"[MLP] 📊 학습 이력 저장 → {history_path}")
+
+        # 이전 결과와 비교 출력
+        if prev and prev.get('val_acc'):
+            prev_best = max(prev['val_acc']) * 100
+            curr_best = max(history['val_acc']) * 100
+            diff      = curr_best - prev_best
+            sign      = '+' if diff >= 0 else ''
+            print()
+            print("  ── 이전 학습과 비교 ──────────────────────────────────")
+            print(f"  이전 최고 검증 정확도: {prev_best:.1f}%")
+            print(f"  현재 최고 검증 정확도: {curr_best:.1f}%")
+            print(f"  변화: {sign}{diff:.1f}%p  {'↑ 개선' if diff > 0 else ('→ 유지' if diff == 0 else '↓ 하락')}")
+            print()
 
     def _try_load_model(self) -> None:
-        """앱 재시작 시 저장된 모델을 자동으로 로드 (재학습 불필요)"""
+        """현재 하이퍼파라미터 세팅과 일치하는 버전 모델을 우선 로드.
+        없으면 고정 경로(mlp_weights.pt)로 폴백.
+
+        탐색 패턴: mlp_L{layers}_ep{ep}_lr{lr}_*.pt
+        여러 개 일치하면 가장 최근 파일(이름 기준 내림차순) 선택.
+        """
+        import glob
+
+        model_dir  = os.path.dirname(self.MODEL_PATH)
+        layers_str = '-'.join(str(h) for h in HIDDEN_LAYERS)
+        lr_str     = f'{LEARNING_RATE:.0e}'
+        pattern    = os.path.join(model_dir, f'mlp_L{layers_str}_ep{EPOCHS}_lr{lr_str}_*.pt')
+
+        # scaler가 없는 .pt (버전 모델만) 필터링 — *_scaler.pkl 제외
+        candidates = sorted(
+            [p for p in glob.glob(pattern) if not p.endswith('_scaler.pkl')],
+            reverse=True  # 파일명 내림차순 → 최신 타임스탬프 우선
+        )
+
+        if candidates:
+            ver_model  = candidates[0]
+            ver_scaler = ver_model.replace('.pt', '_scaler.pkl')
+            if os.path.exists(ver_scaler):
+                try:
+                    state_dict = torch.load(ver_model, map_location='cpu', weights_only=True)
+                    self.model.load_state_dict(state_dict)
+                    with open(ver_scaler, 'rb') as f:
+                        self.scaler = pickle.load(f)
+                    self.model.eval()
+                    self.b_is_trained = True
+                    print(f"[MLP] 버전 모델 로드 → {os.path.basename(ver_model)}")
+                    return
+                except Exception as e:
+                    print(f"[MLP] 버전 모델 로드 실패, 고정 경로로 시도: {e}")
+
+        # 폴백: 고정 경로 (mlp_weights.pt)
         if not (os.path.exists(self.MODEL_PATH) and os.path.exists(self.SCALER_PATH)):
             return
         try:
-            # map_location='cpu': GPU가 없어도 CPU에서 로드
             state_dict = torch.load(self.MODEL_PATH, map_location='cpu', weights_only=True)
             self.model.load_state_dict(state_dict)
             with open(self.SCALER_PATH, 'rb') as f:
                 self.scaler = pickle.load(f)
             self.model.eval()
             self.b_is_trained = True
-            print(f"[MLP] ✅ 저장된 모델 로드 완료: {self.MODEL_PATH}")
+            print(f"[MLP] 고정 모델 로드 → {self.MODEL_PATH}")
         except Exception as e:
-            print(f"[MLP] ⚠️ 모델 로드 실패 (재학습 필요): {e}")
+            print(f"[MLP] 모델 로드 실패 (재학습 필요): {e}")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -433,16 +813,47 @@ class MLP_Module:
 #  $ python nn_mlp.py
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if __name__ == "__main__":
+    TRAIN_CSV = 'AI/data_train.csv'
+    VAL_CSV   = 'AI/data_val.csv'
+    SIMPLE_CSV = 'svm_data.csv'
+
     print("=" * 60)
-    print("  MLP 재실 판단 모델 학습")
+    print("  MLP 재실 판단 모델")
     print("=" * 60)
+    print("  [1] 학습 + 검증  (AI/data_train.csv → AI/data_val.csv)")
+    print("  [2] 추론만       (저장된 모델로 AI/data_val.csv 평가)")
+    print("  [3] 간단 학습    (svm_data.csv 하나로 학습+내부 검증)")
+    print("=" * 60)
+
+    while True:
+        choice = input("모드 선택 (1 / 2 / 3): ").strip()
+        if choice in ('1', '2', '3'):
+            break
+        print("  1, 2, 3 중 하나를 입력하세요.")
 
     module = MLP_Module()
-    success = module.train(csv_path="svm_data.csv")
 
-    if success:
-        print("\n✅ 학습 완료! models/ 폴더에 모델이 저장되었습니다.")
-        print("   다음 실행 시 자동으로 로드됩니다.")
-    else:
-        print("\n❌ 학습 실패.")
-        print("   svm_data.csv 가 있고, 배경/사람 데이터가 각각 있는지 확인하세요.")
+    if choice == '2':
+        print(f"\n[모드] 추론 — 학습 없이 저장된 모델로 평가")
+        module.evaluate(val_csv=VAL_CSV)
+
+    elif choice == '1':
+        if not (os.path.exists(TRAIN_CSV) and os.path.exists(VAL_CSV)):
+            print(f"\n⚠️  학습/검증 파일 없음. 먼저 prepare_data.py 를 실행하세요:")
+            print(f"    python3 AI/prepare_data.py")
+        else:
+            success = module.train_eval(train_csv=TRAIN_CSV, val_csv=VAL_CSV)
+            if success:
+                print("\n✅ 학습+검증 완료! AI/models/ 폴더에 모델이 저장되었습니다.")
+            else:
+                print("\n❌ 학습 실패.")
+
+    else:  # choice == '3'
+        success = module.train(csv_path=SIMPLE_CSV)
+        if success:
+            print("\n✅ 학습 완료! AI/models/ 폴더에 모델이 저장되었습니다.")
+            print("   다음 실행 시 자동으로 로드됩니다.")
+        else:
+            print("\n❌ 학습 실패.")
+            print(f"   {SIMPLE_CSV} 가 있고, 배경/사람 데이터가 각각 있는지 확인하세요.")
+
