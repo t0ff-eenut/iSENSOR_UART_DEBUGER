@@ -388,9 +388,10 @@ class MainWindow(QMainWindow):
         self.svm_handle:svm.SVM_Module  = svm.SVM_Module()
         # ############################# COPILOT EDIT START (mlp 핸들 초기화)
         self.mlp_handle:nn_mlp.MLP_Module = nn_mlp.MLP_Module()
-        self.A_mlp_probability  = []
+        self.A_mlp_probability  = [1.0, 0.0]
         self.i_mlp_label        = 0
         self.f_mlp_confidence   = 0.0
+        self._mlp_history: deque = deque(maxlen=100)  # 최근 100프레임 판정 이력
         # ############################# COPILOT EDIT END
 
         self.svm_x_col:svm.enum_csv_col = svm.enum_csv_col.SPECTRAL_ENTROPY
@@ -678,6 +679,19 @@ class MainWindow(QMainWindow):
                                             + MACRO_FONT_SIZE.format(14)
                                             )  # * 위젯 폰트 설정
         self.status_GridLayout.addWidget(self.pir_output_Label)
+
+        # --- MLP 추론 결과 표시 설정 ---
+        self.mlp_result_Label = QLabel("🤖 MLP: 모델 로딩 중...")
+        self.mlp_result_Label.setStyleSheet(""
+                                            + MACRO_FONT_BOLD
+                                            + MACRO_FONT_SIZE.format(14)
+                                            )
+        self.status_GridLayout.addWidget(self.mlp_result_Label)
+        # 초기 MLP 상태 반영
+        if self.mlp_handle.b_is_trained:
+            self.mlp_result_Label.setText("🤖 MLP: 대기 중 (모델 로드 완료)")
+        else:
+            self.mlp_result_Label.setText("🤖 MLP: 미로드 (모델 없음)")
 
 ############### NVS 설정 기능 구현하기 ###############################################################################
         # # --- 설정 값 불러오기 버튼 설정 ---
@@ -1071,6 +1085,8 @@ class MainWindow(QMainWindow):
 
         self.create_svm_plot_tab(self.A_graph_plot_value[enum_graph_plot_num.SVM][enum_graph_plot_range_opt.SVM])
         self.create_svm_pca_tab()
+        self.create_mlp_prob_tab()
+        self.create_mlp_history_tab()
 
         # self.svm_scatter_PlotWidget = pyqtgraph.PlotWidget()
         # self.svm_scatter_PlotWidget.setTitle("SVM Feature Space")
@@ -1798,7 +1814,62 @@ class MainWindow(QMainWindow):
 
         self.svm_plot_TabWidget.addTab(target_PlotWidget, cfg.SVM_PCA_NAME)
 
-    # def _compute_fft(self, adc_buffer, apply_window=True):
+    def create_mlp_prob_tab(self):
+        """MLP 실시간 확률 막대 탭 — 배경/사람 확률을 BarGraph로 표시"""
+        pw = pyqtgraph.PlotWidget()
+        pw.setTitle("MLP 실시간 확률", color='w', size='12pt')
+        pw.setLabel('left', '확률', **{'font-size': '12pt'})
+        pw.setYRange(0, 1.05, padding=0)
+        pw.setXRange(-0.6, 1.6, padding=0)
+        pw.setMouseEnabled(x=False, y=False)
+        pw.setMenuEnabled(False)
+        pw.showGrid(y=True, alpha=0.3)
+
+        # X축 눈금을 배경/사람 텍스트로 교체
+        ax = pw.getAxis('bottom')
+        ax.setTicks([[(0, '배경'), (1, '사람')]])
+
+        # 배경 확률 막대 (파랑)
+        self._mlp_bg_bar = pyqtgraph.BarGraphItem(
+            x=[0], height=[1.0], width=0.6, brush=pyqtgraph.mkBrush(76, 155, 232, 200)
+        )
+        self._mlp_bg_bar.role = 'mlp_bg_bar'
+        pw.addItem(self._mlp_bg_bar)
+
+        # 사람 확률 막대 (빨강)
+        self._mlp_human_bar = pyqtgraph.BarGraphItem(
+            x=[1], height=[0.0], width=0.6, brush=pyqtgraph.mkBrush(232, 107, 76, 200)
+        )
+        self._mlp_human_bar.role = 'mlp_human_bar'
+        pw.addItem(self._mlp_human_bar)
+
+        # 0.5 기준선
+        threshold_line = pyqtgraph.InfiniteLine(pos=0.5, angle=0, pen=pyqtgraph.mkPen('y', width=1, style=PyQt6.QtCore.Qt.PenStyle.DashLine))
+        pw.addItem(threshold_line)
+
+        # 신뢰도 텍스트 라벨
+        self._mlp_conf_text = pyqtgraph.TextItem("", color='w', anchor=(0.5, 0))
+        self._mlp_conf_text.setPos(0.5, 1.05)
+        pw.addItem(self._mlp_conf_text)
+
+        self.svm_plot_TabWidget.addTab(pw, "MLP 확률")
+
+    def create_mlp_history_tab(self):
+        """MLP 판정 히스토리 탭 — 최근 100 프레임 판정을 색상 스트립으로 표시"""
+        pw = pyqtgraph.PlotWidget()
+        pw.setTitle("MLP 판정 히스토리  (🔴 사람 / 🔵 배경)", color='w', size='12pt')
+        pw.setLabel('bottom', '← 오래된  |  최근 →', **{'font-size': '11pt'})
+        pw.hideAxis('left')
+        pw.setMouseEnabled(x=False, y=False)
+        pw.setMenuEnabled(False)
+
+        self._mlp_history_img = pyqtgraph.ImageItem()
+        self._mlp_history_img.role = 'mlp_history_img'
+        pw.addItem(self._mlp_history_img)
+        pw.getViewBox().disableAutoRange()
+        pw.getViewBox().setRange(xRange=(0, 100), yRange=(0, 20), padding=0)
+
+        self.svm_plot_TabWidget.addTab(pw, "MLP 히스토리")
     #     """ADC 버퍼에 FFT 적용
         
     #     Args:
@@ -2704,8 +2775,35 @@ class MainWindow(QMainWindow):
                 item.setText(s_info)
                 item.setPos(x_max, y_max)
 
+    def update_mlp_visual(self):
+        """MLP 확률 막대 및 히스토리 탭 실시간 업데이트"""
+        prob = self.A_mlp_probability if len(self.A_mlp_probability) == 2 else [1.0, 0.0]
 
-    # def send_get_settings_command(self):
+        # ── 확률 막대 업데이트 ──────────────────────────────────────
+        self._mlp_bg_bar.setOpts(height=[prob[0]])
+        self._mlp_human_bar.setOpts(height=[prob[1]])
+
+        if self.i_mlp_label == svm.enum_label.LABEL_HUMAN:
+            self._mlp_conf_text.setText(f"● 사람  {prob[1]*100:.1f}%", color='#ff5555')
+        else:
+            self._mlp_conf_text.setText(f"○ 배경  {prob[0]*100:.1f}%", color='#55cc55')
+
+        # ── 히스토리 업데이트 ─────────────────────────────────────
+        self._mlp_history.append(self.i_mlp_label)
+        n = len(self._mlp_history)
+        if n > 0:
+            # shape: (n, 20, 4) RGBA 이미지
+            img_arr = numpy.zeros((n, 20, 4), dtype=numpy.uint8)
+            for i, label in enumerate(self._mlp_history):
+                if label == svm.enum_label.LABEL_HUMAN:
+                    img_arr[i, :] = [232, 80, 76, 230]   # 빨강 = 사람
+                else:
+                    img_arr[i, :] = [76, 155, 232, 230]  # 파랑 = 배경
+            self._mlp_history_img.setImage(img_arr, autoLevels=False)
+            # 뷰 범위 고정 (가장 최근 100프레임이 오른쪽에 표시되도록)
+            self._mlp_history_img.getViewBox().setRange(
+                xRange=(0, 100), yRange=(0, 20), padding=0
+            )
     #     """ESP32에 현재 설정값을 요청"""
     #     if self.command_sender.send_get_settings():
     #         self.log_TextEdit.append("[TX] 설정값 요청 명령 전송")
@@ -2927,6 +3025,19 @@ class MainWindow(QMainWindow):
                 self.update_svm_graph(get_Widget)
                 get_Widget = self.get_TabWidget(cfg.SVM_PCA_NAME)
                 self.update_svm_pca_graph(get_Widget)
+
+            # ★ MLP 추론 결과 라벨 업데이트
+            if self.mlp_handle.b_is_trained:
+                if self.i_mlp_label == svm.enum_label.LABEL_HUMAN:
+                    self.mlp_result_Label.setText(f"🔴 MLP: 사람 감지  ({self.f_mlp_confidence*100:.1f}%)")
+                    self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(14) + MACRO_TEXT_COLOR.format('#ff5555'))
+                else:
+                    self.mlp_result_Label.setText(f"🟢 MLP: 배경  ({self.f_mlp_confidence*100:.1f}%)")
+                    self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(14) + MACRO_TEXT_COLOR.format('#55cc55'))
+                self.update_mlp_visual()
+            else:
+                self.mlp_result_Label.setText("🤖 MLP: 미로드 (모델 없음)")
+                self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(14))
 
             # ★ 자동 저장 (토글 ON 상태일 때 FFT 데이터가 준비된 경우에만 저장, 인터벌 단위)
             if self.svm_handle.A_magnitudes is not None:
