@@ -114,6 +114,16 @@ class UartDataType(enum.IntEnum):
     # BPF_VOLTAGE_BUFFER = 8       # UART_TX_BPF_VOLTAGE_BUFFER
     SETTINGS = 9                 # UART_TX_SETTINGS
     # ALL_DATA = 10                # UART_TX_ALL_DATA
+    PROFILING = 11               # UART_TX_PROFILING (32 bytes: 8 x uint32_t Big Endian)
+    FFT = 12                     # UART_TX_FFT (FFT_OUTPUT_SIZE x 4 bytes Big Endian float32)
+
+# PROFILING 페이로드 크기: 8개 필드 x 4 bytes = 32 bytes
+# 필드 순서: adc_process_us, algo_process_us, loop_period_us,
+#            bg_stack_hwm, main_stack_hwm, uart_tx_stack_hwm, uart_rx_stack_hwm, fft_process_time_us
+RECEIVE_PROFILING_TOTAL_SIZE:int = 36   # 9 x uint32_t (feat_process_time_us 추가)
+
+# FFT 페이로드 크기: (WINDOW_SIZE/2 + 1) 진폭값 x 4 bytes = 516 bytes
+RECEIVE_FFT_TOTAL_SIZE:int = (cfg.WINDOW_SIZE // 2 + 1) * 4  # 516 bytes
 
 class UartCommandType(enum.IntEnum):
     """PC → ESP32 명령 타입 (ESP32 펌웨어의 CommandType_t와 동일)

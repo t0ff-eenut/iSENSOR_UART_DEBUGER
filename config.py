@@ -46,6 +46,9 @@ FFT_LABEL_ANCHOR_Y:int      = 0
 FFT_LABEL_COLOR:str         = "#898989"
 
 FFT_SAMPLING_RATE           = 100
+# ADC 슬라이딩 윈도우 크기 (ESP32 project_top.h WINDOW_SIZE와 반드시 동일하게 유지)
+# rfft 결과 크기 = WINDOW_SIZE // 2 + 1
+WINDOW_SIZE:int             = 256
 
 
 SVM_NOW_POINT_NAME:str          = 'SVM_now_scatter_name'

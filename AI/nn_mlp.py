@@ -216,8 +216,8 @@ class MLP_Module:
         (SVM_Module.svm()과 동일한 반환값 구조)
 
         Args:
-            inter_A_freq : 주파수 배열 (151개)
-            inter_A_mag  : 진폭 배열  (151개)
+            inter_A_freq : 주파수 배열 (129개)
+            inter_A_mag  : 진폭 배열  (129개)
 
         Returns:
             (A_probability, i_label, f_confidence)

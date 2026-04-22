@@ -92,6 +92,10 @@ class SensorData:
     settings:Optional[SettingsData] = None
     # settings: Optional[parse_settings] = None
     
+    # 프로파일링 데이터 (타입 11)
+    profiling:Optional['ProfilingData'] = None
+    # FFT 진폭 데이터 (타입 12)
+    fft_result:Optional['FftData'] = None
     
     # # 통합 데이터 (타입 7)
     # all_buffers: Optional[dict] = None
@@ -170,6 +174,77 @@ class SettingsData:
             f"SELLP_TIME={self.i_sleep_time_us}ms,\n"
             f"OCCUPANCY={'재실' if self.b_occu_status else '없음'},\n"
             f"PIR={'ON' if self.b_pir_status else 'OFF'}"
+            f")"
+        )
+
+
+@dataclass
+class ProfilingData:
+    """
+    ESP32 실행 시간 및 Task 스택 사용량 프로파일링 데이터 (타입 11)
+
+    페이로드 레이아웃 (Big Endian, 28 bytes: 7 x uint32_t):
+    | 필드                    | 크기 | 설명                              |
+    |------------------------|------|----------------------------------|
+    | adc_process_time_us    | 4    | ADC 큐 수신~버퍼 저장 처리 시간 (µs) |
+    | algo_process_time_us   | 4    | TP1/TP2 알고리즘 실행 시간 (µs)     |
+    | loop_period_us         | 4    | 배경 스레드 루프 주기 (µs)           |
+    | bg_stack_hwm           | 4    | 배경 Task 스택 고수위 (words)        |
+    | main_stack_hwm         | 4    | Main Task 스택 고수위 (words)       |
+    | uart_tx_stack_hwm      | 4    | UART TX Task 스택 고수위 (words)    |
+    | uart_rx_stack_hwm      | 4    | UART RX Task 스택 고수위 (words)    |
+    """
+    adc_process_time_us:int   = 0   # ADC 큐 수신 ~ 버퍼 저장 처리 시간 (µs)
+    algo_process_time_us:int  = 0   # TP1/TP2 알고리즘 실행 시간 (µs)
+    loop_period_us:int        = 0   # 배경 스레드 루프 주기 (µs)
+    bg_stack_hwm:int          = 0   # 배경 Task 스택 고수위 (words)
+    main_stack_hwm:int        = 0   # Main Task 스택 고수위 (words)
+    uart_tx_stack_hwm:int     = 0   # UART TX Task 스택 고수위 (words)
+    uart_rx_stack_hwm:int     = 0   # UART RX Task 스택 고수위 (words)
+    fft_process_time_us:int   = 0   # FFT 실행 시간 (µs)
+    feat_process_time_us:int  = 0   # 특징 추출 실행 시간 (µs)
+
+    def __repr__(self) -> str:
+        return (
+            f"\nProfilingData(\n"
+            f"  adc_process  = {self.adc_process_time_us} µs\n"
+            f"  algo_process = {self.algo_process_time_us} µs\n"
+            f"  loop_period  = {self.loop_period_us} µs  ({self.loop_period_us/1000:.2f} ms)\n"
+            f"  bg_stack_hwm      = {self.bg_stack_hwm} words\n"
+            f"  main_stack_hwm    = {self.main_stack_hwm} words\n"
+            f"  uart_tx_stack_hwm = {self.uart_tx_stack_hwm} words\n"
+            f"  uart_rx_stack_hwm = {self.uart_rx_stack_hwm} words\n"
+            f"  fft_process_time  = {self.fft_process_time_us} µs\n"
+            f"  feat_process_time = {self.feat_process_time_us} µs\n"
+            f")"
+        )
+
+
+@dataclass
+class FftData:
+    """
+    FFT 에너지 스펙트럼 데이터 (타입 12)
+
+    페이로드 레이아웃 (Big Endian, FFT_OUTPUT_SIZE x 4 bytes):
+    | 필드      | 크기 | 설명                              |
+    |----------|------|----------------------------------|
+    | energies | 516  | 129 x uint32 BE  re²+im² (sc16²) |
+
+    주파수 매핑: freq[k] = k × SAMPLING_FREQ / WINDOW_SIZE
+    예) k=1 → 100/256 ≈ 0.39Hz, k=50 → 50×100/256 ≈ 19.5Hz
+
+    magnitudes: PC에서 sqrt(energy) × FFT_SC16_SCALE × (2/N 또는 1/N) 복원
+    """
+    energies:   List[int]   = field(default_factory=list)   # uint32 re²+im² (129개)
+    magnitudes: List[float] = field(default_factory=list)   # sqrt 복원 ADC 단위 (129개)
+
+    def __repr__(self) -> str:
+        peak_idx = max(range(len(self.magnitudes)), key=lambda i: self.magnitudes[i]) if self.magnitudes else -1
+        return (
+            f"\nFftData(\n"
+            f"  count       = {len(self.energies)}\n"
+            f"  peak_idx    = {peak_idx}\n"
+            f"  peak_mag    = {self.magnitudes[peak_idx]:.4f if self.magnitudes else 0}\n"
             f")"
         )
 

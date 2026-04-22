@@ -12,6 +12,7 @@ from sklearn.preprocessing import StandardScaler
 import numpy
 import enum
 import pyqtgraph
+import math
 import statistics
 from collections import deque
 import serial
@@ -62,6 +63,31 @@ ADC_RAW_ZOOM_SCALE_NAME = "ADC Raw Zoom Scale"
 ADC_FFT_FULL_SCALE_NAME = "ADC FFT Full Scale"
 ADC_FFT_ZOOM_SCALE_NAME = "ADC FFT Zoom Scale"
 SVM_NAME = "SVM"
+
+class IntAxisItem(pyqtgraph.AxisItem):
+    """Y축 눈금을 정수배로만 표시하는 AxisItem.
+    자동 스케일 환경에서 0.5, 1.5 같은 소수 눈금이 생기지 않도록 함.
+    """
+    def tickValues(self, minVal: float, maxVal: float, size: float):
+        span = maxVal - minVal
+        if span <= 0:
+            return []
+        # 화면 높이(px) 기준으로 눈금 간격(정수) 자동 결정 (최대 약 8개)
+        raw_step = max(1, int(span / 8))
+        # 1, 2, 5, 10, 20, 50 … 단위로 올림
+        magnitude = 10 ** (len(str(raw_step)) - 1)
+        for nice in (1, 2, 5, 10):
+            step = nice * magnitude
+            if span / step <= 10:
+                break
+        step = max(1, step)
+        start = int(math.ceil(minVal / step)) * step
+        ticks = list(range(start, int(math.floor(maxVal)) + 1, step))
+        return [(step, ticks)]
+
+    def tickStrings(self, values, scale, spacing):
+        return [str(int(v)) for v in values]
+
 
 class enum_graph_plot_num(enum.IntEnum):
     ADC_RAW = 0
@@ -352,8 +378,8 @@ class MainWindow(QMainWindow):
 
         self.b_auto_save_bg:bool    = False  # 배경 자동 저장 토글 상태
         self.b_auto_save_human:bool = False  # 사람 자동 저장 토글 상태
-        self.f_auto_save_interval:float = 2.0   # 자동 저장 인터벌 (초)
-        self.f_last_auto_save_time:float = 0.0  # 마지막 자동 저장 시각
+        self.i_auto_save_stride:int = 1      # 자동 저장 주기 (FFT 갱신 횟수)
+        self.i_fft_since_last_save:int = 0   # 마지막 저장 이후 FFT 갱신 횟수
 
         self.A_adc_buffer     = []
         self.i_adc_buffer_len = 0
@@ -426,7 +452,7 @@ class MainWindow(QMainWindow):
         # self._svm_waveform_overlay_items:list = []
         # # ############################# COPILOT EDIT END
 
-        self.adc_window_size_setting(300)
+        self.adc_window_size_setting(cfg.WINDOW_SIZE)
         self.adc_tp1_setting(10)
         self.adc_tp1_rck_setting(1000)
         self.adc_smapling_rate_setting(100)
@@ -693,6 +719,15 @@ class MainWindow(QMainWindow):
         else:
             self.mlp_result_Label.setText("🤖 MLP: 미로드 (모델 없음)")
 
+        # --- 프로파일링 표시 설정 ---
+        self.profiling_Label = QLabel("⏱ 프로파일링: 대기 중")
+        self.profiling_Label.setStyleSheet(""
+                                           + MACRO_FONT_SIZE.format(11)
+                                           + MACRO_BORDER_STYLE.format('none')
+                                           )
+        self.profiling_Label.setWordWrap(True)
+        self.status_GridLayout.addWidget(self.profiling_Label)
+
 ############### NVS 설정 기능 구현하기 ###############################################################################
         # # --- 설정 값 불러오기 버튼 설정 ---
         # self.nvs_setting_read_PushButton = QPushButton("🔄 NVS 설정 값 불러오기")
@@ -921,16 +956,15 @@ class MainWindow(QMainWindow):
         self.svm_auto_human_ToggleButton.toggled.connect(self.event_svm_auto_human_toggled)
         self.svm_collect_GridLayout.addWidget(self.svm_auto_human_ToggleButton, 2, 1)
 
-        # 자동 저장 인터벌 설정
-        _interval_label = QLabel("저장 주기(초):")
+        # 자동 저장 주기 설정 (FFT 갱신 횟수 기반)
+        _interval_label = QLabel("저장 주기(FFT 횟수):")
         _interval_label.setStyleSheet("" + MACRO_FONT_BOLD)
         self.svm_collect_GridLayout.addWidget(_interval_label, 3, 0)
-        self.svm_auto_save_interval_SpinBox = QDoubleSpinBox()
-        self.svm_auto_save_interval_SpinBox.setRange(0.5, 60.0)
-        self.svm_auto_save_interval_SpinBox.setSingleStep(0.5)
-        self.svm_auto_save_interval_SpinBox.setValue(2.0)
-        self.svm_auto_save_interval_SpinBox.setSuffix(" s")
-        self.svm_auto_save_interval_SpinBox.setDecimals(1)
+        self.svm_auto_save_interval_SpinBox = QSpinBox()
+        self.svm_auto_save_interval_SpinBox.setRange(1, 500)
+        self.svm_auto_save_interval_SpinBox.setSingleStep(1)
+        self.svm_auto_save_interval_SpinBox.setValue(1)
+        self.svm_auto_save_interval_SpinBox.setSuffix(" 회")
         self.svm_auto_save_interval_SpinBox.valueChanged.connect(self.event_svm_auto_save_interval_changed)
         self.svm_collect_GridLayout.addWidget(self.svm_auto_save_interval_SpinBox, 3, 1)
 
@@ -1072,10 +1106,18 @@ class MainWindow(QMainWindow):
 
 ############################################################################################################ SVM
         # ############################# COPILOT EDIT START (Phase 2: SVM 산점도 탭)
-        # --- SVM Plots 그룹 (ADC FFT Plot 아래) ---
+        # --- SVM + MLP 세로 컨테이너 (main_HBoxLayout의 하나의 컬럼) ---
+        self.svm_mlp_Widget = QWidget()
+        self.svm_mlp_VBoxLayout = QVBoxLayout()
+        self.svm_mlp_VBoxLayout.setContentsMargins(0, 0, 0, 0)
+        self.svm_mlp_VBoxLayout.setSpacing(4)
+        self.svm_mlp_Widget.setLayout(self.svm_mlp_VBoxLayout)
+        self.main_HBoxLayout.addWidget(self.svm_mlp_Widget, stretch=2)
+
+        # --- SVM Plots 그룹 (위) ---
         self.svm_graph_GroupBox = QGroupBox("SVM Plots")
         self.svm_graph_GroupBox.setStyleSheet("" + MACRO_PADDING.format(10))
-        self.main_HBoxLayout.addWidget(self.svm_graph_GroupBox, stretch=2)
+        self.svm_mlp_VBoxLayout.addWidget(self.svm_graph_GroupBox, stretch=1)
         self.svm_graph_VBoxLayout = QVBoxLayout()
         self.svm_graph_GroupBox.setLayout(self.svm_graph_VBoxLayout)
         self.svm_plot_TabWidget = QTabWidget()
@@ -1085,6 +1127,18 @@ class MainWindow(QMainWindow):
 
         self.create_svm_plot_tab(self.A_graph_plot_value[enum_graph_plot_num.SVM][enum_graph_plot_range_opt.SVM])
         self.create_svm_pca_tab()
+
+        # --- MLP Plots 그룹 (아래) ---
+        self.mlp_graph_GroupBox = QGroupBox("MLP Plots")
+        self.mlp_graph_GroupBox.setStyleSheet("" + MACRO_PADDING.format(10))
+        self.svm_mlp_VBoxLayout.addWidget(self.mlp_graph_GroupBox, stretch=1)
+        self.mlp_graph_VBoxLayout = QVBoxLayout()
+        self.mlp_graph_GroupBox.setLayout(self.mlp_graph_VBoxLayout)
+        self.mlp_plot_TabWidget = QTabWidget()
+        self.mlp_plot_TabWidget.setStyleSheet("" + MACRO_BORDER_STYLE.format('none') + MACRO_PADDING.format(0))
+        self.mlp_plot_TabWidget.setMovable(True)
+        self.mlp_graph_VBoxLayout.addWidget(self.mlp_plot_TabWidget)
+
         self.create_mlp_prob_tab()
         self.create_mlp_history_tab()
 
@@ -1264,9 +1318,9 @@ class MainWindow(QMainWindow):
             # 사람 자동 저장과 상호 배제
             if self.b_auto_save_human:
                 self.svm_auto_human_ToggleButton.setChecked(False)
-            self.f_last_auto_save_time = 0.0  # 즉시 첫 저장되도록 리셋
+            self.i_fft_since_last_save = 0  # 즉시 첫 저장되도록 리셋
             self.svm_auto_bg_ToggleButton.setText("🟢 배경 자동 ON  [1]")
-            self.log_TextEdit.append(f"[SVM] 배경 자동 저장 ON — {self.f_auto_save_interval:.1f}초마다 배경으로 저장됩니다.")
+            self.log_TextEdit.append(f"[SVM] 배경 자동 저장 ON — FFT {self.i_auto_save_stride}회마다 배경으로 저장됩니다.")
         else:
             self.svm_auto_bg_ToggleButton.setText("🔴 배경 자동 OFF  [1]")
             self.log_TextEdit.append("[SVM] 배경 자동 저장 OFF")
@@ -1278,16 +1332,16 @@ class MainWindow(QMainWindow):
             # 배경 자동 저장과 상호 배제
             if self.b_auto_save_bg:
                 self.svm_auto_bg_ToggleButton.setChecked(False)
-            self.f_last_auto_save_time = 0.0  # 즉시 첫 저장되도록 리셋
+            self.i_fft_since_last_save = 0  # 즉시 첫 저장되도록 리셋
             self.svm_auto_human_ToggleButton.setText("🟢 사람 자동 ON  [2]")
-            self.log_TextEdit.append(f"[SVM] 사람 자동 저장 ON — {self.f_auto_save_interval:.1f}초마다 사람으로 저장됩니다.")
+            self.log_TextEdit.append(f"[SVM] 사람 자동 저장 ON — FFT {self.i_auto_save_stride}회마다 사람으로 저장됩니다.")
         else:
             self.svm_auto_human_ToggleButton.setText("🔴 사람 자동 OFF  [2]")
             self.log_TextEdit.append("[SVM] 사람 자동 저장 OFF")
 
-    def event_svm_auto_save_interval_changed(self, f_value: float):
-        """자동 저장 인터벌 변경"""
-        self.f_auto_save_interval = f_value
+    def event_svm_auto_save_interval_changed(self, i_value: int):
+        """자동 저장 주기 변경 (FFT 갱신 횟수)"""
+        self.i_auto_save_stride = int(i_value)
 
     def event_svm_save_background(self):
         """현재 FFT 결과를 배경(0) 레이블로 저장"""
@@ -1521,7 +1575,21 @@ class MainWindow(QMainWindow):
 
         A_exclusion_zero_buffer = [x for x in inter_A_buffer if x != 0]
         if not A_exclusion_zero_buffer:
-            return 0, 0, 0, 0
+            return (
+                i_buffer_len
+                , i_buffer_min
+                , i_buffer_mid
+                , i_buffer_max
+                , f_buffer_avg
+                , f_buffer_std
+                , []     # A_exclusion_zero_buffer
+                , 0      # i_exclusion_zero_buffer_len
+                , 0      # i_exclusion_zero_buffer_min
+                , 0      # i_exclusion_zero_buffer_mid
+                , 0      # i_exclusion_zero_buffer_max
+                , 0.0    # f_exclusion_zero_buffer_avg
+                , 0.0    # f_exclusion_zero_buffer_std
+            )
         
         i_exclusion_zero_buffer_len = len(A_exclusion_zero_buffer)
         i_exclusion_zero_buffer_min = numpy.min(A_exclusion_zero_buffer)
@@ -1657,7 +1725,7 @@ class MainWindow(QMainWindow):
 
     def create_adc_plot_tab(self, graph_plot_value:list):
 
-        target_PlotWidget = pyqtgraph.PlotWidget()
+        target_PlotWidget = pyqtgraph.PlotWidget(axisItems={'left': IntAxisItem(orientation='left')})
         # 마우스 드래그(팬) 및 휠 줌 비활성화
         target_PlotWidget.setMouseEnabled(x=False, y=False)
         target_PlotWidget.setMenuEnabled(False)
@@ -1706,6 +1774,7 @@ class MainWindow(QMainWindow):
         if graph_plot_value[enum_graph_plot_index.INT_GRAPH_Y_RANGE]:
             target_PlotWidget.setYRange(0, graph_plot_value[enum_graph_plot_index.INT_GRAPH_Y_RANGE], padding=0)
         target_PlotWidget.getPlotItem().getViewBox().setLimits(yMin=0) # 하한 0 고정
+        target_PlotWidget.getAxis('left').enableAutoSIPrefix(False)   # ×0.001 같은 SI 배율 표기 비활성화 → 소수점 직접 표시
 
         target_PlotWidget.addLegend(offset=(10,10))            # 범례 추가(옵션: offset)
         target_PlotWidget.plot(
@@ -1852,7 +1921,7 @@ class MainWindow(QMainWindow):
         self._mlp_conf_text.setPos(0.5, 1.05)
         pw.addItem(self._mlp_conf_text)
 
-        self.svm_plot_TabWidget.addTab(pw, "MLP 확률")
+        self.mlp_plot_TabWidget.addTab(pw, "MLP 확률")
 
     def create_mlp_history_tab(self):
         """MLP 판정 히스토리 탭 — 최근 100 프레임 판정을 색상 스트립으로 표시"""
@@ -1869,7 +1938,7 @@ class MainWindow(QMainWindow):
         pw.getViewBox().disableAutoRange()
         pw.getViewBox().setRange(xRange=(0, 100), yRange=(0, 20), padding=0)
 
-        self.svm_plot_TabWidget.addTab(pw, "MLP 히스토리")
+        self.mlp_plot_TabWidget.addTab(pw, "MLP 히스토리")
     #     """ADC 버퍼에 FFT 적용
         
     #     Args:
@@ -2029,14 +2098,17 @@ class MainWindow(QMainWindow):
         ) = self.get_adc_buffer_info(self.A_adc_buffer)
 
         (
-            self.A_fft_frequencies
-            , self.A_fft_magnitudes
-            , self.f_fft_gain
-            , self.f_fft_adc_avg
-            , self.i_fft_peak_idx
-            , self.f_fft_peak_freq
-            , self.f_fft_peak_mag
-        ) = self.fft_handle.fft(self.A_adc_buffer, self.fft_gain_SpinBox.value())
+            # ESP32에서 FFT를 수행하므로 PC 측 fft_handle.fft() 호출 비활성화
+            # self.A_fft_frequencies
+            # , self.A_fft_magnitudes
+            # , self.f_fft_gain
+            # , self.f_fft_adc_avg
+            # , self.i_fft_peak_idx
+            # , self.f_fft_peak_freq
+            # , self.f_fft_peak_mag
+        # ) = self.fft_handle.fft(self.A_adc_buffer, self.fft_gain_SpinBox.value())
+        # ------ ESP32 FFT 수신 시 event_update_ui()에서 A_fft_frequencies/A_fft_magnitudes 갱신 ------
+        ) = ()
 
         # print(f"debugger_start.py | buffer_setting() | f_adc_avg : {self.f_adc_avg} == f_fft_adc_avg : {self.f_fft_adc_avg}")
 
@@ -2047,20 +2119,22 @@ class MainWindow(QMainWindow):
 
 
         # self.svm_handle.svm(self.A_fft_magnitudes, self.A_fft_frequencies)
-        (
-            self.A_svm_probabilty
-            , self.i_svm_label
-            , self.f_svm_confidence
-        ) = self.svm_handle.svm(self.A_fft_frequencies, self.A_fft_magnitudes)
-
-        # ############################# COPILOT EDIT START (MLP 실시간 추론)
-        if self.mlp_handle.b_is_trained:
+        # FFT 데이터가 수신된 경우에만 SVM/MLP 추론 (타입 12 미수신 시 빈 배열로 크래시 방지)
+        if len(self.A_fft_magnitudes) > 0:
             (
-                self.A_mlp_probability
-                , self.i_mlp_label
-                , self.f_mlp_confidence
-            ) = self.mlp_handle.mlp(self.A_fft_frequencies, self.A_fft_magnitudes)
-        # ############################# COPILOT EDIT END
+                self.A_svm_probabilty
+                , self.i_svm_label
+                , self.f_svm_confidence
+            ) = self.svm_handle.svm(self.A_fft_frequencies, self.A_fft_magnitudes)
+
+            # ############################# COPILOT EDIT START (MLP 실시간 추론)
+            if self.mlp_handle.b_is_trained:
+                (
+                    self.A_mlp_probability
+                    , self.i_mlp_label
+                    , self.f_mlp_confidence
+                ) = self.mlp_handle.mlp(self.A_fft_frequencies, self.A_fft_magnitudes)
+            # ############################# COPILOT EDIT END
 
 
     def update_threshold_lines(self, inter_Widget:QWidget):
@@ -2133,6 +2207,11 @@ class MainWindow(QMainWindow):
             lines[0].setData(self.A_adc_buffer)
         else:
             inter_Widget.plot(self.A_adc_buffer)
+
+        # 수신된 실제 버퍼 크기로 X축 범위 실시간 업데이트
+        n = len(self.A_adc_buffer)
+        if n > 0:
+            inter_Widget.setXRange(0, n - 1, padding=0.02)
 
 
         target_label = None
@@ -3012,12 +3091,8 @@ class MainWindow(QMainWindow):
             get_Widget = self.get_TabWidget(ADC_RAW_ZOOM_SCALE_NAME)
             self.update_adc_graph(get_Widget)
             
-            # ★ FFT 분석 및 그래프 업데이트
-            # self._update_fft_plot(input_sensor_parser_data.A_adc_buffer)
-            get_Widget = self.get_TabWidget(ADC_FFT_FULL_SCALE_NAME)
-            self.update_fft_graph(get_Widget)
-            get_Widget = self.get_TabWidget(ADC_FFT_ZOOM_SCALE_NAME)
-            self.update_fft_graph(get_Widget)
+            # ★ FFT 그래프는 FFT 패킷 수신 시(아래 블록)에서만 갱신 — ADC 수신마다 재호출 불필요
+            # (FFT는 FFT_STRIDE 샘플마다 1회 계산되므로 ADC보다 갱신 빈도가 낮음)
 
             # ★ SVM 분석 및 그래프 업데이트 (학습된 경우에만)
             if self.svm_handle.b_is_trained:
@@ -3039,17 +3114,8 @@ class MainWindow(QMainWindow):
                 self.mlp_result_Label.setText("🤖 MLP: 미로드 (모델 없음)")
                 self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(14))
 
-            # ★ 자동 저장 (토글 ON 상태일 때 FFT 데이터가 준비된 경우에만 저장, 인터벌 단위)
-            if self.svm_handle.A_magnitudes is not None:
-                if self.b_auto_save_bg or self.b_auto_save_human:
-                    f_now = time.monotonic()
-                    if f_now - self.f_last_auto_save_time >= self.f_auto_save_interval:
-                        self.f_last_auto_save_time = f_now
-                        if self.b_auto_save_bg:
-                            self.svm_handle.save_sample(svm.enum_label.LABEL_BACKGROUND)
-                        else:
-                            self.svm_handle.save_sample(svm.enum_label.LABEL_HUMAN)
-                        self.update_svm_label_count()
+            # ★ 자동 저장 토글 ON 상태일 때 FFT 데이터 준비된 경우만, 구독 유니트에서 저장 (시간 기반 → FFT 갱신 횟수 기반로 변경)
+            # 자동 저장은 아래 '# 5. ESP32 FFT 수신 데이터 업데이트' 블록에서 처리됨
 
 
 
@@ -3091,6 +3157,54 @@ class MainWindow(QMainWindow):
             self.connect_status_Label.setText(settings_str)
 
         self.update_svm_label_count()
+
+        # 4. 프로파일링 데이터 업데이트
+        if input_sensor_parser_data.profiling:
+            p = input_sensor_parser_data.profiling
+            profiling_str = (
+                f"⏱ ADC 처리: {p.adc_process_time_us} µs\n"
+                f"⚙ 알고리즘: {p.algo_process_time_us} µs\n"
+                f"🌀 FFT 처리: {p.fft_process_time_us} µs\n"
+                f"🔬 특징 추출: {p.feat_process_time_us} µs\n"
+                f"🔁 루프 주기: {p.loop_period_us} µs\n"
+                f"📦 스택 HWM (words)\n"
+                f"  BG: {p.bg_stack_hwm}  Main: {p.main_stack_hwm}\n"
+                f"  TX: {p.uart_tx_stack_hwm}  RX: {p.uart_rx_stack_hwm}"
+            )
+            self.profiling_Label.setText(profiling_str)
+
+        # 5. ESP32 FFT 수신 데이터 업데이트
+        if input_sensor_parser_data.fft_result:
+            fft_data = input_sensor_parser_data.fft_result
+            fft_output_size = len(fft_data.magnitudes)
+            # 주파수 배열 계산: freq[k] = k × SAMPLING_FREQ / WINDOW_SIZE
+            import numpy as np
+            self.A_fft_frequencies = numpy.array([k * self.f_sampling_rate / (2 * (fft_output_size - 1)) for k in range(fft_output_size)])
+            self.A_fft_energies    = numpy.array(fft_data.energies,    dtype=numpy.uint32)   # re²+im² 정수 에너지
+            self.A_fft_magnitudes  = numpy.array(fft_data.magnitudes,  dtype=numpy.float64)  # sqrt 복원 ADC 단위
+            if fft_output_size > 0:
+                self.i_fft_peak_idx   = int(np.argmax(self.A_fft_magnitudes[1:]) + 1)  # DC 제외
+                self.f_fft_peak_freq  = self.A_fft_frequencies[self.i_fft_peak_idx]
+                self.f_fft_peak_mag   = self.A_fft_magnitudes[self.i_fft_peak_idx]
+            # FFT 그래프 갱신
+            get_Widget = self.get_TabWidget(ADC_FFT_FULL_SCALE_NAME)
+            self.update_fft_graph(get_Widget)
+            get_Widget = self.get_TabWidget(ADC_FFT_ZOOM_SCALE_NAME)
+            self.update_fft_graph(get_Widget)
+
+            # ★ FFT 갱신 횟수 기반 자동 저장
+            # ESP32에서 새 FFT 결과가 도착할 때마다 카운터 증가,
+            # i_auto_save_stride회마다 SVM 특징을 1회 캐포마 함으로 동일 프레임 중복 저장 방지.
+            if self.b_auto_save_bg or self.b_auto_save_human:
+                if self.svm_handle.A_magnitudes is not None:
+                    self.i_fft_since_last_save += 1
+                    if self.i_fft_since_last_save >= self.i_auto_save_stride:
+                        self.i_fft_since_last_save = 0
+                        if self.b_auto_save_bg:
+                            self.svm_handle.save_sample(svm.enum_label.LABEL_BACKGROUND)
+                        else:
+                            self.svm_handle.save_sample(svm.enum_label.LABEL_HUMAN)
+                        self.update_svm_label_count()
 
         # """UI 업데이트: 로그, 그래프, 설정 표시"""
         # # 1. 로그 텍스트 업데이트 (최대 500줄 제한)

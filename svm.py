@@ -1,4 +1,4 @@
-# 샘플 300개, 샘플링 레이트가 100Hz
+# 샘플 256개, 샘플링 레이트가 100Hz
 # 빈 번호	주파수 범위	의미
 # 빈 0 (mag_0)	0 Hz	DC 성분
 # 빈 1 (mag_1)	~0.33 Hz	0.33Hz 신호 세기
@@ -9,7 +9,7 @@
 
 # 지금 특징 중 rms, low_energy, centroid 3개만으로도 꽤 잘 구분 가능
 # 추가하면 좋은 건 DC 성분과 저주파 에너지 비율
-# magnitudes 151개는 오히려 차원이 너무 높아서 소량 데이터에서 overfitting 위험 있음
+# magnitudes 129개는 오히려 차원이 너무 높아서 소량 데이터에서 overfitting 위험 있음
 
 # ############################# COPILOT EDIT START (svm.py 신규 생성)
 import enum
@@ -20,40 +20,35 @@ from sklearn.svm       import SVC
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
+import config as cfg
+
 class enum_label(enum.IntEnum):
     LABEL_BACKGROUND = 0
     LABEL_HUMAN = LABEL_BACKGROUND + 1
 
 
 # CSV 컬럼 인덱스
-# | 0~150      | magnitudes_0 ~ magnitudes_150  (151개) |
-# | 151        | peak_freq                              |
-# | 152        | peak_mag                               |
-# | 153        | avg_mag                                |
-# | 154        | std_mag                                |
-# | 155        | centroid                               |
-# | 156        | low_energy                             |
-# | 157        | mid_energy                             |
-# | 158        | high_energy                            |
-# | 159        | rms                                    |
-# | 160        | low_ratio      (저주파 에너지 비율)      |
-# | 161        | spectral_entropy (스펙트럼 엔트로피)     |
-# | 162        | peak_to_mean   (피크-투-평균 비율)       |
-# | -1 (마지막) | label                                  |
-I_MAGNITUDES_COUNT = 151
+# | 0 ~ I_MAGNITUDES_COUNT-1 | magnitudes_0 ~ magnitudes_N  |
+# | I_MAGNITUDES_COUNT + 0   | peak_freq                    |
+# | I_MAGNITUDES_COUNT + 1   | peak_mag                     |
+# | ...                      | 통계 특징들                      |
+# | -1 (마지막)              | label                        |
+# rfft(WINDOW_SIZE) 결과 크기 = WINDOW_SIZE // 2 + 1
+# config.py 의 WINDOW_SIZE 값에서 자동 계산 — 직접 수정하지 말 것
+I_MAGNITUDES_COUNT:int = cfg.WINDOW_SIZE // 2 + 1
 class enum_csv_col(enum.IntEnum):
-    PEAK_FREQ        = I_MAGNITUDES_COUNT + 0   # 151
-    PEAK_MAG         = I_MAGNITUDES_COUNT + 1   # 152
-    AVG_MAG          = I_MAGNITUDES_COUNT + 2   # 153
-    STD_MAG          = I_MAGNITUDES_COUNT + 3   # 154
-    CENTROID         = I_MAGNITUDES_COUNT + 4   # 155
-    LOW_ENERGY       = I_MAGNITUDES_COUNT + 5   # 156
-    MID_ENERGY       = I_MAGNITUDES_COUNT + 6   # 157
-    HIGH_ENERGY      = I_MAGNITUDES_COUNT + 7   # 158
-    RMS              = I_MAGNITUDES_COUNT + 8   # 159
-    LOW_RATIO        = I_MAGNITUDES_COUNT + 9   # 160  저주파 에너지 비율
-    SPECTRAL_ENTROPY = I_MAGNITUDES_COUNT + 10  # 161  스펙트럼 엔트로피
-    PEAK_TO_MEAN     = I_MAGNITUDES_COUNT + 11  # 162  피크-투-평균 비율
+    PEAK_FREQ        = I_MAGNITUDES_COUNT + 0   # 129
+    PEAK_MAG         = I_MAGNITUDES_COUNT + 1   # 130
+    AVG_MAG          = I_MAGNITUDES_COUNT + 2   # 131
+    STD_MAG          = I_MAGNITUDES_COUNT + 3   # 132
+    CENTROID         = I_MAGNITUDES_COUNT + 4   # 133
+    LOW_ENERGY       = I_MAGNITUDES_COUNT + 5   # 134
+    MID_ENERGY       = I_MAGNITUDES_COUNT + 6   # 135
+    HIGH_ENERGY      = I_MAGNITUDES_COUNT + 7   # 136
+    RMS              = I_MAGNITUDES_COUNT + 8   # 137
+    LOW_RATIO        = I_MAGNITUDES_COUNT + 9   # 138  저주파 에너지 비율
+    SPECTRAL_ENTROPY = I_MAGNITUDES_COUNT + 10  # 139  스펙트럼 엔트로피
+    PEAK_TO_MEAN     = I_MAGNITUDES_COUNT + 11  # 140  피크-투-평균 비율
 
 
 class SVM_Module():
@@ -111,15 +106,15 @@ class SVM_Module():
         #                   low_energy, mid_energy, rms, low_ratio, spectral_entropy, peak_to_mean
         _A_low_spec = list(range(1, 16))  # 빈 1~15
         _A_stat     = [
-            int(enum_csv_col.PEAK_FREQ),         # 151
-            int(enum_csv_col.PEAK_MAG),          # 152
-            int(enum_csv_col.STD_MAG),           # 154  (avg_mag 제외)
-            int(enum_csv_col.CENTROID),          # 155
-            int(enum_csv_col.LOW_ENERGY),        # 156
-            int(enum_csv_col.MID_ENERGY),        # 157  (high_energy 제외)
-            int(enum_csv_col.RMS),               # 159
-            int(enum_csv_col.LOW_RATIO),         # 160
-            int(enum_csv_col.SPECTRAL_ENTROPY),  # 161
+            int(enum_csv_col.PEAK_FREQ),         # 129
+            int(enum_csv_col.PEAK_MAG),          # 130
+            int(enum_csv_col.STD_MAG),           # 132  (avg_mag 제외)
+            int(enum_csv_col.CENTROID),          # 133
+            int(enum_csv_col.LOW_ENERGY),        # 134
+            int(enum_csv_col.MID_ENERGY),        # 135  (high_energy 제외)
+            int(enum_csv_col.RMS),               # 137
+            int(enum_csv_col.LOW_RATIO),         # 138
+            int(enum_csv_col.SPECTRAL_ENTROPY),  # 139
             int(enum_csv_col.PEAK_TO_MEAN),      # 162
         ]
         self.A_feature_indices: list = sorted(_A_low_spec + _A_stat)  # 25개 (저주파 15 + 통계 10)

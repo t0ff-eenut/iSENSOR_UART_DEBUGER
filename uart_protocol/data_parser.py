@@ -98,8 +98,13 @@ class DataParser:
 
             elif sensor_data.i_data_type == upcfg.UartDataType.SETTINGS:
                 sensor_data.settings = self.settings_parser(complete_receive_data.bytes_data)
-                # return None
-            
+
+            elif sensor_data.i_data_type == upcfg.UartDataType.PROFILING:
+                sensor_data.profiling = self.profiling_parser(complete_receive_data.bytes_data)
+
+            elif sensor_data.i_data_type == upcfg.UartDataType.FFT:
+                sensor_data.fft_result = self.fft_parser(complete_receive_data.bytes_data)
+                
             # elif sensor_data.i_data_typ == upcfg.UartDataType.ALL_DATA:
             #     # ALL_DATA는 현재 미지원
             #     pass
@@ -348,3 +353,87 @@ class DataParser:
     #         'hpf_buffer': hpf_buffer,
     #         'occupancy_buffer': occupancy_buffer
     #     }
+
+    def profiling_parser(self, bytes_data: bytes) -> updm.ProfilingData:
+        """
+        프로파일링 데이터 파싱 (28 bytes: 7 x uint32_t Big Endian)
+
+        필드 순서:
+          0: adc_process_time_us   (uint32 BE)
+          1: algo_process_time_us  (uint32 BE)
+          2: loop_period_us        (uint32 BE)
+          3: bg_stack_hwm          (uint32 BE)
+          4: main_stack_hwm        (uint32 BE)
+          5: uart_tx_stack_hwm     (uint32 BE)
+          6: uart_rx_stack_hwm     (uint32 BE)
+
+        Args:
+            bytes_data: 28 bytes
+
+        Returns:
+            ProfilingData
+        """
+        if len(bytes_data) != upcfg.RECEIVE_PROFILING_TOTAL_SIZE:
+            raise ValueError(
+                f"ProfilingData: expected {upcfg.RECEIVE_PROFILING_TOTAL_SIZE} bytes, got {len(bytes_data)}"
+            )
+
+        fields = []
+        for i in range(8):
+            offset = i * 4
+            value = (
+                (bytes_data[offset]     << 24) |
+                (bytes_data[offset + 1] << 16) |
+                (bytes_data[offset + 2] <<  8) |
+                 bytes_data[offset + 3]
+            )
+            fields.append(value)
+
+        return updm.ProfilingData(
+            adc_process_time_us  = fields[0],
+            algo_process_time_us = fields[1],
+            loop_period_us       = fields[2],
+            bg_stack_hwm         = fields[3],
+            main_stack_hwm       = fields[4],
+            uart_tx_stack_hwm    = fields[5],
+            uart_rx_stack_hwm    = fields[6],
+            fft_process_time_us  = fields[7],
+            feat_process_time_us = fields[8],
+        )
+
+    def fft_parser(self, bytes_data: bytes) -> updm.FftData:
+        """
+        FFT 에너지 스펙트럼 파싱 (FFT_OUTPUT_SIZE x uint32 Big Endian)
+
+        필드: energies[0..FFT_OUTPUT_SIZE-1] (uint32 BE, re²+im²)
+        예) FFT_OUTPUT_SIZE=129, WINDOW_SIZE=256 → 516 bytes
+
+        magnitude 복원:
+          k=0  : sqrt(E) / FFT_SC16_SCALE * 1/N
+          k>=1 : sqrt(E) / FFT_SC16_SCALE * 2/N
+          FFT_SC16_SCALE=8, N=WINDOW_SIZE=256
+
+        Args:
+            bytes_data: upcfg.RECEIVE_FFT_TOTAL_SIZE bytes
+
+        Returns:
+            FftData (energies + magnitudes 둘 다 보관)
+        """
+        import struct
+        import math
+
+        if len(bytes_data) != upcfg.RECEIVE_FFT_TOTAL_SIZE:
+            raise ValueError(
+                f"FftData: expected {upcfg.RECEIVE_FFT_TOTAL_SIZE} bytes, got {len(bytes_data)}"
+            )
+
+        fft_output_size = upcfg.RECEIVE_FFT_TOTAL_SIZE // 4
+        energies = list(struct.unpack(f'>{fft_output_size}I', bytes_data))
+
+        FFT_SC16_SCALE = 8
+        N = fft_output_size * 2 - 2  # WINDOW_SIZE = (FFT_OUTPUT_SIZE-1)*2 = 256
+        magnitudes = [
+            math.sqrt(e) / FFT_SC16_SCALE * (1.0 / N if k == 0 else 2.0 / N)
+            for k, e in enumerate(energies)
+        ]
+        return updm.FftData(energies=energies, magnitudes=magnitudes)
