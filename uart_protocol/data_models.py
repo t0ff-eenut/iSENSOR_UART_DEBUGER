@@ -96,6 +96,8 @@ class SensorData:
     profiling:Optional['ProfilingData'] = None
     # FFT 진폭 데이터 (타입 12)
     fft_result:Optional['FftData'] = None
+    # FFT 특징값 데이터 (타입 13)
+    fft_features:Optional['FftFeaturesData'] = None
     
     # # 통합 데이터 (타입 7)
     # all_buffers: Optional[dict] = None
@@ -181,41 +183,44 @@ class SettingsData:
 @dataclass
 class ProfilingData:
     """
-    ESP32 실행 시간 및 Task 스택 사용량 프로파일링 데이터 (타입 11)
+    ESP32 실행 시간 프로파일링 데이터 (타입 11)
 
-    페이로드 레이아웃 (Big Endian, 28 bytes: 7 x uint32_t):
-    | 필드                    | 크기 | 설명                              |
-    |------------------------|------|----------------------------------|
-    | adc_process_time_us    | 4    | ADC 큐 수신~버퍼 저장 처리 시간 (µs) |
-    | algo_process_time_us   | 4    | TP1/TP2 알고리즘 실행 시간 (µs)     |
-    | loop_period_us         | 4    | 배경 스레드 루프 주기 (µs)           |
-    | bg_stack_hwm           | 4    | 배경 Task 스택 고수위 (words)        |
-    | main_stack_hwm         | 4    | Main Task 스택 고수위 (words)       |
-    | uart_tx_stack_hwm      | 4    | UART TX Task 스택 고수위 (words)    |
-    | uart_rx_stack_hwm      | 4    | UART RX Task 스택 고수위 (words)    |
+    페이로드 레이아웃 (Big Endian, 36 bytes: 9 x uint32_t)
+    펌웨어 UART_TX_PROFILING case 필드 순서와 동일:
+    | 필드                              | 크기 | 설명                        |
+    |----------------------------------|------|-----------------------------|
+    | adc_reading_time_us              | 4    | ADC Read 시작~끝 (µs)        |
+    | adc_read_buffer_latency_time_us  | 4    | ADC 확인~Process 시작 (µs)   |
+    | adc_processing_time_us           | 4    | ADC Process 시작~끝 (µs)     |
+    | adc_buffer_insert_time_us        | 4    | Mode ADC 버퍼 입력 (µs)      |
+    | fft_process_time_us              | 4    | FFT Process 시작~끝 (µs)     |
+    | fft_features_process_time_us     | 4    | FFT 특징 추출 시작~끝 (µs)   |
+    | fft_loop_a_time_us               | 4    | FFT 루프 A 시간 (µs)          |
+    | fft_loop_b_time_us               | 4    | FFT 루프 B 시간 (µs)          |
+    | fft_loop_c_time_us               | 4    | FFT 루프 C 시간 (µs)          |
     """
-    adc_process_time_us:int   = 0   # ADC 큐 수신 ~ 버퍼 저장 처리 시간 (µs)
-    algo_process_time_us:int  = 0   # TP1/TP2 알고리즘 실행 시간 (µs)
-    loop_period_us:int        = 0   # 배경 스레드 루프 주기 (µs)
-    bg_stack_hwm:int          = 0   # 배경 Task 스택 고수위 (words)
-    main_stack_hwm:int        = 0   # Main Task 스택 고수위 (words)
-    uart_tx_stack_hwm:int     = 0   # UART TX Task 스택 고수위 (words)
-    uart_rx_stack_hwm:int     = 0   # UART RX Task 스택 고수위 (words)
-    fft_process_time_us:int   = 0   # FFT 실행 시간 (µs)
-    feat_process_time_us:int  = 0   # 특징 추출 실행 시간 (µs)
+    adc_reading_time_us:int              = 0
+    adc_read_buffer_latency_time_us:int  = 0
+    adc_processing_time_us:int           = 0
+    adc_buffer_insert_time_us:int        = 0
+    fft_process_time_us:int              = 0
+    fft_features_process_time_us:int     = 0
+    fft_loop_a_time_us:int               = 0
+    fft_loop_b_time_us:int               = 0
+    fft_loop_c_time_us:int               = 0
 
     def __repr__(self) -> str:
         return (
             f"\nProfilingData(\n"
-            f"  adc_process  = {self.adc_process_time_us} µs\n"
-            f"  algo_process = {self.algo_process_time_us} µs\n"
-            f"  loop_period  = {self.loop_period_us} µs  ({self.loop_period_us/1000:.2f} ms)\n"
-            f"  bg_stack_hwm      = {self.bg_stack_hwm} words\n"
-            f"  main_stack_hwm    = {self.main_stack_hwm} words\n"
-            f"  uart_tx_stack_hwm = {self.uart_tx_stack_hwm} words\n"
-            f"  uart_rx_stack_hwm = {self.uart_rx_stack_hwm} words\n"
-            f"  fft_process_time  = {self.fft_process_time_us} µs\n"
-            f"  feat_process_time = {self.feat_process_time_us} µs\n"
+            f"  adc_reading              = {self.adc_reading_time_us} µs\n"
+            f"  adc_read_buf_latency     = {self.adc_read_buffer_latency_time_us} µs\n"
+            f"  adc_processing           = {self.adc_processing_time_us} µs\n"
+            f"  adc_buffer_insert        = {self.adc_buffer_insert_time_us} µs\n"
+            f"  fft_process              = {self.fft_process_time_us} µs\n"
+            f"  fft_features_process     = {self.fft_features_process_time_us} µs\n"
+            f"  fft_loop_a               = {self.fft_loop_a_time_us} µs\n"
+            f"  fft_loop_b               = {self.fft_loop_b_time_us} µs\n"
+            f"  fft_loop_c               = {self.fft_loop_c_time_us} µs\n"
             f")"
         )
 
@@ -245,6 +250,78 @@ class FftData:
             f"  count       = {len(self.energies)}\n"
             f"  peak_idx    = {peak_idx}\n"
             f"  peak_mag    = {self.magnitudes[peak_idx]:.4f if self.magnitudes else 0}\n"
+            f")"
+        )
+
+
+@dataclass
+class FftFeaturesData:
+    """
+    FFT 특징값 데이터 (타입 13)
+
+    페이로드 레이아웃 (Big Endian, 72 bytes: 18 필드 × 4 bytes)
+    펌웨어 UART_TX_FFT_FEATURES case 직렬화 순서와 동일:
+    | 시퀀스 | 필드명                  | 타입   | 설명                       |
+    |--------|------------------------|--------|----------------------------|
+    |  0     | f_spectral_rolloff     | float  | 스펙트럼 롤오프 (Hz)        |
+    |  1     | f_spectral_bandwidth   | float  | 스펙트럼 대역폭 (Hz)        |
+    |  2     | i_peak_count           | int32  | 피크 빈 개수                |
+    |  3     | f_mid_ratio            | float  | 중주파(5~10Hz) 비율         |
+    |  4     | f_low_to_high_ratio    | float  | 저/고주파 에너지 비율       |
+    |  5     | f_second_peak_freq     | float  | 2번째 피크 주파수 (Hz)      |
+    |  6     | f_kurtosis             | float  | 첨도                        |
+    |  7     | f_centroid             | float  | 스펙트럼 무게중심 주파수 (Hz)|
+    |  8     | f_peak_freq            | float  | 1번째 피크 주파수 (Hz)      |
+    |  9     | f_low_ratio            | float  | 저주파(0~5Hz) 비율          |
+    | 10     | f_rms                  | float  | RMS 진폭                    |
+    | 11     | ui32_avg_energy        | uint32 | 평균 에너지 (정수)           |
+    | 12     | ui32_peak_energy       | uint32 | 피크 에너지 (정수)           |
+    | 13     | f_energy_variance      | float  | 에너지 분산                 |
+    | 14     | f_peak_to_avg_e        | float  | 피크/평균 에너지 비율        |
+    | 15     | f_high_ratio           | float  | 고주파(10Hz+) 비율          |
+    | 16     | f_peak1_to_peak2_ratio | float  | 1위 vs 2위 피크 비율        |
+    | 17     | f_skewness             | float  | 왜도                        |
+    """
+    f_spectral_rolloff:float     = 0.0
+    f_spectral_bandwidth:float   = 0.0
+    i_peak_count:int             = 0
+    f_mid_ratio:float            = 0.0
+    f_low_to_high_ratio:float    = 0.0
+    f_second_peak_freq:float     = 0.0
+    f_kurtosis:float             = 0.0
+    f_centroid:float             = 0.0
+    f_peak_freq:float            = 0.0
+    f_low_ratio:float            = 0.0
+    f_rms:float                  = 0.0
+    ui32_avg_energy:int          = 0
+    ui32_peak_energy:int         = 0
+    f_energy_variance:float      = 0.0
+    f_peak_to_avg_e:float        = 0.0
+    f_high_ratio:float           = 0.0
+    f_peak1_to_peak2_ratio:float = 0.0
+    f_skewness:float             = 0.0
+
+    def __repr__(self) -> str:
+        return (
+            f"\nFftFeaturesData(\n"
+            f"  rolloff          = {self.f_spectral_rolloff:.4f} Hz\n"
+            f"  bandwidth        = {self.f_spectral_bandwidth:.4f} Hz\n"
+            f"  peak_count       = {self.i_peak_count}\n"
+            f"  mid_ratio        = {self.f_mid_ratio:.4f}\n"
+            f"  low_to_high      = {self.f_low_to_high_ratio:.4f}\n"
+            f"  second_peak_freq = {self.f_second_peak_freq:.4f} Hz\n"
+            f"  kurtosis         = {self.f_kurtosis:.4f}\n"
+            f"  centroid         = {self.f_centroid:.4f} Hz\n"
+            f"  peak_freq        = {self.f_peak_freq:.4f} Hz\n"
+            f"  low_ratio        = {self.f_low_ratio:.4f}\n"
+            f"  rms              = {self.f_rms:.6f}\n"
+            f"  avg_energy       = {self.ui32_avg_energy}\n"
+            f"  peak_energy      = {self.ui32_peak_energy}\n"
+            f"  energy_variance  = {self.f_energy_variance:.4f}\n"
+            f"  peak_to_avg_e    = {self.f_peak_to_avg_e:.4f}\n"
+            f"  high_ratio       = {self.f_high_ratio:.4f}\n"
+            f"  peak1_to_peak2   = {self.f_peak1_to_peak2_ratio:.4f}\n"
+            f"  skewness         = {self.f_skewness:.4f}\n"
             f")"
         )
 

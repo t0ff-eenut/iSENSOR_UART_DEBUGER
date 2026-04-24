@@ -410,6 +410,7 @@ class MainWindow(QMainWindow):
         self.i_fft_peak_idx            = 0
         self.f_fft_peak_freq           = 0
         self.f_fft_peak_mag            = 0
+        self.fft_features_data         = None   # FftFeaturesData (타입 13)
         # # ############################# COPILOT EDIT START (svm 핸들 초기화 + Phase 3 히스토리)
         self.svm_handle:svm.SVM_Module  = svm.SVM_Module()
         # ############################# COPILOT EDIT START (mlp 핸들 초기화)
@@ -2341,10 +2342,15 @@ class MainWindow(QMainWindow):
 
         PlotItem = inter_Widget.getPlotItem()
         lines = PlotItem.listDataItems()
-        if lines:
-            lines[0].setData(self.A_fft_frequencies, self.A_fft_magnitudes)
+        # 에너지(re²+im²) 분포를 그래프에 표시
+        if len(self.A_fft_energies) > 0 and len(self.A_fft_frequencies) == len(self.A_fft_energies):
+            y_data = self.A_fft_energies.astype(numpy.float64)
         else:
-            inter_Widget.plot(self.A_fft_frequencies, self.A_fft_magnitudes)
+            y_data = self.A_fft_magnitudes
+        if lines:
+            lines[0].setData(self.A_fft_frequencies, y_data)
+        else:
+            inter_Widget.plot(self.A_fft_frequencies, y_data)
 
         target_label = None
         items = getattr(PlotItem, 'items', None)  # 일부 버전은 속성, 일부는 다른 구조일 수 있음
@@ -2352,13 +2358,35 @@ class MainWindow(QMainWindow):
             if isinstance(item, pyqtgraph.TextItem) and getattr(item, 'role', None) == cfg.FFT_LABEL_NAME:
                 target_label = item
 
+        # 기본 FFT 통계
         s_stats_text = (
-            f"Gain : {self.f_fft_gain:.1f}\n"
-            f"DC Mean : {self.f_fft_adc_avg:.1f}\n"
-            f"Mag Peak 위치 : {self.i_fft_peak_idx}\n"
-            f"Peak Freq(주파수) : {self.f_fft_peak_freq:.2f} Hz\n"
-            f"Peak Mag(진폭/세기) : {self.f_fft_peak_mag:.1f}\n"
+            f"Peak Freq : {self.f_fft_peak_freq:.2f} Hz\n"
+            f"Peak Idx  : {self.i_fft_peak_idx}\n"
         )
+        # FFT 특징값 (타입 13) — 수신된 경우 추가 표시
+        if self.fft_features_data is not None:
+            ft = self.fft_features_data
+            s_stats_text += (
+                f"--- FFT Features ---\n"
+                f"Centroid      (무게중심 주파수) : {ft.f_centroid:.2f} Hz\n"
+                f"Rolloff       (롤오프 주파수)   : {ft.f_spectral_rolloff:.2f} Hz\n"
+                f"Bandwidth     (대역폭)          : {ft.f_spectral_bandwidth:.2f} Hz\n"
+                f"Peak Freq     (1위 피크 주파수) : {ft.f_peak_freq:.2f} Hz\n"
+                f"2nd Peak Freq (2위 피크 주파수) : {ft.f_second_peak_freq:.2f} Hz\n"
+                f"Peak Count    (피크 빈 개수)    : {ft.i_peak_count}\n"
+                f"RMS           (RMS 진폭)        : {ft.f_rms:.4f}\n"
+                f"Avg Energy    (평균 에너지)     : {ft.ui32_avg_energy}\n"
+                f"Peak Energy   (피크 에너지)     : {ft.ui32_peak_energy}\n"
+                f"Low Ratio     (저주파 비율)     : {ft.f_low_ratio:.3f}\n"
+                f"Mid Ratio     (중주파 비율)     : {ft.f_mid_ratio:.3f}\n"
+                f"High Ratio    (고주파 비율)     : {ft.f_high_ratio:.3f}\n"
+                f"L/H Ratio     (저/고주파 비율)  : {ft.f_low_to_high_ratio:.3f}\n"
+                f"P1/P2 Ratio   (1위/2위 피크 비율): {ft.f_peak1_to_peak2_ratio:.3f}\n"
+                f"Peak/Avg E    (피크/평균 에너지 비율): {ft.f_peak_to_avg_e:.3f}\n"
+                f"E Variance    (에너지 분산)     : {ft.f_energy_variance:.2f}\n"
+                f"Kurtosis      (첨도)            : {ft.f_kurtosis:.3f}\n"
+                f"Skewness      (왜도)            : {ft.f_skewness:.3f}\n"
+            )
 
         target_label.setText(s_stats_text)
         ViewBox = PlotItem.getViewBox()
@@ -3162,18 +3190,22 @@ class MainWindow(QMainWindow):
         if input_sensor_parser_data.profiling:
             p = input_sensor_parser_data.profiling
             profiling_str = (
-                f"⏱ ADC 처리: {p.adc_process_time_us} µs\n"
-                f"⚙ 알고리즘: {p.algo_process_time_us} µs\n"
-                f"🌀 FFT 처리: {p.fft_process_time_us} µs\n"
-                f"🔬 특징 추출: {p.feat_process_time_us} µs\n"
-                f"🔁 루프 주기: {p.loop_period_us} µs\n"
-                f"📦 스택 HWM (words)\n"
-                f"  BG: {p.bg_stack_hwm}  Main: {p.main_stack_hwm}\n"
-                f"  TX: {p.uart_tx_stack_hwm}  RX: {p.uart_rx_stack_hwm}"
+                f"⏱ ADC Read:       {p.adc_reading_time_us} µs\n"
+                f"⏱ ADC Buf Lat:    {p.adc_read_buffer_latency_time_us} µs\n"
+                f"⏱ ADC Processing: {p.adc_processing_time_us} µs\n"
+                f"⏱ ADC Buf Insert: {p.adc_buffer_insert_time_us} µs\n"
+                f"🌀 FFT 처리:       {p.fft_process_time_us} µs\n"
+                f"🔬 특징 추출:       {p.fft_features_process_time_us} µs\n"
+                f"🔁 FFT Loop A:     {p.fft_loop_a_time_us} µs\n"
+                f"🔁 FFT Loop B:     {p.fft_loop_b_time_us} µs\n"
+                f"🔁 FFT Loop C:     {p.fft_loop_c_time_us} µs"
             )
             self.profiling_Label.setText(profiling_str)
 
         # 5. ESP32 FFT 수신 데이터 업데이트
+        if input_sensor_parser_data.fft_features:
+            self.fft_features_data = input_sensor_parser_data.fft_features
+
         if input_sensor_parser_data.fft_result:
             fft_data = input_sensor_parser_data.fft_result
             fft_output_size = len(fft_data.magnitudes)

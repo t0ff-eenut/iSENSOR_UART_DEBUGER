@@ -2,6 +2,70 @@
 
 ---
 
+## v0.7.0 — FFT_FEATURES(타입 13) 수신 지원 및 프로파일링 필드 재정의
+
+**날짜:** 2026-04-24
+
+### 원인
+
+펌웨어 v0.3.4에서 `UART_TX_FFT_FEATURES` (타입 13, 72 bytes) 패킷 신규 추가 및
+`UART_TX_PROFILING` 필드가 구버전(스택 HWM 포함 9개) → 신규 실행 시간 기반 9개로 재정의됨.
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `uart_protocol/uart_protocol_config.py` | `UartDataType.FFT_FEATURES = 13` 추가, `RECEIVE_FFT_FEATURES_TOTAL_SIZE = 72` 추가, PROFILING 주석 신규 9개 필드로 업데이트 |
+| `uart_protocol/data_models.py` | `ProfilingData` 9개 필드 재정의 (스택 HWM 제거 → ADC/FFT 실행 시간으로 교체), `FftFeaturesData` dataclass 신규 추가 (18개 필드, 72 bytes), `SensorData`에 `fft_features` 필드 추가 |
+| `uart_protocol/data_parser.py` | `profiling_parser()` 루프 `range(8)→range(9)`, 신규 필드명 적용, `data_parser()` 타입 13 case 추가, `fft_features_parser()` 메서드 신규 구현 (float/int32/uint32 Big Endian) |
+| `debugger_start.py` | `fft_features_data` 멤버 추가, `event_update_ui()`에서 타입 13 수신 시 저장, FFT 그래프 Y축 에너지(re²+im²)로 변경, FFT 레이블에 18개 특징값(영문+한글) 표시, 프로파일링 라벨 신규 9개 필드로 업데이트 |
+
+### 신규: FFT_FEATURES 페이로드 (72 bytes, 18 필드 × 4 bytes Big Endian)
+
+| 순서 | 필드명 | 타입 | 설명 |
+|------|--------|------|------|
+| 0 | `f_spectral_rolloff` | float | 스펙트럼 롤오프 (Hz) |
+| 1 | `f_spectral_bandwidth` | float | 스펙트럼 대역폭 (Hz) |
+| 2 | `i_peak_count` | int32 | 피크 빈 개수 |
+| 3 | `f_mid_ratio` | float | 중주파(5~10Hz) 비율 |
+| 4 | `f_low_to_high_ratio` | float | 저/고주파 에너지 비율 |
+| 5 | `f_second_peak_freq` | float | 2번째 피크 주파수 (Hz) |
+| 6 | `f_kurtosis` | float | 첨도 |
+| 7 | `f_centroid` | float | 스펙트럼 무게중심 주파수 (Hz) |
+| 8 | `f_peak_freq` | float | 1번째 피크 주파수 (Hz) |
+| 9 | `f_low_ratio` | float | 저주파(0~5Hz) 비율 |
+| 10 | `f_rms` | float | RMS 진폭 |
+| 11 | `ui32_avg_energy` | uint32 | 평균 에너지 (정수) |
+| 12 | `ui32_peak_energy` | uint32 | 피크 에너지 (정수) |
+| 13 | `f_energy_variance` | float | 에너지 분산 |
+| 14 | `f_peak_to_avg_e` | float | 피크/평균 에너지 비율 |
+| 15 | `f_high_ratio` | float | 고주파(10Hz+) 비율 |
+| 16 | `f_peak1_to_peak2_ratio` | float | 1위 vs 2위 피크 비율 |
+| 17 | `f_skewness` | float | 왜도 |
+
+### 변경: PROFILING 페이로드 (36 bytes, 9 필드 × uint32 Big Endian)
+
+| 순서 | 구버전 필드 | 신버전 필드 |
+|------|------------|------------|
+| 0 | `adc_process_time_us` | `adc_reading_time_us` |
+| 1 | `algo_process_time_us` | `adc_read_buffer_latency_time_us` |
+| 2 | `loop_period_us` | `adc_processing_time_us` |
+| 3 | `bg_stack_hwm` | `adc_buffer_insert_time_us` |
+| 4 | `main_stack_hwm` | `fft_process_time_us` |
+| 5 | `uart_tx_stack_hwm` | `fft_features_process_time_us` |
+| 6 | `uart_rx_stack_hwm` | `fft_loop_a_time_us` |
+| 7 | `fft_process_time_us` | `fft_loop_b_time_us` |
+| 8 | `feat_process_time_us` | `fft_loop_c_time_us` |
+
+### 결과
+
+- 타입 13 패킷 수신 시 FFT 특징값 18개가 그래프 레이블에 실시간 표시됨.
+- FFT 그래프 Y축이 진폭(magnitude)에서 에너지(re²+im², uint32)로 변경됨.
+- 프로파일링 패널이 ADC/FFT 단계별 실행 시간 9개로 재편됨.
+- 펌웨어 `v0.3.4`와 프로토콜 호환.
+
+---
+
 ## v0.6.0 — FFT energy uint32 수신 및 magnitude 복원 처리
 
 **날짜:** 2026-04-22

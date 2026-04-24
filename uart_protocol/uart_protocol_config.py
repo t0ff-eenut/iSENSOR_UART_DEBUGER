@@ -114,16 +114,30 @@ class UartDataType(enum.IntEnum):
     # BPF_VOLTAGE_BUFFER = 8       # UART_TX_BPF_VOLTAGE_BUFFER
     SETTINGS = 9                 # UART_TX_SETTINGS
     # ALL_DATA = 10                # UART_TX_ALL_DATA
-    PROFILING = 11               # UART_TX_PROFILING (32 bytes: 8 x uint32_t Big Endian)
-    FFT = 12                     # UART_TX_FFT (FFT_OUTPUT_SIZE x 4 bytes Big Endian float32)
+    PROFILING = 11               # UART_TX_PROFILING (36 bytes: 9 x uint32_t Big Endian)
+    FFT = 12                     # UART_TX_FFT (FFT_OUTPUT_SIZE x 4 bytes Big Endian uint32)
+    FFT_FEATURES = 13            # UART_TX_FFT_FEATURES (72 bytes: 18 필드 Big Endian)
 
-# PROFILING 페이로드 크기: 8개 필드 x 4 bytes = 32 bytes
-# 필드 순서: adc_process_us, algo_process_us, loop_period_us,
-#            bg_stack_hwm, main_stack_hwm, uart_tx_stack_hwm, uart_rx_stack_hwm, fft_process_time_us
-RECEIVE_PROFILING_TOTAL_SIZE:int = 36   # 9 x uint32_t (feat_process_time_us 추가)
+# PROFILING 페이로드 크기: 9개 필드 x 4 bytes = 36 bytes
+# 필드 순서 (펌웨어 uart_thread.c UART_TX_PROFILING case와 동일):
+#   0: adc_reading_time_us
+#   1: adc_read_buffer_latency_time_us
+#   2: adc_processing_time_us
+#   3: adc_buffer_insert_time_us
+#   4: fft_process_time_us
+#   5: fft_features_process_time_us
+#   6: fft_loop_a_time_us
+#   7: fft_loop_b_time_us
+#   8: fft_loop_c_time_us
+RECEIVE_PROFILING_TOTAL_SIZE:int = 36   # 9 x uint32_t
 
 # FFT 페이로드 크기: (WINDOW_SIZE/2 + 1) 진폭값 x 4 bytes = 516 bytes
 RECEIVE_FFT_TOTAL_SIZE:int = (cfg.WINDOW_SIZE // 2 + 1) * 4  # 516 bytes
+
+# FFT_FEATURES 페이로드 크기: 18개 필드 x 4 bytes = 72 bytes
+# float×16 + int32×1(i_peak_count) + uint32×1(ui32_avg_energy, ui32_peak_energy 각 4) = 72 bytes
+# 실제: float×14 + int32×1 + uint32×2 + float×1 = 18필드 × 4bytes
+RECEIVE_FFT_FEATURES_TOTAL_SIZE:int = 18 * 4  # 72 bytes
 
 class UartCommandType(enum.IntEnum):
     """PC → ESP32 명령 타입 (ESP32 펌웨어의 CommandType_t와 동일)

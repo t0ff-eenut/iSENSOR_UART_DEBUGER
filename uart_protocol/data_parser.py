@@ -104,6 +104,9 @@ class DataParser:
 
             elif sensor_data.i_data_type == upcfg.UartDataType.FFT:
                 sensor_data.fft_result = self.fft_parser(complete_receive_data.bytes_data)
+
+            elif sensor_data.i_data_type == upcfg.UartDataType.FFT_FEATURES:
+                sensor_data.fft_features = self.fft_features_parser(complete_receive_data.bytes_data)
                 
             # elif sensor_data.i_data_typ == upcfg.UartDataType.ALL_DATA:
             #     # ALL_DATA는 현재 미지원
@@ -356,19 +359,21 @@ class DataParser:
 
     def profiling_parser(self, bytes_data: bytes) -> updm.ProfilingData:
         """
-        프로파일링 데이터 파싱 (28 bytes: 7 x uint32_t Big Endian)
+        프로파일링 데이터 파싱 (36 bytes: 9 x uint32_t Big Endian)
 
-        필드 순서:
-          0: adc_process_time_us   (uint32 BE)
-          1: algo_process_time_us  (uint32 BE)
-          2: loop_period_us        (uint32 BE)
-          3: bg_stack_hwm          (uint32 BE)
-          4: main_stack_hwm        (uint32 BE)
-          5: uart_tx_stack_hwm     (uint32 BE)
-          6: uart_rx_stack_hwm     (uint32 BE)
+        필드 순서 (펌웨어 UART_TX_PROFILING case 와 동일):
+          0: adc_reading_time_us              (uint32 BE)
+          1: adc_read_buffer_latency_time_us  (uint32 BE)
+          2: adc_processing_time_us           (uint32 BE)
+          3: adc_buffer_insert_time_us        (uint32 BE)
+          4: fft_process_time_us              (uint32 BE)
+          5: fft_features_process_time_us     (uint32 BE)
+          6: fft_loop_a_time_us               (uint32 BE)
+          7: fft_loop_b_time_us               (uint32 BE)
+          8: fft_loop_c_time_us               (uint32 BE)
 
         Args:
-            bytes_data: 28 bytes
+            bytes_data: 36 bytes
 
         Returns:
             ProfilingData
@@ -379,7 +384,7 @@ class DataParser:
             )
 
         fields = []
-        for i in range(8):
+        for i in range(9):
             offset = i * 4
             value = (
                 (bytes_data[offset]     << 24) |
@@ -390,15 +395,15 @@ class DataParser:
             fields.append(value)
 
         return updm.ProfilingData(
-            adc_process_time_us  = fields[0],
-            algo_process_time_us = fields[1],
-            loop_period_us       = fields[2],
-            bg_stack_hwm         = fields[3],
-            main_stack_hwm       = fields[4],
-            uart_tx_stack_hwm    = fields[5],
-            uart_rx_stack_hwm    = fields[6],
-            fft_process_time_us  = fields[7],
-            feat_process_time_us = fields[8],
+            adc_reading_time_us             = fields[0],
+            adc_read_buffer_latency_time_us = fields[1],
+            adc_processing_time_us          = fields[2],
+            adc_buffer_insert_time_us       = fields[3],
+            fft_process_time_us             = fields[4],
+            fft_features_process_time_us    = fields[5],
+            fft_loop_a_time_us              = fields[6],
+            fft_loop_b_time_us              = fields[7],
+            fft_loop_c_time_us              = fields[8],
         )
 
     def fft_parser(self, bytes_data: bytes) -> updm.FftData:
@@ -437,3 +442,70 @@ class DataParser:
             for k, e in enumerate(energies)
         ]
         return updm.FftData(energies=energies, magnitudes=magnitudes)
+
+    def fft_features_parser(self, bytes_data: bytes) -> updm.FftFeaturesData:
+        """
+        FFT 특징값 파싱 (72 bytes: 18 필드 × 4 bytes Big Endian)
+
+        필드 순서 (펌웨어 UART_TX_FFT_FEATURES case 직렬화 순서와 동일):
+          0:  f_spectral_rolloff     (float BE)
+          1:  f_spectral_bandwidth   (float BE)
+          2:  i_peak_count           (int32 BE  — signed)
+          3:  f_mid_ratio            (float BE)
+          4:  f_low_to_high_ratio    (float BE)
+          5:  f_second_peak_freq     (float BE)
+          6:  f_kurtosis             (float BE)
+          7:  f_centroid             (float BE)
+          8:  f_peak_freq            (float BE)
+          9:  f_low_ratio            (float BE)
+          10: f_rms                  (float BE)
+          11: ui32_avg_energy        (uint32 BE)
+          12: ui32_peak_energy       (uint32 BE)
+          13: f_energy_variance      (float BE)
+          14: f_peak_to_avg_e        (float BE)
+          15: f_high_ratio           (float BE)
+          16: f_peak1_to_peak2_ratio (float BE)
+          17: f_skewness             (float BE)
+
+        Args:
+            bytes_data: 72 bytes
+
+        Returns:
+            FftFeaturesData
+        """
+        import struct
+
+        if len(bytes_data) != upcfg.RECEIVE_FFT_FEATURES_TOTAL_SIZE:
+            raise ValueError(
+                f"FftFeaturesData: expected {upcfg.RECEIVE_FFT_FEATURES_TOTAL_SIZE} bytes, got {len(bytes_data)}"
+            )
+
+        def read_float(offset: int) -> float:
+            return struct.unpack('>f', bytes_data[offset:offset + 4])[0]
+
+        def read_int32(offset: int) -> int:
+            return struct.unpack('>i', bytes_data[offset:offset + 4])[0]
+
+        def read_uint32(offset: int) -> int:
+            return struct.unpack('>I', bytes_data[offset:offset + 4])[0]
+
+        return updm.FftFeaturesData(
+            f_spectral_rolloff     = read_float(  0),
+            f_spectral_bandwidth   = read_float(  4),
+            i_peak_count           = read_int32(  8),   # int32 (signed)
+            f_mid_ratio            = read_float( 12),
+            f_low_to_high_ratio    = read_float( 16),
+            f_second_peak_freq     = read_float( 20),
+            f_kurtosis             = read_float( 24),
+            f_centroid             = read_float( 28),
+            f_peak_freq            = read_float( 32),
+            f_low_ratio            = read_float( 36),
+            f_rms                  = read_float( 40),
+            ui32_avg_energy        = read_uint32(44),
+            ui32_peak_energy       = read_uint32(48),
+            f_energy_variance      = read_float( 52),
+            f_peak_to_avg_e        = read_float( 56),
+            f_high_ratio           = read_float( 60),
+            f_peak1_to_peak2_ratio = read_float( 64),
+            f_skewness             = read_float( 68),
+        )
