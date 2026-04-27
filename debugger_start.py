@@ -411,7 +411,7 @@ class MainWindow(QMainWindow):
         self.f_fft_peak_freq           = 0
         self.f_fft_peak_mag            = 0
         self.fft_features_data         = None   # FftFeaturesData (타입 13)
-        self._last_auto_saved_fft_features = None   # 자동 저장 중복 방지 (동일 패킷 겹치기 차단)
+        self._last_auto_saved_fft_key  = None   # 자동 저장 중복 방지: (avg_energy, peak_energy, peak_freq) 튜플
         # # ############################# COPILOT EDIT START (svm 핸들 초기화 + Phase 3 히스토리)
         self.svm_handle:svm.SVM_Module      = svm.SVM_Module()
         self.collector:tdc.TrainingDataCollector = tdc.TrainingDataCollector()  # data_csv/svm_data_TIMESTAMP.csv 자동 생성
@@ -3624,18 +3624,23 @@ class MainWindow(QMainWindow):
             # ESP32에서 새 FFT 결과가 도착할 때마다 카운터 증가,
             # i_auto_save_stride회마다 SVM 특징을 1회 캐포마 함으로 동일 프레임 중복 저장 방지.
             if self.b_auto_save_bg or self.b_auto_save_human:
-                # 새 fft_features 패킷이 도착한 경우만 카운터 증가 (동일 객체 반복 전송 차단)
-                if (self.fft_features_data is not None
-                        and self.fft_features_data is not self._last_auto_saved_fft_features):
-                    self.i_fft_since_last_save += 1
-                    if self.i_fft_since_last_save >= self.i_auto_save_stride:
-                        self.i_fft_since_last_save = 0
-                        self._last_auto_saved_fft_features = self.fft_features_data
-                        if self.b_auto_save_bg:
-                            self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_BACKGROUND)
-                        else:
-                            self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_HUMAN)
-                        self.update_svm_label_count()
+                if self.fft_features_data is not None:
+                    # 동일 FFT 프레임 판별: avg_energy + peak_energy + peak_freq 조합 키
+                    _cur_key = (
+                        self.fft_features_data.ui32_avg_energy,
+                        self.fft_features_data.ui32_peak_energy,
+                        self.fft_features_data.f_peak_freq,
+                    )
+                    if _cur_key != self._last_auto_saved_fft_key:
+                        self.i_fft_since_last_save += 1
+                        if self.i_fft_since_last_save >= self.i_auto_save_stride:
+                            self.i_fft_since_last_save = 0
+                            self._last_auto_saved_fft_key = _cur_key
+                            if self.b_auto_save_bg:
+                                self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_BACKGROUND)
+                            else:
+                                self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_HUMAN)
+                            self.update_svm_label_count()
 
         # """UI 업데이트: 로그, 그래프, 설정 표시"""
         # # 1. 로그 텍스트 업데이트 (최대 500줄 제한)
