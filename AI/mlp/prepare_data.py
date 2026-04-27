@@ -44,7 +44,8 @@ RANDOM_SEED = 42
 
 # ── 경로 설정 ─────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PARENT_DIR = os.path.dirname(SCRIPT_DIR)
+PARENT_DIR = os.path.dirname(SCRIPT_DIR)   # AI/
+ROOT_DIR   = os.path.dirname(PARENT_DIR)   # 프로젝트 루트
 
 OUTPUT_MERGED = os.path.join(SCRIPT_DIR, 'data_merged.csv')
 OUTPUT_TRAIN  = os.path.join(SCRIPT_DIR, 'data_train.csv')
@@ -87,7 +88,7 @@ def load_csv_safe(path: str) -> pd.DataFrame:
 
 def main():
     # ── CSV 목록 탐색 ─────────────────────────────────────────────
-    pattern = os.path.join(PARENT_DIR, 'svm_data*.csv')
+    pattern = os.path.join(ROOT_DIR, 'data_csv', 'svm_data*.csv')
     paths   = sorted(glob.glob(pattern))
 
     if not paths:

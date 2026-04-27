@@ -29,7 +29,8 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 # ── 경로 설정 ─────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(SCRIPT_DIR)
-sys.path.insert(0, PARENT_DIR)
+sys.path.insert(0, SCRIPT_DIR)   # nn_mlp 임포트 (AI/mlp/에 위치)
+sys.path.insert(0, PARENT_DIR)   # 기타 상위 모듈
 
 TRAIN_CSV    = os.path.join(SCRIPT_DIR, 'data_train.csv')
 VAL_CSV      = os.path.join(SCRIPT_DIR, 'data_val.csv')

@@ -161,6 +161,7 @@ class SettingsData:
     i_sleep_time_us:int = 0               # uint64
     b_occu_status:bool = False         # bool (재실 여부)
     b_pir_status:bool = False          # bool (PIR 출력)
+    i_fft_stride:int = 32              # uint16 (FFT stride, default=32)
     
     def __repr__(self) -> str:
         return (
@@ -259,7 +260,7 @@ class FftFeaturesData:
     """
     FFT 특징값 데이터 (타입 13)
 
-    페이로드 레이아웃 (Big Endian, 72 bytes: 18 필드 × 4 bytes)
+    페이로드 레이아웃 (Big Endian, 84 bytes: 21 필드 × 4 bytes)
     펌웨어 UART_TX_FFT_FEATURES case 직렬화 순서와 동일:
     | 시퀀스 | 필드명                  | 타입   | 설명                       |
     |--------|------------------------|--------|----------------------------|
@@ -281,6 +282,9 @@ class FftFeaturesData:
     | 15     | f_high_ratio           | float  | 고주파(10Hz+) 비율          |
     | 16     | f_peak1_to_peak2_ratio | float  | 1위 vs 2위 피크 비율        |
     | 17     | f_skewness             | float  | 왜도                        |
+    | 18     | f_dc_ratio             | float  | DC 에너지 비율              |
+    | 19     | f_delta_peak_freq      | float  | 프레임 간 피크 주파수 변화량   |
+    | 20     | f_spectral_flatness    | float  | 스펙트럼 평탄도             |
     """
     f_spectral_rolloff:float     = 0.0
     f_spectral_bandwidth:float   = 0.0
@@ -300,6 +304,9 @@ class FftFeaturesData:
     f_high_ratio:float           = 0.0
     f_peak1_to_peak2_ratio:float = 0.0
     f_skewness:float             = 0.0
+    f_dc_ratio:float             = 0.0
+    f_delta_peak_freq:float      = 0.0
+    f_spectral_flatness:float    = 0.0
 
     def __repr__(self) -> str:
         return (
@@ -322,6 +329,9 @@ class FftFeaturesData:
             f"  high_ratio       = {self.f_high_ratio:.4f}\n"
             f"  peak1_to_peak2   = {self.f_peak1_to_peak2_ratio:.4f}\n"
             f"  skewness         = {self.f_skewness:.4f}\n"
+            f"  dc_ratio         = {self.f_dc_ratio:.4f}\n"
+            f"  delta_peak_freq  = {self.f_delta_peak_freq:.4f} Hz\n"
+            f"  spectral_flatness= {self.f_spectral_flatness:.4f}\n"
             f")"
         )
 

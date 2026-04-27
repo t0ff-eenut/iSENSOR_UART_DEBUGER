@@ -248,6 +248,11 @@ class DataParser:
         # PIR status (bool from uint8)
         SettingData_handle.b_pir_status = bool(econv.bytes_to_int_auto(bytes_data[b_pir_status_start:b_pir_status_end], endian='big'))
 
+        i_fft_stride_start = b_pir_status_end
+        i_fft_stride_end = i_fft_stride_start + upcfg.RECEIVE_SETTINGS_FFT_STRIDE_LENGTH
+        # FFT Stride (uint16 BE)
+        SettingData_handle.i_fft_stride = econv.bytes_to_uint16_be(bytes_data[i_fft_stride_start:i_fft_stride_end])
+
 
         print(f"data_parser.py | settings_parser() | SettingData_handle.b_occu_status: {SettingData_handle.b_occu_status}")
         print(f"data_parser.py | settings_parser() | SettingData_handle.b_pir_status: {SettingData_handle.b_pir_status}")
@@ -508,4 +513,7 @@ class DataParser:
             f_high_ratio           = read_float( 60),
             f_peak1_to_peak2_ratio = read_float( 64),
             f_skewness             = read_float( 68),
+            f_dc_ratio             = read_float( 72),
+            f_delta_peak_freq      = read_float( 76),
+            f_spectral_flatness    = read_float( 80),
         )

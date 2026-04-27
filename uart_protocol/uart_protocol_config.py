@@ -46,6 +46,7 @@ RECEIVE_SETTINGS_OCCU_CHK_TIMEOUT_LENGTH:int    = cfg.UART_RECEIVE_SETTINGS_OCCU
 RECEIVE_SETTINGS_SLEEP_TIME_LENGTH:int          = cfg.UART_RECEIVE_SETTINGS_SLEEP_TIME_BYTESIZE
 RECEIVE_SETTINGS_OCCUPANCY_STATUS_LENGTH:int    = cfg.UART_RECEIVE_SETTINGS_OCCUPANCY_STATUS_BYTESIZE
 RECEIVE_SETTINGS_PIR_STATUS_LENGTH:int          = cfg.UART_RECEIVE_SETTINGS_PIR_STATUS_BYTESIZE
+RECEIVE_SETTINGS_FFT_STRIDE_LENGTH:int          = cfg.UART_RECEIVE_SETTINGS_FFT_STRIDE_BYTESIZE
 RECEIVE_SETTINGS_TOTAL_SIZE:int = (
     RECEIVE_SETTINGS_TP1_LENGTH
     + RECEIVE_SETTINGS_TP1_RECHECK_LENGTH
@@ -60,7 +61,8 @@ RECEIVE_SETTINGS_TOTAL_SIZE:int = (
     + RECEIVE_SETTINGS_SLEEP_TIME_LENGTH
     + RECEIVE_SETTINGS_OCCUPANCY_STATUS_LENGTH
     + RECEIVE_SETTINGS_PIR_STATUS_LENGTH
-)  # 45 bytes
+    + RECEIVE_SETTINGS_FFT_STRIDE_LENGTH
+)  # 47 bytes
 
 
 
@@ -116,7 +118,7 @@ class UartDataType(enum.IntEnum):
     # ALL_DATA = 10                # UART_TX_ALL_DATA
     PROFILING = 11               # UART_TX_PROFILING (36 bytes: 9 x uint32_t Big Endian)
     FFT = 12                     # UART_TX_FFT (FFT_OUTPUT_SIZE x 4 bytes Big Endian uint32)
-    FFT_FEATURES = 13            # UART_TX_FFT_FEATURES (72 bytes: 18 필드 Big Endian)
+    FFT_FEATURES = 13            # UART_TX_FFT_FEATURES (84 bytes: 21 필드 Big Endian)
 
 # PROFILING 페이로드 크기: 9개 필드 x 4 bytes = 36 bytes
 # 필드 순서 (펌웨어 uart_thread.c UART_TX_PROFILING case와 동일):
@@ -134,22 +136,32 @@ RECEIVE_PROFILING_TOTAL_SIZE:int = 36   # 9 x uint32_t
 # FFT 페이로드 크기: (WINDOW_SIZE/2 + 1) 진폭값 x 4 bytes = 516 bytes
 RECEIVE_FFT_TOTAL_SIZE:int = (cfg.WINDOW_SIZE // 2 + 1) * 4  # 516 bytes
 
-# FFT_FEATURES 페이로드 크기: 18개 필드 x 4 bytes = 72 bytes
+# FFT_FEATURES 페이로드 크기: 21개 필드 x 4 bytes = 84 bytes
 # float×16 + int32×1(i_peak_count) + uint32×1(ui32_avg_energy, ui32_peak_energy 각 4) = 72 bytes
 # 실제: float×14 + int32×1 + uint32×2 + float×1 = 18필드 × 4bytes
-RECEIVE_FFT_FEATURES_TOTAL_SIZE:int = 18 * 4  # 72 bytes
+RECEIVE_FFT_FEATURES_TOTAL_SIZE:int = 21 * 4  # 84 bytes
 
 class UartCommandType(enum.IntEnum):
     """PC → ESP32 명령 타입 (ESP32 펌웨어의 CommandType_t와 동일)
     
     기존 데이터 타입(0x00~0x09)과 충돌하지 않도록 0x10부터 시작
     """
-    CMD_SET_TP1         = cfg.CMD_SETTING_TP1  # TP1 임계값 설정 (payload: uint16_t, 2 bytes)
-    CMD_SET_TP2         = cfg.CMD_SETTING_TP2  # TP2 카운트 설정 (payload: uint64_t, 8 bytes)
+    CMD_SET_TP1         = cfg.CMD_SETTING_TP1        # TP1 임계값 설정 (payload: uint16_t, 2 bytes)
+    CMD_SET_TP2         = cfg.CMD_SETTING_TP2        # TP2 카운트 설정 (payload: uint64_t, 8 bytes)
     CMD_SET_TP1_RECHECK = cfg.CMD_SETTTING_TP1_RECHECK  # TP1 Recheck 임계값 설정 (payload: uint16_t, 2 bytes)
-    CMD_GET_SETTINGS    = cfg.CMD_GET_SETTINGS  # 현재 설정값 요청 (payload: 없음)
-    CMD_SAVE_NVS        = cfg.CMD_SAVE_NVS  # 현재 설정을 NVS에 저장 (payload: 없음)
-    CMD_RESET           = cfg.CMD_RESET  # ESP32 소프트 리셋 (payload: 없음)
+    CMD_SET_FFT_STRIDE  = cfg.CMD_SET_FFT_STRIDE     # FFT Stride 설정 (payload: uint16_t, 2 bytes)
+    CMD_SET_LED_MAX_PER = cfg.CMD_SET_LED_MAX_PER    # LED 최대 밝기 (payload: uint8_t, 0~100 %)
+    CMD_SET_LED_MIN_PER = cfg.CMD_SET_LED_MIN_PER    # LED 최소 밝기 (payload: uint8_t, 0~100 %)
+    CMD_SET_LED_DIM_PER = cfg.CMD_SET_LED_DIM_PER    # LED 디밍 밝기 (payload: uint8_t, 0~100 %)
+    CMD_SET_LED_WORK_MS = cfg.CMD_SET_LED_WORK_MS    # LED 점등 유지 시간 (payload: uint32_t LE, ms)
+    CMD_SET_LED_STEP_MS = cfg.CMD_SET_LED_STEP_MS    # LED 디밍 스텝 시간 (payload: uint32_t LE, ms)
+    CMD_SET_LED_DELAY_MS= cfg.CMD_SET_LED_DELAY_MS   # LED 디밍 딜레이 시간 (payload: uint32_t LE, ms)
+    CMD_SET_OCCU_TIMEOUT= cfg.CMD_SET_OCCU_TIMEOUT   # 재실 확인 타임아웃 (payload: uint32_t LE, 초)
+    CMD_SET_SLEEP_TIME  = cfg.CMD_SET_SLEEP_TIME     # 슬립 시간 (payload: uint32_t LE, 초)
+    CMD_SET_LED_ONOFF   = cfg.CMD_SET_LED_ONOFF      # LED ON/OFF (payload: uint8_t, 0=OFF 1=ON)
+    CMD_GET_SETTINGS    = cfg.CMD_GET_SETTINGS       # 현재 설정값 요청 (payload: 없음)
+    CMD_SAVE_NVS        = cfg.CMD_SAVE_NVS           # 현재 설정을 NVS에 저장 (payload: 없음)
+    CMD_RESET           = cfg.CMD_RESET              # ESP32 소프트 리셋 (payload: 없음)
 
 
 

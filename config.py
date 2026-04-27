@@ -4,7 +4,7 @@ WINDOW_POSITION_X:int   = 100
 WINDOW_POSITION_Y:int   = 100
 WINDOW_WIDTH:int        = 2400
 WINDOW_HEIGHT:int       = 800
-LEFT_BOX_WIDTH:int      = 400
+LEFT_BOX_WIDTH:int      = 800
 
 
 BACKGROUND_COLOR:str    = "#003D83"
@@ -120,11 +120,22 @@ UART_RECEIVE_SETTINGS_SLEEP_TIME_BYTESIZE:int       = 8 # uint64
 
 UART_RECEIVE_SETTINGS_OCCUPANCY_STATUS_BYTESIZE:int = 1 # bool
 UART_RECEIVE_SETTINGS_PIR_STATUS_BYTESIZE:int       = 1 # bool
+UART_RECEIVE_SETTINGS_FFT_STRIDE_BYTESIZE:int       = 2 # uint16
 
 
 CMD_SETTING_TP1:int           = 0x10  # TP1 임계값 설정 (payload: uint16_t, 2 bytes)
 CMD_SETTING_TP2:int           = 0x11  # TP2 카운트 설정 (payload: uint64_t, 8 bytes)
 CMD_SETTTING_TP1_RECHECK:int  = 0x12  # TP1 Recheck 임계값 설정 (payload: uint16_t, 2 bytes)
+CMD_SET_FFT_STRIDE:int        = 0x13  # FFT Stride 설정 (payload: uint16_t, 2 bytes, Little Endian)
+CMD_SET_LED_MAX_PER:int       = 0x14  # LED 최대 밝기 설정 (payload: uint8_t, 0~100 %)
+CMD_SET_LED_MIN_PER:int       = 0x15  # LED 최소 밝기 설정 (payload: uint8_t, 0~100 %)
+CMD_SET_LED_DIM_PER:int       = 0x16  # LED 디밍 밝기 설정 (payload: uint8_t, 0~100 %)
+CMD_SET_LED_WORK_MS:int       = 0x17  # LED 점등 유지 시간 (payload: uint32_t LE, ms)
+CMD_SET_LED_STEP_MS:int       = 0x18  # LED 디밍 스텝 시간 (payload: uint32_t LE, ms)
+CMD_SET_LED_DELAY_MS:int      = 0x19  # LED 디밍 딜레이 시간 (payload: uint32_t LE, ms)
+CMD_SET_OCCU_TIMEOUT:int      = 0x1A  # 재실 확인 타임아웃 (payload: uint32_t LE, 초)
+CMD_SET_SLEEP_TIME:int        = 0x1B  # 슬립 시간 (payload: uint32_t LE, 초)
+CMD_SET_LED_ONOFF:int         = 0x1C  # LED ON/OFF (payload: uint8_t, 0=OFF 1=ON)
 CMD_GET_SETTINGS:int          = 0x20  # 현재 설정값 요청 (payload: 없음)
 CMD_SAVE_NVS:int              = 0x30  # 현재 설정을 NVS에 저장 (payload: 없음)
 CMD_RESET:int                 = 0xF0  # ESP32 소프트 리셋 (payload: 없음)

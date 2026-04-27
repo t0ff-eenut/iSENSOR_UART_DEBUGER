@@ -6,6 +6,7 @@ PyQt6와 pyqtgraph를 사용한 UART 데이터 시각화 도구
 import sys
 import os
 import time
+import datetime
 from typing import List, Optional
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
@@ -33,13 +34,12 @@ import uart_protocol.data_parser            as updp
 import uart_protocol.command_sender         as upcs
 import uart_protocol.data_models            as updm
 import fft
-# ############################# COPILOT EDIT START (import svm)
-import svm
-# ############################# COPILOT EDIT END
-# ############################# COPILOT EDIT START (import mlp)
+# ############################# COPILOT EDIT START (import AI modules)
 import sys as _sys
-_sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'AI'))
-import AI.nn_mlp as nn_mlp
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from AI.svm import svm
+from AI import training_data_collector as tdc
+from AI.mlp import nn_mlp
 # ############################# COPILOT EDIT END
 
 MACRO_FONT_NAME = "font-family: {};"
@@ -119,29 +119,27 @@ class SvmFeatureDialog(QDialog):
     # (표시 라벨, 시작 인덱스, 끝 인덱스+1)
     # ⭐ = 권장 선택 (기본 ON)  |  그 외 = 기본 OFF
     _FEATURE_DEFS = [
-        # ── 스펙트럼 빈 (대역별 분리) ──────────────────────────────────────
-        ("DC 성분  (빈 0, 0Hz)  — 노이즈, 제거 권장",
-            0, 1),
-        ("⭐ 저주파 스펙트럼  (빈 1~15,  0.3~5Hz,  15개)  — 인체 신호 핵심",
-            1, 16),
-        ("중주파 스펙트럼  (빈 16~30,  5~10Hz,  15개)",
-            16, 31),
-        ("고주파 스펙트럼  (빈 31~150,  10~50Hz,  120개)  — 노이즈, 제거 권장",
-            31, svm.I_MAGNITUDES_COUNT),
-        # ── 통계 특징 ───────────────────────────────────────────────────────
-        ("⭐ peak_freq   —  피크 주파수 (Hz)",           int(svm.enum_csv_col.PEAK_FREQ),        int(svm.enum_csv_col.PEAK_FREQ)        + 1),
-        ("⭐ peak_mag   —  피크 진폭",                   int(svm.enum_csv_col.PEAK_MAG),         int(svm.enum_csv_col.PEAK_MAG)         + 1),
-        ("⭐ std_mag   —  진폭 표준편차",                int(svm.enum_csv_col.STD_MAG),          int(svm.enum_csv_col.STD_MAG)          + 1),
-        ("⭐ centroid   —  무게중심 주파수 (Hz)",         int(svm.enum_csv_col.CENTROID),         int(svm.enum_csv_col.CENTROID)         + 1),
-        ("⭐ low_energy   —  저주파 에너지  (0~5 Hz)",   int(svm.enum_csv_col.LOW_ENERGY),       int(svm.enum_csv_col.LOW_ENERGY)       + 1),
-        ("⭐ mid_energy   —  중주파 에너지  (5~10 Hz)",  int(svm.enum_csv_col.MID_ENERGY),       int(svm.enum_csv_col.MID_ENERGY)       + 1),
-        ("⭐ rms   —  RMS 에너지",                       int(svm.enum_csv_col.RMS),              int(svm.enum_csv_col.RMS)              + 1),
-        ("⭐ low_ratio   —  저주파 에너지 비율  low/(low+mid+high)",
-                                                        int(svm.enum_csv_col.LOW_RATIO),        int(svm.enum_csv_col.LOW_RATIO)        + 1),
-        ("⭐ spectral_entropy   —  스펙트럼 엔트로피  -Σp·log(p)",
-                                                        int(svm.enum_csv_col.SPECTRAL_ENTROPY), int(svm.enum_csv_col.SPECTRAL_ENTROPY) + 1),
-        ("⭐ peak_to_mean   —  피크-투-평균 비율  peak/avg",
-                                                        int(svm.enum_csv_col.PEAK_TO_MEAN),     int(svm.enum_csv_col.PEAK_TO_MEAN)     + 1),
+        ("spectral_rolloff       — 스펙트럼 롤오프 (Hz)",            int(svm.enum_csv_col.SPECTRAL_ROLLOFF),     int(svm.enum_csv_col.SPECTRAL_ROLLOFF)     + 1),
+        ("spectral_bandwidth     — 스펙트럼 대역폭 (Hz)",            int(svm.enum_csv_col.SPECTRAL_BANDWIDTH),   int(svm.enum_csv_col.SPECTRAL_BANDWIDTH)   + 1),
+        ("peak_count             — 피크 빈 개수 (avg+2σ 초과)",      int(svm.enum_csv_col.PEAK_COUNT),           int(svm.enum_csv_col.PEAK_COUNT)           + 1),
+        ("mid_ratio              — 중주파 비율 (5~10Hz)",             int(svm.enum_csv_col.MID_RATIO),            int(svm.enum_csv_col.MID_RATIO)            + 1),
+        ("⭐ low_to_high_ratio   — 저/고주파 에너지 비율",            int(svm.enum_csv_col.LOW_TO_HIGH_RATIO),    int(svm.enum_csv_col.LOW_TO_HIGH_RATIO)    + 1),
+        ("second_peak_freq       — 2번째 피크 주파수 (Hz)",           int(svm.enum_csv_col.SECOND_PEAK_FREQ),     int(svm.enum_csv_col.SECOND_PEAK_FREQ)     + 1),
+        ("⭐ kurtosis            — 에너지 분포 첨도",                 int(svm.enum_csv_col.KURTOSIS),             int(svm.enum_csv_col.KURTOSIS)             + 1),
+        ("⭐ centroid            — 스펙트럼 무게중심 (Hz)",            int(svm.enum_csv_col.CENTROID),             int(svm.enum_csv_col.CENTROID)             + 1),
+        ("⭐ peak_freq           — 1위 피크 주파수 (Hz)",              int(svm.enum_csv_col.PEAK_FREQ),            int(svm.enum_csv_col.PEAK_FREQ)            + 1),
+        ("⭐ low_ratio           — 저주파 비율 (0~5Hz)",               int(svm.enum_csv_col.LOW_RATIO),            int(svm.enum_csv_col.LOW_RATIO)            + 1),
+        ("⭐ rms                 — RMS 에너지",                       int(svm.enum_csv_col.RMS),                  int(svm.enum_csv_col.RMS)                  + 1),
+        ("⭐ avg_energy          — 평균 에너지 (정수)",                int(svm.enum_csv_col.AVG_ENERGY),           int(svm.enum_csv_col.AVG_ENERGY)           + 1),
+        ("peak_energy            — 피크 에너지 (정수)",                int(svm.enum_csv_col.PEAK_ENERGY),          int(svm.enum_csv_col.PEAK_ENERGY)          + 1),
+        ("energy_variance        — 에너지 분산",                      int(svm.enum_csv_col.ENERGY_VARIANCE),      int(svm.enum_csv_col.ENERGY_VARIANCE)      + 1),
+        ("⭐ peak_to_avg_e       — 피크/평균 에너지 비율",             int(svm.enum_csv_col.PEAK_TO_AVG_E),        int(svm.enum_csv_col.PEAK_TO_AVG_E)        + 1),
+        ("high_ratio             — 고주파 비율 (10Hz+)",              int(svm.enum_csv_col.HIGH_RATIO),           int(svm.enum_csv_col.HIGH_RATIO)           + 1),
+        ("⭐ peak1_to_peak2_ratio — 1위/2위 피크 에너지 비율",         int(svm.enum_csv_col.PEAK1_TO_PEAK2_RATIO), int(svm.enum_csv_col.PEAK1_TO_PEAK2_RATIO) + 1),
+        ("⭐ skewness            — 에너지 분포 왜도",                  int(svm.enum_csv_col.SKEWNESS),             int(svm.enum_csv_col.SKEWNESS)             + 1),
+        ("dc_ratio               — DC 에너지 비율 (잔류 DC)",           int(svm.enum_csv_col.DC_RATIO),             int(svm.enum_csv_col.DC_RATIO)             + 1),
+        ("delta_peak_freq        — 프레임 간 피크 주파수 변화량 (Hz)",   int(svm.enum_csv_col.DELTA_PEAK_FREQ),      int(svm.enum_csv_col.DELTA_PEAK_FREQ)      + 1),
+        ("spectral_flatness      — 스펙트럼 평탄도 (0=순수톤, 1=백색잡음)", int(svm.enum_csv_col.SPECTRAL_FLATNESS),    int(svm.enum_csv_col.SPECTRAL_FLATNESS)    + 1),
     ]
 
     def __init__(self, current_indices: list, parent=None):
@@ -197,12 +195,13 @@ class SvmTrainWorker(PyQt6.QtCore.QThread):
     """SVM 학습을 백그라운드에서 실행하는 워커 스레드"""
     finished = PyQt6.QtCore.pyqtSignal(bool)  # 학습 성공 여부
 
-    def __init__(self, svm_handle):
+    def __init__(self, svm_handle, str_csv_path: str):
         super().__init__()
-        self._svm_handle = svm_handle
+        self._svm_handle   = svm_handle
+        self._str_csv_path = str_csv_path
 
     def run(self):
-        result = self._svm_handle.train()
+        result = self._svm_handle.train(self._str_csv_path)
         self.finished.emit(result)
 
 
@@ -375,6 +374,7 @@ class MainWindow(QMainWindow):
         self.A_graph_plot_value.append(self.A_svm_plot_TabWidget_configs)       # 2
         self.uart_thread = None
         self.command_sender = upcs.CommandSender()  # 명령 송신 객체
+        self._settings_loaded: bool = False  # 초기 설정값 수신 여부 (한 번만 SpinBox 반영)
 
         self.b_auto_save_bg:bool    = False  # 배경 자동 저장 토글 상태
         self.b_auto_save_human:bool = False  # 사람 자동 저장 토글 상태
@@ -411,8 +411,10 @@ class MainWindow(QMainWindow):
         self.f_fft_peak_freq           = 0
         self.f_fft_peak_mag            = 0
         self.fft_features_data         = None   # FftFeaturesData (타입 13)
+        self._last_auto_saved_fft_features = None   # 자동 저장 중복 방지 (동일 패킷 겹치기 차단)
         # # ############################# COPILOT EDIT START (svm 핸들 초기화 + Phase 3 히스토리)
-        self.svm_handle:svm.SVM_Module  = svm.SVM_Module()
+        self.svm_handle:svm.SVM_Module      = svm.SVM_Module()
+        self.collector:tdc.TrainingDataCollector = tdc.TrainingDataCollector()  # data_csv/svm_data_TIMESTAMP.csv 자동 생성
         # ############################# COPILOT EDIT START (mlp 핸들 초기화)
         self.mlp_handle:nn_mlp.MLP_Module = nn_mlp.MLP_Module()
         self.A_mlp_probability  = [1.0, 0.0]
@@ -421,7 +423,7 @@ class MainWindow(QMainWindow):
         self._mlp_history: deque = deque(maxlen=100)  # 최근 100프레임 판정 이력
         # ############################# COPILOT EDIT END
 
-        self.svm_x_col:svm.enum_csv_col = svm.enum_csv_col.SPECTRAL_ENTROPY
+        self.svm_x_col:svm.enum_csv_col = svm.enum_csv_col.SPECTRAL_FLATNESS
         self.svm_y_col:svm.enum_csv_col = svm.enum_csv_col.LOW_RATIO
 
         # 결정 경계 재계산 캐시 (뷰 범위/축 변경 시에만 재계산)
@@ -592,8 +594,10 @@ class MainWindow(QMainWindow):
         self.main_HBoxLayout.addWidget(self.left_Widget, stretch=1)     # 1-1. 상위 레이아웃에 위젯 적용
 
 # --- 좌측 패널 구성 ---
-        self.left_VBoxLayout = QVBoxLayout()            # 2. 세로 방향 레이아웃 생성
-        self.left_Widget.setLayout(self.left_VBoxLayout)     # 3. 레이아웃을 대상 위젯에 적용
+        self.left_GridLayout = QGridLayout()            # 2. 2열 그리드 레이아웃 생성
+        self.left_GridLayout.setColumnStretch(0, 1)     # 좌열 / 우열 동등 비율
+        self.left_GridLayout.setColumnStretch(1, 1)
+        self.left_Widget.setLayout(self.left_GridLayout)     # 3. 레이아웃을 대상 위젯에 적용
 # --- 제어창 표시 설정 ---
         self.left_control_Label = QLabel("제어창")             # 1. 대상 위젯 생성
         self.left_control_Label.setStyleSheet(""
@@ -601,13 +605,13 @@ class MainWindow(QMainWindow):
                                               + MACRO_FONT_SIZE.format(14)
                                               )  # * 위젯 폰트 설정
         self.left_control_Label.setFixedHeight(30)             # * 위젯 가로 사이즈 설정
-        self.left_VBoxLayout.addWidget(self.left_control_Label)    # 1-1. 상위 레이아웃에 위젯 적용
+        self.left_GridLayout.addWidget(self.left_control_Label, 0, 0, 1, 2)    # Row0 - 전체 2열 차지
 # --- Connection 그룹 설정 ---
         self.connection_GroupBox = QGroupBox("Connection")             # 1. 대상 위젯 생성
         # self.connection_GroupBox.setFlat(True)
         self.connection_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성 
         self.connection_GroupBox.setLayout(self.connection_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
-        self.left_VBoxLayout.addWidget(self.connection_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
+        self.left_GridLayout.addWidget(self.connection_GroupBox, 1, 0)          # Row1 Col0 - Connection
 
         # --- 📶포트 설정 ---
         # --- 포트 라벨 설정 ---
@@ -673,16 +677,16 @@ class MainWindow(QMainWindow):
         self.insert_baudrates_to_ComboBox()
 
 # --- Status 그룹 설정 ---
-        self.status_GroupBox = QGroupBox("Setting")             # 1. 대상 위젯 생성
+        self.status_GroupBox = QGroupBox("Status")             # 1. 대상 위젯 생성
         self.status_GroupBox.setStyleSheet(""
                                            + MACRO_BORDER_RADIUS.format(6)
                                            )
         self.status_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성
         self.status_GroupBox.setLayout(self.status_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
-        self.left_VBoxLayout.addWidget(self.status_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
+        self.left_GridLayout.addWidget(self.status_GroupBox, 2, 0, 2, 1)       # Row2-3 Col0 - Setting(Status)
 
         # --- 제어창 표시 설정 ---
-        self.connect_status_Label = QLabel("Not connected")
+        self.connect_status_Label = QLabel("🔴 Not connected")
         self.connect_status_Label.setStyleSheet(""
                                                 + MACRO_FONT_BOLD
                                                 + MACRO_FONT_SIZE.format(14)
@@ -764,7 +768,7 @@ class MainWindow(QMainWindow):
                                                )
         self.tp_setting_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성
         self.tp_setting_GroupBox.setLayout(self.tp_setting_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
-        self.left_VBoxLayout.addWidget(self.tp_setting_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
+        # tp_setting_GroupBox는 ESP Control에 통합되므로 left_GridLayout에 추가하지 않음
 
         # --- TP1 설정 ---
         # --- TP1 라벨 설정 ---
@@ -874,14 +878,15 @@ class MainWindow(QMainWindow):
         self.tp_setting_GridLayout.addWidget(self.tp_setting_PushButton, 4, 0, 1, 2)
 
         # ############################# COPILOT EDIT START (FFT Gain 그룹박스 + SVM Data Collect 그룹박스 UI)
-        # --- FFT Gain 설정 ---
-        self.fft_gain_GroupBox = QGroupBox("FFT Gain")             # 1. 대상 위젯 생성
+        # --- FFT Setting (게인 + Stride) ---
+        self.fft_gain_GroupBox = QGroupBox("FFT Setting")             # 1. 대상 위젯 생성
         self.fft_gain_GroupBox.setStyleSheet(""
                                                + MACRO_BORDER_RADIUS.format(6)
                                                )
         self.fft_gain_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성
         self.fft_gain_GroupBox.setLayout(self.fft_gain_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
-        self.left_VBoxLayout.addWidget(self.fft_gain_GroupBox)           # 1-1. 상위 레이아웃에 위젯 적용
+        self.left_GridLayout.addWidget(self.fft_gain_GroupBox, 4, 0, 1, 2)            # Row4 Col0-1 - FFT Setting (전체 폭)
+
 
         # --- Gain 라벨 ---
         self.fft_gain_Label = QLabel("Gain: ")
@@ -901,6 +906,7 @@ class MainWindow(QMainWindow):
         self.fft_gain_SpinBox.setDecimals(1)
         self.fft_gain_SpinBox.setValue(20.0)  # 기본값
         self.fft_gain_SpinBox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.fft_gain_SpinBox.valueChanged.connect(self._on_fft_gain_changed)
         self.fft_gain_HBoxLayout.addWidget(self.fft_gain_SpinBox)
         self.fft_gain_up_btn = QPushButton("▲")
         self.fft_gain_down_btn = QPushButton("▼")
@@ -913,6 +919,57 @@ class MainWindow(QMainWindow):
         self.fft_gain_HBoxLayout.addWidget(self.fft_gain_up_btn)
         self.fft_gain_HBoxLayout.addWidget(self.fft_gain_down_btn)
 
+        # --- FFT Stride 라벨 ---
+        self.fft_stride_Label = QLabel("Stride (smp):")
+        self.fft_stride_Label.setStyleSheet(""
+                                            + MACRO_FONT_BOLD
+                                            + MACRO_BORDER_STYLE.format('none')
+                                            )
+        self.fft_stride_Label.setToolTip("smp = sample(\uc0d8\ud50c)\n"
+                                         "ESP\uc5d0\uc11c ADC \uc0d8\ud50c\uc744 N\uac1c \uc218\uc9d1\ud560 \ub54c\ub9c8\ub2e4 FFT\ub97c 1\ud68c \uc2e4\ud589\n"
+                                         "Fs = 100 Hz \u2192 1 smp = 10 ms")
+        self.fft_stride_Label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)
+        self.fft_gain_GridLayout.addWidget(self.fft_stride_Label, 1, 0)
+
+        self.fft_stride_HBoxLayout = QHBoxLayout()
+        self.fft_gain_GridLayout.addLayout(self.fft_stride_HBoxLayout, 1, 1)
+        self.fft_stride_SpinBox = QSpinBox()
+        self.fft_stride_SpinBox.setMinimum(1)
+        self.fft_stride_SpinBox.setMaximum(256)   # WINDOW_SIZE 상한
+        self.fft_stride_SpinBox.setSingleStep(1)
+        self.fft_stride_SpinBox.setValue(32)      # 기본값 (FFT_STRIDE = WINDOW_SIZE/8 = 32)
+        self.fft_stride_SpinBox.setSuffix("")
+        self.fft_stride_SpinBox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.fft_stride_SpinBox.setToolTip("ADC 몇 샘플마다 FFT를 1회 실행할지 결정\n"
+                                           "1 smp = 10 ms (Fs=100 Hz) 예) 32 smp = 320 ms")
+        self.fft_stride_HBoxLayout.addWidget(self.fft_stride_SpinBox)
+        self.fft_stride_up_btn = QPushButton("▲")
+        self.fft_stride_down_btn = QPushButton("▼")
+        for b in (self.fft_stride_up_btn, self.fft_stride_down_btn):
+            b.setFixedWidth(28)
+            b.setFocusPolicy(PyQt6.QtCore.Qt.FocusPolicy.NoFocus)
+            b.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Maximum)
+        self.fft_stride_up_btn.clicked.connect(self.fft_stride_SpinBox.stepUp)
+        self.fft_stride_down_btn.clicked.connect(self.fft_stride_SpinBox.stepDown)
+        self.fft_stride_HBoxLayout.addWidget(self.fft_stride_up_btn)
+        self.fft_stride_HBoxLayout.addWidget(self.fft_stride_down_btn)
+
+        # FFT Stride ms 표시 라벨 (SpinBox 값 변경 시 자동 갱신)
+        self.fft_stride_ms_Label = QLabel("= 32 smp × 10 ms/smp = 320 ms (0.32 s)")
+        self.fft_stride_ms_Label.setStyleSheet("" + MACRO_BORDER_STYLE.format('none'))
+        self.fft_gain_GridLayout.addWidget(self.fft_stride_ms_Label, 2, 0, 1, 2)
+        self.fft_stride_SpinBox.valueChanged.connect(
+            lambda v: self.fft_stride_ms_Label.setText(
+                f"= {v} smp × 10 ms/smp = {v * 10} ms ({v * 10 / 1000:.2f} s)"
+            )
+        )
+
+        # FFT Stride 전송 버튼
+        self.fft_stride_send_PushButton = QPushButton("📡 Stride 전송")
+        self.fft_stride_send_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.fft_stride_send_PushButton.clicked.connect(self.event_send_fft_stride_command)
+        self.fft_gain_GridLayout.addWidget(self.fft_stride_send_PushButton, 3, 0, 1, 2)
+
 
 
 ############################################################################################################ SVM
@@ -921,7 +978,7 @@ class MainWindow(QMainWindow):
         self.svm_collect_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
         self.svm_collect_GridLayout = QGridLayout()
         self.svm_collect_GroupBox.setLayout(self.svm_collect_GridLayout)
-        self.left_VBoxLayout.addWidget(self.svm_collect_GroupBox)
+        self.left_GridLayout.addWidget(self.svm_collect_GroupBox, 5, 0, 1, 2)          # Row5 Col0-1 - SVM Setting (전체 폭)
 
         # 샘플 카운트 레이블
         self.svm_count_Label = QLabel("BackGround : 0  |  Occupancy : 0")
@@ -1018,7 +1075,7 @@ class MainWindow(QMainWindow):
         self.svm_x_ComboBox = QComboBox()
         for col in svm.enum_csv_col:
             self.svm_x_ComboBox.addItem(self._SVM_COL_LABEL_MAP.get(col, col.name), userData=col)
-        self.svm_x_ComboBox.setCurrentIndex(list(svm.enum_csv_col).index(svm.enum_csv_col.SPECTRAL_ENTROPY))
+        self.svm_x_ComboBox.setCurrentIndex(list(svm.enum_csv_col).index(svm.enum_csv_col.SPECTRAL_FLATNESS))
         self.svm_collect_GridLayout.addWidget(self.svm_x_ComboBox, 10, 1)
 
         self.svm_x_ComboBox.currentIndexChanged.connect(self.on_svm_axis_changed)
@@ -1049,6 +1106,160 @@ class MainWindow(QMainWindow):
         self.svm_collect_GridLayout.addWidget(self.svm_show_occu_ToggleButton, 11, 1)
 
 ############################################################################################################ SVM
+
+############################################################################################################ LED & 타이머 설정
+        self.led_setting_GroupBox = QGroupBox("iSENSOR ESP Control")
+        self.led_setting_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
+        self.led_setting_GridLayout = QGridLayout()
+        self.led_setting_GroupBox.setLayout(self.led_setting_GridLayout)
+        self.left_GridLayout.addWidget(self.led_setting_GroupBox, 1, 1, 3, 1)   # Row1-3 Col1 - ESP Control
+
+        # ---- 헬퍼: 라벨 + SpinBox 행 생성 (전송 버튼 없음 — 일괄 전송 버튼 사용) ----
+        # 열 비율: [라벨 고정 | SpinBox 확장 | (예약)] 1열
+        self.led_setting_GridLayout.setColumnStretch(0, 0)
+        self.led_setting_GridLayout.setColumnStretch(1, 1)
+        self.led_setting_GridLayout.setColumnStretch(2, 0)
+
+        # --- TP 항목 편입 (row 0~2) ---
+        self.led_setting_GridLayout.addWidget(self.tp1_Label, 0, 0)
+        _tp1_h = QHBoxLayout()
+        _tp1_h.setContentsMargins(0, 0, 0, 0); _tp1_h.setSpacing(2)
+        _tp1_h.addWidget(self.tp1_SpinBox); _tp1_h.addWidget(self.tp1_up_btn); _tp1_h.addWidget(self.tp1_down_btn)
+        self.led_setting_GridLayout.addLayout(_tp1_h, 0, 1, 1, 2)
+
+        self.led_setting_GridLayout.addWidget(self.tp1_rck_Label, 1, 0)
+        _tp1rck_h = QHBoxLayout()
+        _tp1rck_h.setContentsMargins(0, 0, 0, 0); _tp1rck_h.setSpacing(2)
+        _tp1rck_h.addWidget(self.tp1_rck_SpinBox); _tp1rck_h.addWidget(self.tp1_rkc_up_btn); _tp1rck_h.addWidget(self.tp1_rkc_down_btn)
+        self.led_setting_GridLayout.addLayout(_tp1rck_h, 1, 1, 1, 2)
+
+        self.led_setting_GridLayout.addWidget(self.tp2_Label, 2, 0)
+        _tp2_h = QHBoxLayout()
+        _tp2_h.setContentsMargins(0, 0, 0, 0); _tp2_h.setSpacing(2)
+        _tp2_h.addWidget(self.tp2_SpinBox); _tp2_h.addWidget(self.tp2_up_btn); _tp2_h.addWidget(self.tp2_down_btn)
+        self.led_setting_GridLayout.addLayout(_tp2_h, 2, 1, 1, 2)
+
+        def _mk_spin(mn, mx, default):
+            sb = QSpinBox()
+            sb.setMinimum(mn); sb.setMaximum(mx); sb.setValue(default)
+            sb.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+            return sb
+
+        def _mk_btn(label):
+            b = QPushButton(label)
+            b.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+            return b
+
+        # ---- 헬퍼: ▲▼ 버튼 쌍 생성 (FFT Setting과 동일한 스타일) ----
+        def _mk_arrow_pair(spinbox):
+            up_btn   = QPushButton("▲")
+            down_btn = QPushButton("▼")
+            for b in (up_btn, down_btn):
+                b.setFixedWidth(28)
+                b.setFocusPolicy(PyQt6.QtCore.Qt.FocusPolicy.NoFocus)
+                b.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Maximum)
+            up_btn.clicked.connect(spinbox.stepUp)
+            down_btn.clicked.connect(spinbox.stepDown)
+            return up_btn, down_btn
+
+        # ---- 헬퍼: 라벨 + SpinBox + ▲▼ 행 생성 ----
+        def _ctrl_row(row, label_txt, spinbox):
+            lbl = QLabel(label_txt)
+            lbl.setStyleSheet("" + MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
+            lbl.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)
+            self.led_setting_GridLayout.addWidget(lbl, row, 0)
+            up_btn, down_btn = _mk_arrow_pair(spinbox)
+            h = QHBoxLayout()
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(2)
+            h.addWidget(spinbox); h.addWidget(up_btn); h.addWidget(down_btn)
+            self.led_setting_GridLayout.addLayout(h, row, 1, 1, 2)
+
+        # LED Max / Min / Dim %  (row 3~5)
+        self.led_max_SpinBox = _mk_spin(0, 100, 100)
+        _ctrl_row(3, "LED Max (%):", self.led_max_SpinBox)
+
+        self.led_min_SpinBox = _mk_spin(0, 100, 10)
+        _ctrl_row(4, "LED Min (%):", self.led_min_SpinBox)
+
+        self.led_dim_SpinBox = _mk_spin(0, 100, 50)
+        _ctrl_row(5, "LED Dim (%):", self.led_dim_SpinBox)
+
+        # LED Work / Step / Delay ms  (row 6~8)
+        self.led_work_ms_SpinBox = _mk_spin(0, 600000, 30000)
+        _ctrl_row(6, "Work (ms):", self.led_work_ms_SpinBox)
+
+        self.led_step_ms_SpinBox = _mk_spin(0, 60000, 10)
+        _ctrl_row(7, "Step (ms):", self.led_step_ms_SpinBox)
+
+        self.led_delay_ms_SpinBox = _mk_spin(0, 60000, 500)
+        _ctrl_row(8, "Delay (ms):", self.led_delay_ms_SpinBox)
+
+        # Occu Timeout (row 9) — 단위 선택 가능 (µs / ms / s)
+        self.occu_timeout_s_SpinBox = _mk_spin(0, 2147483647, 5)
+        self.occu_unit_ComboBox = QComboBox()
+        self.occu_unit_ComboBox.addItems(["µs", "ms", "s"])
+        self.occu_unit_ComboBox.setCurrentText("s")
+        self.occu_unit_ComboBox.setFixedWidth(48)
+        self.occu_unit_ComboBox.currentTextChanged.connect(
+            lambda u: self._on_time_unit_changed(self.occu_timeout_s_SpinBox, u))
+        self._on_time_unit_changed(self.occu_timeout_s_SpinBox, "s")
+        _occu_up, _occu_down = _mk_arrow_pair(self.occu_timeout_s_SpinBox)
+        _occu_lbl = QLabel("Occu T/O:")
+        _occu_lbl.setStyleSheet("" + MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
+        _occu_lbl.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)
+        self.led_setting_GridLayout.addWidget(_occu_lbl, 9, 0)
+        _occu_h = QHBoxLayout()
+        _occu_h.setContentsMargins(0, 0, 0, 0)
+        _occu_h.setSpacing(2)
+        _occu_h.addWidget(self.occu_timeout_s_SpinBox)
+        _occu_h.addWidget(self.occu_unit_ComboBox)
+        _occu_h.addWidget(_occu_up); _occu_h.addWidget(_occu_down)
+        self.led_setting_GridLayout.addLayout(_occu_h, 9, 1, 1, 2)
+
+        # Sleep Time (row 10) — 단위 선택 가능 (µs / ms / s)
+        self.sleep_time_s_SpinBox = _mk_spin(0, 2147483647, 10)
+        self.sleep_unit_ComboBox = QComboBox()
+        self.sleep_unit_ComboBox.addItems(["µs", "ms", "s"])
+        self.sleep_unit_ComboBox.setCurrentText("s")
+        self.sleep_unit_ComboBox.setFixedWidth(48)
+        self.sleep_unit_ComboBox.currentTextChanged.connect(
+            lambda u: self._on_time_unit_changed(self.sleep_time_s_SpinBox, u))
+        self._on_time_unit_changed(self.sleep_time_s_SpinBox, "s")
+        _sleep_up, _sleep_down = _mk_arrow_pair(self.sleep_time_s_SpinBox)
+        _sleep_lbl = QLabel("Sleep:")
+        _sleep_lbl.setStyleSheet("" + MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
+        _sleep_lbl.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)
+        self.led_setting_GridLayout.addWidget(_sleep_lbl, 10, 0)
+        _sleep_h = QHBoxLayout()
+        _sleep_h.setContentsMargins(0, 0, 0, 0)
+        _sleep_h.setSpacing(2)
+        _sleep_h.addWidget(self.sleep_time_s_SpinBox)
+        _sleep_h.addWidget(self.sleep_unit_ComboBox)
+        _sleep_h.addWidget(_sleep_up); _sleep_h.addWidget(_sleep_down)
+        self.led_setting_GridLayout.addLayout(_sleep_h, 10, 1, 1, 2)
+
+        # 일괄 전송 버튼 (row 11) — TP + 모든 LED/타이머 설정 한 번에 전송
+        self.all_settings_send_PushButton = _mk_btn("📡 전체 설정 전송하기")
+        self.all_settings_send_PushButton.setStyleSheet("" + MACRO_FONT_BOLD + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.all_settings_send_PushButton.clicked.connect(self.event_send_all_settings_command)
+        self.led_setting_GridLayout.addWidget(self.all_settings_send_PushButton, 11, 0, 1, 3)
+
+        # LED ON/OFF 토글 버튼 (row 12) — 독립 유지
+        self.led_onoff_ToggleButton = QPushButton("💡 LED ON")
+        self.led_onoff_ToggleButton.setCheckable(True)
+        self.led_onoff_ToggleButton.setChecked(True)
+        self.led_onoff_ToggleButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.led_onoff_ToggleButton.toggled.connect(self.event_send_led_onoff_command)
+        self.led_setting_GridLayout.addWidget(self.led_onoff_ToggleButton, 12, 0, 1, 3)
+
+        # 설정 새로고침 버튼 (row 13)
+        self.settings_reload_PushButton = QPushButton("🔄 설정 새로고침")
+        self.settings_reload_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.settings_reload_PushButton.clicked.connect(self._event_settings_reload)
+        self.led_setting_GridLayout.addWidget(self.settings_reload_PushButton, 13, 0, 1, 3)
+
+############################################################################################################ LED & 타이머 설정
 
         # --- 우측 패널 (그래프 + 로그) ---
         self.right_Widget = QWidget()                    # 1. 대상 위젯 생성
@@ -1226,14 +1437,17 @@ class MainWindow(QMainWindow):
         self.port_connect_PushButton.setEnabled(True)
         if b_is_connected:
             self.port_connect_PushButton.setText("Disconnect")
+            self.connect_status_Label.setText("🟢 Connected")
             self.tp_setting_PushButton.setEnabled(True)
             # PC -> Chip 명령 송신
             if self.uart_thread and self.uart_thread.serial_port:
                 self.command_sender.set_serial(self.uart_thread.serial_port)
         else:
             self.port_connect_PushButton.setText("Connect")
+            self.connect_status_Label.setText("🔴 Not connected")
             self.tp_setting_PushButton.setEnabled(True)
             self.command_sender.set_serial(None)
+            self._settings_loaded = False  # 재연결 시 초기값 다시 수신
 
             if self.uart_thread:
                 self.uart_thread.deleteLater()
@@ -1304,6 +1518,151 @@ class MainWindow(QMainWindow):
             self.log_TextEdit.append("[TX] TP1_RECHECK 전송 실패 - 연결 상태를 확인하세요")
             QMessageBox.warning(self, "전송 실패", "TP1_RECHECK 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
 
+    def event_send_all_settings_command(self):
+        """TP + LED + 타이머 설정 전체를 한 번에 ESP32에 전송"""
+        failed = []
+
+        # TP
+        v = self.tp1_SpinBox.value()
+        if self.command_sender.send_set_tp1(v):
+            self.log_TextEdit.append(f"[TX] TP1: {v}")
+        else:
+            failed.append("TP1")
+
+        v = self.tp1_rck_SpinBox.value()
+        if self.command_sender.send_set_tp1_recheck(v):
+            self.log_TextEdit.append(f"[TX] TP1 RCK: {v}")
+        else:
+            failed.append("TP1 RCK")
+
+        v = self.tp2_SpinBox.value()
+        if self.command_sender.send_set_tp2(v):
+            self.log_TextEdit.append(f"[TX] TP2: {v}")
+        else:
+            failed.append("TP2")
+
+        # LED %
+        v = self.led_max_SpinBox.value()
+        if self.command_sender.send_set_led_max_per(v):
+            self.log_TextEdit.append(f"[TX] LED Max: {v}%")
+        else:
+            failed.append("LED Max")
+
+        v = self.led_min_SpinBox.value()
+        if self.command_sender.send_set_led_min_per(v):
+            self.log_TextEdit.append(f"[TX] LED Min: {v}%")
+        else:
+            failed.append("LED Min")
+
+        v = self.led_dim_SpinBox.value()
+        if self.command_sender.send_set_led_dim_per(v):
+            self.log_TextEdit.append(f"[TX] LED Dim: {v}%")
+        else:
+            failed.append("LED Dim")
+
+        # 타이머 ms
+        v = self.led_work_ms_SpinBox.value()
+        if self.command_sender.send_set_led_work_ms(v):
+            self.log_TextEdit.append(f"[TX] Work: {v} ms")
+        else:
+            failed.append("Work")
+
+        v = self.led_step_ms_SpinBox.value()
+        if self.command_sender.send_set_led_step_ms(v):
+            self.log_TextEdit.append(f"[TX] Step: {v} ms")
+        else:
+            failed.append("Step")
+
+        v = self.led_delay_ms_SpinBox.value()
+        if self.command_sender.send_set_led_delay_ms(v):
+            self.log_TextEdit.append(f"[TX] Delay: {v} ms")
+        else:
+            failed.append("Delay")
+
+        # Occu / Sleep (단위 변환 포함)
+        if not self._send_time_value_occu():
+            failed.append("Occu T/O")
+
+        if not self._send_time_value_sleep():
+            failed.append("Sleep")
+
+        if failed:
+            QMessageBox.warning(self, "일부 전송 실패",
+                                f"다음 항목 전송 실패:\n{', '.join(failed)}\n연결 상태를 확인하세요.")
+        else:
+            self.log_TextEdit.append("[TX] ✅ 전체 설정 전송 완료")
+
+    def event_send_fft_stride_command(self):
+        """FFT Stride 값을 ESP32에 전송 (CMD_SET_FFT_STRIDE = 0x13)"""
+        i_stride = self.fft_stride_SpinBox.value()
+        if self.command_sender.send_set_fft_stride(i_stride):
+            self.log_TextEdit.append(f"[TX] FFT Stride 설정 명령 전송: {i_stride} smp = {i_stride * 10} ms")
+        else:
+            self.log_TextEdit.append("[TX] FFT Stride 전송 실패 - 연결 상태를 확인하세요")
+            QMessageBox.warning(self, "전송 실패", "FFT Stride 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
+
+    def _send_led_setting(self, send_func, value, label: str):
+        """LED/타이머 설정 공통 전송 헬퍼. value=None이면 send_func()를 직접 호출."""
+        if value is None:
+            result = send_func()
+        else:
+            result = send_func(value)
+        if result:
+            self.log_TextEdit.append(f"[TX] {label} 설정 전송: {value}")
+        else:
+            self.log_TextEdit.append(f"[TX] {label} 전송 실패 - 연결 상태를 확인하세요")
+            QMessageBox.warning(self, "전송 실패", f"{label} 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
+
+    _TIME_UNIT_MULTIPLIER = {"µs": 1, "ms": 1_000, "s": 1_000_000}
+    _TIME_UNIT_MAX        = {"µs": 2_147_483_647, "ms": 2_147_483_647, "s": 2_147_483_647}
+
+    def _on_time_unit_changed(self, spinbox, unit: str):
+        """단위 ComboBox 변경 시 SpinBox 최대값 조정"""
+        spinbox.setMaximum(self._TIME_UNIT_MAX.get(unit, 2_147_483_647))
+
+    def _send_time_value_occu(self) -> bool:
+        """Occu Timeout 단위 변환 후 전송"""
+        unit = self.occu_unit_ComboBox.currentText()
+        val_us = self.occu_timeout_s_SpinBox.value() * self._TIME_UNIT_MULTIPLIER[unit]
+        self.log_TextEdit.append(f"[TX] Occu Timeout 전송: {self.occu_timeout_s_SpinBox.value()} {unit} = {val_us} µs")
+        return self.command_sender.send_set_occu_timeout_us(val_us)
+
+    def _send_time_value_sleep(self) -> bool:
+        """Sleep Time 단위 변환 후 전송"""
+        unit = self.sleep_unit_ComboBox.currentText()
+        val_us = self.sleep_time_s_SpinBox.value() * self._TIME_UNIT_MULTIPLIER[unit]
+        self.log_TextEdit.append(f"[TX] Sleep Time 전송: {self.sleep_time_s_SpinBox.value()} {unit} = {val_us} µs")
+        return self.command_sender.send_set_sleep_time_us(val_us)
+
+    def _event_settings_reload(self):
+        """설정 새로고침 버튼: 다음 Settings 수신 시 SpinBox를 1회 업데이트"""
+        self._settings_loaded = False
+        self.log_TextEdit.append("[설정] 다음 Settings 패킷 수신 시 SpinBox를 업데이트합니다.")
+
+    def _on_fft_gain_changed(self, _value: float):
+        """Gain SpinBox 변경 시 현재 FFT 데이터로 Magnitude 선 즉시 재갱신"""
+        if len(self.A_fft_energies) == 0 or len(self.A_fft_frequencies) != len(self.A_fft_energies):
+            return
+        for tab_name in (ADC_FFT_FULL_SCALE_NAME, ADC_FFT_ZOOM_SCALE_NAME):
+            widget = self.get_TabWidget(tab_name)
+            if widget is None:
+                continue
+            lines = widget.getPlotItem().listDataItems()
+            if len(lines) < 2:
+                continue
+            gain = self.fft_gain_SpinBox.value()
+            y_mag = numpy.sqrt(numpy.maximum(self.A_fft_energies.astype(numpy.float64), 0)) * gain
+            lines[1].setData(self.A_fft_frequencies, y_mag)
+
+    def event_send_led_onoff_command(self, b_checked: bool):
+        """LED ON/OFF 토글 전송 (CMD_SET_LED_ONOFF = 0x1C)"""
+        self.led_onoff_ToggleButton.setText("💡 LED ON" if b_checked else "🔴 LED OFF")
+        if self.command_sender.send_set_led_onoff(b_checked):
+            self.log_TextEdit.append(f"[TX] LED {'ON' if b_checked else 'OFF'} 명령 전송")
+        else:
+            self.log_TextEdit.append("[TX] LED ON/OFF 전송 실패 - 연결 상태를 확인하세요")
+            QMessageBox.warning(self, "전송 실패", "LED ON/OFF 명령 전송에 실패했습니다.\n연결 상태를 확인하세요.")
+
 
 ### 이벤트 ##########
 ############################################################################################################ SVM
@@ -1351,16 +1710,17 @@ class MainWindow(QMainWindow):
         # self.svm_handle.A_frequencies
         # self.svm_handle.A_magnitudes
 
-        if not self.uart_thread or self.svm_handle.A_magnitudes is None:
+        if not self.uart_thread or self.fft_features_data is None:
             ######################################################################## 경고 대화상자
-            QMessageBox.warning(self, "배경 정보 저장 실패", "magnitudes(강도) 데이터가 없습니다.\n 먼저 데이터를 수신하세요.")
+            QMessageBox.warning(self, "배경 정보 저장 실패", "FFT 특징이 없습니다.\n 먼저 데이터를 수신하세요.")
             ######################################################################## 경고 대화상자
             return
         
         # A_feature = self.svm_handle.extract_features(A_mags_raw, A_freqs)
         # A_feature = self.svm_handle.extract_features()
         # self.svm_handle.save_sample(A_feature, svm.enum_label.LABEL_BACKGROUND, self.svm_handle.str_svm_csv_path)
-        self.svm_handle.save_sample(svm.enum_label.LABEL_BACKGROUND)
+        self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_BACKGROUND)
+        self.collector.flush_write_buffer()  # 수동 저장: 버퍼 대기 없이 즉시 기록
 
         # if self._last_adc_raw:
         #     self.svm_handle.save_waveform(self._last_adc_raw, svm.enum_label.LABEL_BACKGROUND, self.str_svm_waveform_csv_path)
@@ -1383,13 +1743,14 @@ class MainWindow(QMainWindow):
         # self.update_svm_label_count()
         # self.log_TextEdit.append("[SVM] 사람 샘플 저장 완료")
 
-        if not self.uart_thread or self.svm_handle.A_magnitudes is None:
+        if not self.uart_thread or self.fft_features_data is None:
             ######################################################################## 경고 대화상자
-            QMessageBox.warning(self, "재실 정보 저장 실패", "magnitudes(강도) 데이터가 없습니다.\n 먼저 데이터를 수신하세요.")
+            QMessageBox.warning(self, "재실 정보 저장 실패", "FFT 특징이 없습니다.\n 먼저 데이터를 수신하세요.")
             ######################################################################## 경고 대화상자
             return
 
-        self.svm_handle.save_sample(svm.enum_label.LABEL_HUMAN)
+        self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_HUMAN)
+        self.collector.flush_write_buffer()  # 수동 저장: 버퍼 대기 없이 즉시 기록
 
         self.update_svm_label_count()
         self.log_TextEdit.append("[SVM] 재실 샘플 저장 완료")
@@ -1415,7 +1776,7 @@ class MainWindow(QMainWindow):
 
         # 레이블 업데이트
         n = len(new_indices)
-        total = svm.I_MAGNITUDES_COUNT + len(svm.enum_csv_col)
+        total = svm.I_FEATURES_COUNT
         _I_RECOMMENDED = 24
         suffix = "(전체)" if n == total else "(권장 세트)" if n == _I_RECOMMENDED else ""
         self.svm_feature_count_Label.setText(f"선택된 특징: {n}개 {suffix}".strip())
@@ -1426,7 +1787,7 @@ class MainWindow(QMainWindow):
         self.svm_train_PushButton.setEnabled(False)
         self.svm_status_Label.setText("학습 중...")
 
-        self._svm_train_worker = SvmTrainWorker(self.svm_handle)
+        self._svm_train_worker = SvmTrainWorker(self.svm_handle, os.path.dirname(self.collector.str_csv_path))
         self._svm_train_worker.finished.connect(self._on_svm_train_finished)
         self._svm_train_worker.start()
 
@@ -1437,8 +1798,8 @@ class MainWindow(QMainWindow):
         self._svm_pca_boundary_cache = None
         if b_train_done:
             self._rebuild_svm_2d()  # 2D 모델 학습
-            self.svm_status_Label.setText(f"학습 완료  BG:{self.svm_handle.i_bg_count} / Human:{self.svm_handle.i_human_count}")
-            self.log_TextEdit.append(f"[SVM] 학습 완료  BG:{self.svm_handle.i_bg_count} / Human:{self.svm_handle.i_human_count}")
+            self.svm_status_Label.setText(f"학습 완료  BG:{self.collector.i_bg_count} / Human:{self.collector.i_human_count}")
+            self.log_TextEdit.append(f"[SVM] 학습 완료  BG:{self.collector.i_bg_count} / Human:{self.collector.i_human_count}")
         else:
             self.svm_status_Label.setText("학습 실패 - 데이터 부족")
             QMessageBox.warning(self, "학습 실패", "데이터가 부족합니다.\n10개 이상 수집하세요.")
@@ -1447,25 +1808,26 @@ class MainWindow(QMainWindow):
     def event_svm_clear(self):
         """CSV 학습 데이터 삭제 + SVM 초기화"""
 
-        if not os.path.exists(self.svm_handle.str_svm_csv_path):
-            QMessageBox.warning(self, "학습 데이터 삭제 실패", f"'{self.svm_handle.str_svm_csv_path}' 파일이 존재하지 않습니다.")
+        if not os.path.exists(self.collector.str_csv_path):
+            QMessageBox.warning(self, "학습 데이터 삭제 실패", f"'{self.collector.str_csv_path}' 파일이 존재하지 않습니다.")
             return
 
         ######################################################################## 물어보는 대화상자
         reply_QMessageBox = QMessageBox.question(
             self, "학습 데이터 삭제",
-            f"'{self.svm_handle.str_svm_csv_path}' 파일을 삭제하고 SVM을 초기화합니다.\n계속할까요?",
+            f"'{self.collector.str_csv_path}' 파일을 삭제하고 SVM을 초기화합니다.\n계속할까요?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         ######################################################################## 물어보는 대화상자
         if reply_QMessageBox == QMessageBox.StandardButton.No:
             return
         
-        if os.path.exists(self.svm_handle.str_svm_csv_path):
-            os.remove(self.svm_handle.str_svm_csv_path)
+        if os.path.exists(self.collector.str_csv_path):
+            os.remove(self.collector.str_csv_path)
         # if os.path.exists(self.str_svm_waveform_csv_path):
         #     os.remove(self.str_svm_waveform_csv_path)
         self.svm_handle = svm.SVM_Module()  # 완전 초기화
+        self.collector  = tdc.TrainingDataCollector()  # 카운터/버퍼 리셋
         self._svm_boundary_cache     = None
         self._svm_pca_boundary_cache = None
         self._svm_2d_model  = None
@@ -1787,6 +2149,13 @@ class MainWindow(QMainWindow):
             , fillLevel=0
             , fillBrush=(0, 255, 255, 80)
             , name=graph_plot_value[enum_graph_plot_index.STR_LEGEND_TEXT]
+        )
+
+        # 두 번째 선: Magnitude (sqrt(energy) × Gain) — PC 계산, 오렌지색 실선
+        target_PlotWidget.plot(
+            pen=pyqtgraph.mkPen(color='#ff8800', width=1,
+                                style=pyqtgraph.QtCore.Qt.PenStyle.SolidLine),
+            name='Mag × Gain'
         )
 
         # # 피크 주파수 표시용 텍스트 아이템
@@ -2121,12 +2490,12 @@ class MainWindow(QMainWindow):
 
         # self.svm_handle.svm(self.A_fft_magnitudes, self.A_fft_frequencies)
         # FFT 데이터가 수신된 경우에만 SVM/MLP 추론 (타입 12 미수신 시 빈 배열로 크래시 방지)
-        if len(self.A_fft_magnitudes) > 0:
+        if self.fft_features_data is not None:
             (
                 self.A_svm_probabilty
                 , self.i_svm_label
                 , self.f_svm_confidence
-            ) = self.svm_handle.svm(self.A_fft_frequencies, self.A_fft_magnitudes)
+            ) = self.svm_handle.svm(self.fft_features_data)
 
             # ############################# COPILOT EDIT START (MLP 실시간 추론)
             if self.mlp_handle.b_is_trained:
@@ -2134,7 +2503,7 @@ class MainWindow(QMainWindow):
                     self.A_mlp_probability
                     , self.i_mlp_label
                     , self.f_mlp_confidence
-                ) = self.mlp_handle.mlp(self.A_fft_frequencies, self.A_fft_magnitudes)
+                ) = self.mlp_handle.mlp(self.fft_features_data)
             # ############################# COPILOT EDIT END
 
 
@@ -2344,13 +2713,29 @@ class MainWindow(QMainWindow):
         lines = PlotItem.listDataItems()
         # 에너지(re²+im²) 분포를 그래프에 표시
         if len(self.A_fft_energies) > 0 and len(self.A_fft_frequencies) == len(self.A_fft_energies):
-            y_data = self.A_fft_energies.astype(numpy.float64)
+            y_energy = self.A_fft_energies.astype(numpy.float64)
         else:
-            y_data = self.A_fft_magnitudes
-        if lines:
-            lines[0].setData(self.A_fft_frequencies, y_data)
+            y_energy = self.A_fft_magnitudes
+
+        # Magnitude = sqrt(energy) × Gain (PC 계산)
+        gain = self.fft_gain_SpinBox.value()
+        y_mag = numpy.sqrt(numpy.maximum(y_energy, 0)) * gain
+
+        if len(lines) >= 2:
+            lines[0].setData(self.A_fft_frequencies, y_energy)  # 에너지 선 (노란 대시)
+            lines[1].setData(self.A_fft_frequencies, y_mag)     # Magnitude × Gain 선 (오렌지 실선)
+        elif len(lines) == 1:
+            lines[0].setData(self.A_fft_frequencies, y_energy)
+            inter_Widget.plot(self.A_fft_frequencies, y_mag,
+                              pen=pyqtgraph.mkPen(color='#ff8800', width=1,
+                                                  style=pyqtgraph.QtCore.Qt.PenStyle.SolidLine),
+                              name='Mag × Gain')
         else:
-            inter_Widget.plot(self.A_fft_frequencies, y_data)
+            inter_Widget.plot(self.A_fft_frequencies, y_energy)
+            inter_Widget.plot(self.A_fft_frequencies, y_mag,
+                              pen=pyqtgraph.mkPen(color='#ff8800', width=1,
+                                                  style=pyqtgraph.QtCore.Qt.PenStyle.SolidLine),
+                              name='Mag × Gain')
 
         target_label = None
         items = getattr(PlotItem, 'items', None)  # 일부 버전은 속성, 일부는 다른 구조일 수 있음
@@ -2397,18 +2782,27 @@ class MainWindow(QMainWindow):
 
 
     _SVM_COL_LABEL_MAP = {
-        svm.enum_csv_col.PEAK_FREQ        : "피크 주파수(Hz)",
-        svm.enum_csv_col.PEAK_MAG         : "피크 강도",
-        svm.enum_csv_col.AVG_MAG          : "평균 강도",
-        svm.enum_csv_col.STD_MAG          : "강도 표준편차",
-        svm.enum_csv_col.CENTROID         : "무게중심 주파수(Hz)",
-        svm.enum_csv_col.LOW_ENERGY       : "저주파 에너지",
-        svm.enum_csv_col.MID_ENERGY       : "중주파 에너지",
-        svm.enum_csv_col.HIGH_ENERGY      : "고주파 에너지",
-        svm.enum_csv_col.RMS              : "RMS 에너지",
-        svm.enum_csv_col.LOW_RATIO        : "저주파 에너지 비율",
-        svm.enum_csv_col.SPECTRAL_ENTROPY : "스펙트럼 엔트로피",
-        svm.enum_csv_col.PEAK_TO_MEAN     : "피크-투-평균 비율",
+        svm.enum_csv_col.SPECTRAL_ROLLOFF     : "스펙트럼 롤오프(Hz)",
+        svm.enum_csv_col.SPECTRAL_BANDWIDTH   : "스펙트럼 대역폭(Hz)",
+        svm.enum_csv_col.PEAK_COUNT           : "피크 개수",
+        svm.enum_csv_col.MID_RATIO            : "중주파 에너지 비율",
+        svm.enum_csv_col.LOW_TO_HIGH_RATIO    : "저고주파 비율",
+        svm.enum_csv_col.SECOND_PEAK_FREQ     : "2차 피크 주파수(Hz)",
+        svm.enum_csv_col.KURTOSIS             : "첨도(Kurtosis)",
+        svm.enum_csv_col.CENTROID             : "무게중심 주파수(Hz)",
+        svm.enum_csv_col.PEAK_FREQ            : "피크 주파수(Hz)",
+        svm.enum_csv_col.LOW_RATIO            : "저주파 에너지 비율",
+        svm.enum_csv_col.RMS                  : "RMS 에너지",
+        svm.enum_csv_col.AVG_ENERGY           : "평균 에너지",
+        svm.enum_csv_col.PEAK_ENERGY          : "피크 에너지",
+        svm.enum_csv_col.ENERGY_VARIANCE      : "에너지 분산",
+        svm.enum_csv_col.PEAK_TO_AVG_E        : "피크-평균 에너지 비율",
+        svm.enum_csv_col.HIGH_RATIO           : "고주파 에너지 비율",
+        svm.enum_csv_col.PEAK1_TO_PEAK2_RATIO : "1차-2차 피크 비율",
+        svm.enum_csv_col.SKEWNESS             : "왜도(Skewness)",
+        svm.enum_csv_col.DC_RATIO             : "DC 에너지 비율",
+        svm.enum_csv_col.DELTA_PEAK_FREQ      : "피크 주파수 변화량(Hz)",
+        svm.enum_csv_col.SPECTRAL_FLATNESS    : "스펙트럼 평탄도",
     }
     def _set_svm_point_visible(self, role_name: str, visible: bool):
         """SVM 그래프에서 특정 role의 ScatterPlotItem 표시/숨김"""
@@ -2864,8 +3258,8 @@ class MainWindow(QMainWindow):
                         f"  rms        : {h.f_rms:.4f}\n"
                         f"\n"
                         f"[ 학습 샘플 ]\n"
-                        f"  BG     : {h.i_bg_count}\n"
-                        f"  Occu   : {h.i_human_count}\n"
+                        f"  BG     : {self.collector.i_bg_count}\n"
+                        f"  Occu   : {self.collector.i_human_count}\n"
                         f"\n"
                         f"[ 뷰 범위 ]\n"
                         f"  PC1 : {x_min:.3f} ~ {x_max:.3f}\n"
@@ -2969,7 +3363,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """윈도우 종료 이벤트 — 버퍼에 남은 데이터를 CSV에 기록 후 종료"""
-        self.svm_handle.flush_write_buffer()
+        self.collector.flush_write_buffer()
         if self.uart_thread and self.uart_thread.isRunning():
             self.uart_thread.stop()
         event.accept()
@@ -3046,8 +3440,7 @@ class MainWindow(QMainWindow):
         # i_bg, i_human = self.svm_handle.get_sample_counts(self.svm_handle.str_svm_csv_path)
         # i_bg_count, i_human_count = self.svm_handle.get_label_counts()
         # self.svm_count_Label.setText(f"BG: {i_bg_count}  |  Human: {i_human_count}")
-        self.svm_handle.update_label_counts()
-        self.svm_count_Label.setText(f"BackGround: {self.svm_handle.i_bg_count}  |  Occupancy: {self.svm_handle.i_human_count}")
+        self.svm_count_Label.setText(f"BackGround: {self.collector.i_bg_count}  |  Occupancy: {self.collector.i_human_count}")
 
     # # def log_TextEdit_print_sensor_data(self, input_sensor_parser_data:updm.SensorData):
     # #     """센서 데이터를 로그 문자열로 변환"""
@@ -3153,6 +3546,24 @@ class MainWindow(QMainWindow):
             self.adc_tp1_setting(SettingsData_handle.i_tp1)
             self.adc_tp1_rck_setting(SettingsData_handle.i_tp1_recheck)
 
+            # SpinBox 초기값 반영 (최초 1회 또는 새로고침 버튼 클릭 후 1회)
+            if not self._settings_loaded:
+                self.tp1_SpinBox.setValue(         SettingsData_handle.i_tp1)
+                self.tp1_rck_SpinBox.setValue(     SettingsData_handle.i_tp1_recheck)
+                self.tp2_SpinBox.setValue(         SettingsData_handle.i_tp2)
+                self.led_max_SpinBox.setValue(     SettingsData_handle.i_led_max_per)
+                self.led_min_SpinBox.setValue(     SettingsData_handle.i_led_min_per)
+                self.led_dim_SpinBox.setValue(     SettingsData_handle.i_led_dim_per)
+                self.led_work_ms_SpinBox.setValue( SettingsData_handle.i_led_work_ms)
+                self.led_step_ms_SpinBox.setValue( SettingsData_handle.i_led_step_ms)
+                self.led_delay_ms_SpinBox.setValue(SettingsData_handle.i_led_delay_ms)
+                self.occu_timeout_s_SpinBox.setValue(int(
+                    SettingsData_handle.i_occu_chk_timeout_us // self._TIME_UNIT_MULTIPLIER[self.occu_unit_ComboBox.currentText()]))
+                self.sleep_time_s_SpinBox.setValue(int(
+                    SettingsData_handle.i_sleep_time_us // self._TIME_UNIT_MULTIPLIER[self.sleep_unit_ComboBox.currentText()]))
+                self.fft_stride_SpinBox.setValue(SettingsData_handle.i_fft_stride)
+                self._settings_loaded = True
+
             get_Widget = self.get_TabWidget(ADC_RAW_FULL_SCALE_NAME)
             self.update_threshold_lines(get_Widget)
             get_Widget = self.get_TabWidget(ADC_RAW_ZOOM_SCALE_NAME)
@@ -3168,21 +3579,6 @@ class MainWindow(QMainWindow):
                 self.pir_output_Label.setText("📡 PIR 출력: ON")
             else:
                 self.pir_output_Label.setText("📡 PIR 출력: OFF")
-            
-            settings_str = (
-                f"TP1: {SettingsData_handle.i_tp1}\n"
-                f"TP1 Recheck: {SettingsData_handle.i_tp1_recheck}\n"
-                f"TP2: {SettingsData_handle.i_tp2}\n"
-                f"LED Max: {SettingsData_handle.i_led_max_per}%\n"
-                f"LED Min: {SettingsData_handle.i_led_min_per}%\n"
-                f"LED dimming: {SettingsData_handle.i_led_dim_per}%\n"
-                f"LED Work: {SettingsData_handle.i_led_work_ms} ms\n"
-                f"LED Step: {SettingsData_handle.i_led_step_ms} ms\n"
-                f"LED Delay: {SettingsData_handle.i_led_delay_ms} ms\n"
-                f"Occupancy Timeout: {SettingsData_handle.i_occu_chk_timeout_us} us\n"
-                f"Sleep Time: {SettingsData_handle.i_sleep_time_us} us"
-            )
-            self.connect_status_Label.setText(settings_str)
 
         self.update_svm_label_count()
 
@@ -3228,14 +3624,17 @@ class MainWindow(QMainWindow):
             # ESP32에서 새 FFT 결과가 도착할 때마다 카운터 증가,
             # i_auto_save_stride회마다 SVM 특징을 1회 캐포마 함으로 동일 프레임 중복 저장 방지.
             if self.b_auto_save_bg or self.b_auto_save_human:
-                if self.svm_handle.A_magnitudes is not None:
+                # 새 fft_features 패킷이 도착한 경우만 카운터 증가 (동일 객체 반복 전송 차단)
+                if (self.fft_features_data is not None
+                        and self.fft_features_data is not self._last_auto_saved_fft_features):
                     self.i_fft_since_last_save += 1
                     if self.i_fft_since_last_save >= self.i_auto_save_stride:
                         self.i_fft_since_last_save = 0
+                        self._last_auto_saved_fft_features = self.fft_features_data
                         if self.b_auto_save_bg:
-                            self.svm_handle.save_sample(svm.enum_label.LABEL_BACKGROUND)
+                            self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_BACKGROUND)
                         else:
-                            self.svm_handle.save_sample(svm.enum_label.LABEL_HUMAN)
+                            self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_HUMAN)
                         self.update_svm_label_count()
 
         # """UI 업데이트: 로그, 그래프, 설정 표시"""

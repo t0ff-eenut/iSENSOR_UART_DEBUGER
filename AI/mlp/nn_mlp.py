@@ -39,8 +39,8 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
-# svm.py는 상위 폴더에 위치하므로 경로 추가
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+# svm.py는 AI/svm/ 폴더에 위치하므로 경로 추가
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'svm'))
 
 # svm.py의 enum_label, A_feature_indices 재사용
 import svm
@@ -192,7 +192,7 @@ class MLP_Module:
 
         # SVM과 동일한 24개 특징 인덱스 사용
         self.feature_indices: list = self._svm_ref.A_feature_indices
-        self.input_size: int       = len(self.feature_indices)  # 25 (svm.A_feature_indices 기준)
+        self.input_size: int       = len(self.feature_indices)  # svm.A_feature_indices 기준
 
         # 모델 & 스케일러 초기화
         self.model:  OccupancyMLP  = OccupancyMLP(self.input_size)
@@ -210,24 +210,24 @@ class MLP_Module:
     # ─────────────────────────────────────────────────────────
     # 외부에서 호출하는 메인 함수 (svm.svm()과 동일한 시그니처)
     # ─────────────────────────────────────────────────────────
-    def mlp(self, inter_A_freq, inter_A_mag):
+    def mlp(self, input_ft):
         """
-        FFT 주파수/진폭 배열을 받아 재실 여부를 판단합니다.
+        UART 수신 FftFeaturesData로 재실 여부를 판단합니다.
         (SVM_Module.svm()과 동일한 반환값 구조)
 
         Args:
-            inter_A_freq : 주파수 배열 (129개)
-            inter_A_mag  : 진폭 배열  (129개)
+            input_ft: FftFeaturesData — None이면 무시
 
         Returns:
             (A_probability, i_label, f_confidence)
         """
-        # ① SVM 참조 객체로 특징 추출
-        self._svm_ref.A_frequencies = inter_A_freq
-        self._svm_ref.A_magnitudes  = inter_A_mag
-        self._svm_ref.extract_features()
+        if input_ft is None:
+            return (self.A_probability, self.i_label, self.f_confidence)
 
-        # ② 학습된 경우에만 예측
+        # SVM 참조 객체에 ft 등록
+        self._svm_ref.ft = input_ft
+
+        # 학습된 경우에만 예측
         if self.b_is_trained:
             self._predict()
 
@@ -612,16 +612,12 @@ class MLP_Module:
         """
         svm_ref = self._svm_ref
 
-        # 전체 163개 컬럼 벡터 조립 (CSV 저장 형식과 동일)
-        A_stat = np.array([
-            svm_ref.f_peak_freq, svm_ref.f_peak_mag, svm_ref.f_avg_mag,
-            svm_ref.f_std_mag,   svm_ref.f_centroid,  svm_ref.f_low_energy,
-            svm_ref.f_mid_energy, svm_ref.f_high_energy, svm_ref.f_rms,
-            svm_ref.f_low_ratio,  svm_ref.f_spectral_entropy, svm_ref.f_peak_to_mean
-        ])
-        A_full = np.concatenate([np.array(svm_ref.A_magnitudes, dtype=np.float32), A_stat])
+        # 전체 18개 컴럼 벡터 조립 (UART FftFeaturesData 기준)
+        if svm_ref.ft is None:
+            return
+        A_full = svm.feature_vector_from_uart(svm_ref.ft).astype(np.float32)
 
-        # 24개 선택된 특징만 추출 → 정규화
+        # 선택된 특징만 추출 → 정규화
         X_feat   = A_full[self.feature_indices].reshape(1, -1).astype(np.float32)
         X_scaled = self.scaler.transform(X_feat)
 

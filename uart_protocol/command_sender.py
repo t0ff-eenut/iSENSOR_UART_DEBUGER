@@ -176,6 +176,77 @@ class CommandSender:
     
 
     
+    def send_set_fft_stride(self, i_stride_value: int) -> bool:
+        """FFT Stride 값 설정 명령 전송 (ADC 몇 샘플마다 FFT를 실행할지)
+
+        Args:
+            i_stride_value: Stride 값 (1 ~ 256)
+
+        Returns:
+            True: 성공, False: 실패
+        """
+        if not 1 <= i_stride_value <= 256:
+            print(f"[CommandSender] FFT Stride 값 범위 오류: {i_stride_value}")
+            return False
+
+        # uint16_t Little Endian
+        byte_data = bytes([
+            i_stride_value & 0xFF,
+            (i_stride_value >> 8) & 0xFF
+        ])
+
+        return_send_data = self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_FFT_STRIDE, byte_data)
+        return self.uart_send_data(return_send_data)
+
+    def send_set_led_max_per(self, value: int) -> bool:
+        if not 0 <= value <= 100:
+            return False
+        return self.uart_send_data(self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_LED_MAX_PER, bytes([value & 0xFF])))
+
+    def send_set_led_min_per(self, value: int) -> bool:
+        if not 0 <= value <= 100:
+            return False
+        return self.uart_send_data(self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_LED_MIN_PER, bytes([value & 0xFF])))
+
+    def send_set_led_dim_per(self, value: int) -> bool:
+        if not 0 <= value <= 100:
+            return False
+        return self.uart_send_data(self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_LED_DIM_PER, bytes([value & 0xFF])))
+
+    def _uint32_le(self, value: int) -> bytes:
+        return bytes([value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF, (value >> 24) & 0xFF])
+
+    def _uint64_le(self, value: int) -> bytes:
+        return bytes([(value >> (i * 8)) & 0xFF for i in range(8)])
+
+    def send_set_led_work_ms(self, value_ms: int) -> bool:
+        if value_ms < 0:
+            return False
+        return self.uart_send_data(self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_LED_WORK_MS, self._uint32_le(value_ms)))
+
+    def send_set_led_step_ms(self, value_ms: int) -> bool:
+        if value_ms < 0:
+            return False
+        return self.uart_send_data(self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_LED_STEP_MS, self._uint32_le(value_ms)))
+
+    def send_set_led_delay_ms(self, value_ms: int) -> bool:
+        if value_ms < 0:
+            return False
+        return self.uart_send_data(self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_LED_DELAY_MS, self._uint32_le(value_ms)))
+
+    def send_set_occu_timeout_us(self, value_us: int) -> bool:
+        if value_us < 0:
+            return False
+        return self.uart_send_data(self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_OCCU_TIMEOUT, self._uint64_le(value_us)))
+
+    def send_set_sleep_time_us(self, value_us: int) -> bool:
+        if value_us < 0:
+            return False
+        return self.uart_send_data(self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_SLEEP_TIME, self._uint64_le(value_us)))
+
+    def send_set_led_onoff(self, b_on: bool) -> bool:
+        return self.uart_send_data(self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_LED_ONOFF, bytes([0x01 if b_on else 0x00])))
+
     # def send_get_settings(self) -> bool:
     #     """설정값 요청 명령 전송
         
