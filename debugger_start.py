@@ -23,7 +23,8 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QComboBox, QPushButton, QGridLayout, QLabel, QTextEdit, QGroupBox, QTabWidget,
     QSpinBox, QDoubleSpinBox, QAbstractSpinBox, QMessageBox,
-    QSizePolicy, QDialog, QCheckBox, QScrollArea, QDialogButtonBox
+    QSizePolicy, QDialog, QCheckBox, QScrollArea, QDialogButtonBox, QLineEdit,
+    QRadioButton, QButtonGroup
 )
 from PyQt6.QtGui import QShortcut, QKeySequence
 
@@ -40,6 +41,7 @@ _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from AI.svm import svm
 from AI import training_data_collector as tdc
 from AI.mlp import nn_mlp
+import ble_worker as blew   # BLE 통신 모듈
 # ############################# COPILOT EDIT END
 
 MACRO_FONT_NAME = "font-family: {};"
@@ -550,7 +552,7 @@ class MainWindow(QMainWindow):
         self.graph_x_label_setting("주파수(Hz)", enum_graph_plot_num.ADC_FFT)
         self.graph_y_range_setting(self.adc_bit_2_range(12) / 2, enum_graph_plot_num.ADC_FFT, enum_graph_plot_range_opt.ALL)
         self.graph_y_label_pos_setting("left", enum_graph_plot_num.ADC_FFT)
-        self.graph_y_label_setting("강도", enum_graph_plot_num.ADC_FFT)
+        self.graph_y_label_setting("에너지", enum_graph_plot_num.ADC_FFT)
         self.graph_line_color_setting(cfg.ADC_FFT_LINE_COLOR, enum_graph_plot_num.ADC_FFT)
         self.graph_legend_setting('FFT 분포', enum_graph_plot_num.ADC_FFT)
 
@@ -613,7 +615,20 @@ class MainWindow(QMainWindow):
         self.connection_GroupBox.setLayout(self.connection_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
         self.left_GridLayout.addWidget(self.connection_GroupBox, 1, 0)          # Row1 Col0 - Connection
 
-        # --- 📶포트 설정 ---
+        # --- � UART / BLE 토글 (Row 0) ---
+        self._conn_type_ButtonGroup = QButtonGroup(self)
+        self._uart_RadioButton = QRadioButton("🔌 UART")
+        self._ble_RadioButton  = QRadioButton("📶 BLE")
+        self._uart_RadioButton.setChecked(True)
+        self._conn_type_ButtonGroup.addButton(self._uart_RadioButton, 0)
+        self._conn_type_ButtonGroup.addButton(self._ble_RadioButton,  1)
+        _conn_type_HBox = QHBoxLayout()
+        _conn_type_HBox.addWidget(self._uart_RadioButton)
+        _conn_type_HBox.addWidget(self._ble_RadioButton)
+        self.connection_GridLayout.addLayout(_conn_type_HBox, 0, 0, 1, 2)
+        self._uart_RadioButton.toggled.connect(self._on_conn_type_toggled)
+
+        # --- �📶포트 설정 ---
         # --- 포트 라벨 설정 ---
         self.port_sel_Label = QLabel("📶포트: ")
         self.port_sel_Label.setStyleSheet(""
@@ -622,10 +637,10 @@ class MainWindow(QMainWindow):
                                           + MACRO_BORDER_STYLE.format('none')
                                           )
         self.port_sel_Label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)    # 레이블은 텍스트 크기 위주, 늘어나지 않게
-        self.connection_GridLayout.addWidget(self.port_sel_Label, 0, 0)         # 3. 위젯을 대상 레이아웃에 적용
+        self.connection_GridLayout.addWidget(self.port_sel_Label, 1, 0)         # 3. 위젯을 대상 레이아웃에 적용
         # --- 포트 목록 및 버튼 설정 ---
         self.port_sel_HBoxLayout = QHBoxLayout()                    # 2. 가로 방향 레이아웃 생성
-        self.connection_GridLayout.addLayout(self.port_sel_HBoxLayout, 0, 1)         # 3. 위젯을 대상 레이아웃에 적용
+        self.connection_GridLayout.addLayout(self.port_sel_HBoxLayout, 1, 1)         # 3. 위젯을 대상 레이아웃에 적용
         self.port_sel_ComboBox = QComboBox()                               # 1. 대상 위젯 생성
         self.port_sel_HBoxLayout.addWidget(self.port_sel_ComboBox)         # 3. 위젯을 대상 레이아웃에 적용
 
@@ -649,11 +664,21 @@ class MainWindow(QMainWindow):
                                               + MACRO_BORDER_STYLE.format('none')
                                               )
         self.baudrate_sel_Label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)    # 레이블은 텍스트 크기 위주, 늘어나지 않게
-        self.connection_GridLayout.addWidget(self.baudrate_sel_Label, 1, 0)         # 3. 위젯을 대상 레이아웃에 적용
+        self.connection_GridLayout.addWidget(self.baudrate_sel_Label, 2, 0)         # 3. 위젯을 대상 레이아웃에 적용
         # --- 보드레이트 목록 설정 ---
         self.baudrate_sel_ComboBox = QComboBox()                               # 1. 대상 위젯 생성
-        self.connection_GridLayout.addWidget(self.baudrate_sel_ComboBox, 1, 1)         # 3. 위젯을 대상 레이아웃에 적용
-        
+        self.connection_GridLayout.addWidget(self.baudrate_sel_ComboBox, 2, 1)         # 3. 위젯을 대상 레이아웃에 적용
+
+        # --- 📶 BLE 장치명 입력 (UART 선택 시 숨김) ---
+        self._ble_device_Label = QLabel("📶 장치명: ")
+        self._ble_device_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
+        self._ble_device_LineEdit = QLineEdit(blew.ISENSOR_BLE_NAME)
+        self._ble_device_LineEdit.setPlaceholderText("BLE 광고명 (예: iSENSOR)")
+        self.connection_GridLayout.addWidget(self._ble_device_Label,    1, 0)
+        self.connection_GridLayout.addWidget(self._ble_device_LineEdit, 1, 1)
+        self._ble_device_Label.setVisible(False)
+        self._ble_device_LineEdit.setVisible(False)
+
         # --- 연결하기 버튼 설정 ---
         self.port_connect_PushButton = QPushButton("🔌연결하기")
         self.port_connect_PushButton.setStyleSheet(""
@@ -663,7 +688,7 @@ class MainWindow(QMainWindow):
                                                   + BUTTON_HOVER_BG % cfg.LINE_COLOR
                                                   )
         self.port_connect_PushButton.clicked.connect(self.event_port_connection) # 버튼 기능 구현
-        self.connection_GridLayout.addWidget(self.port_connect_PushButton, 2, 0, 1, 2)
+        self.connection_GridLayout.addWidget(self.port_connect_PushButton, 3, 0, 1, 2)
 
 #################################################################################################################
         # # ESP32 리셋 버튼 (Connect 버튼 바로 아래)
@@ -885,7 +910,7 @@ class MainWindow(QMainWindow):
                                                )
         self.fft_gain_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성
         self.fft_gain_GroupBox.setLayout(self.fft_gain_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
-        self.left_GridLayout.addWidget(self.fft_gain_GroupBox, 4, 0, 1, 2)            # Row4 Col0-1 - FFT Setting (전체 폭)
+        self.left_GridLayout.addWidget(self.fft_gain_GroupBox, 4, 0, 1, 1)            # Row4 Col0 - FFT Setting
 
 
         # --- Gain 라벨 ---
@@ -970,7 +995,22 @@ class MainWindow(QMainWindow):
         self.fft_stride_send_PushButton.clicked.connect(self.event_send_fft_stride_command)
         self.fft_gain_GridLayout.addWidget(self.fft_stride_send_PushButton, 3, 0, 1, 2)
 
+        # --- ADC 주석 패널 (FFT Setting 오른쪽, Row4 Col1) ---
+        self.adc_stats_GroupBox = QGroupBox("ADC 주석")
+        self.adc_stats_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
+        adc_stats_VBoxLayout = QVBoxLayout()
+        self.adc_stats_GroupBox.setLayout(adc_stats_VBoxLayout)
+        self.left_GridLayout.addWidget(self.adc_stats_GroupBox, 4, 1, 1, 1)   # Row4 Col1 - ADC 주석 패널
 
+        self.adc_stats_Label = QLabel("수신 대기 중...")
+        self.adc_stats_Label.setStyleSheet(
+            "font-family: Consolas, monospace;"
+            "font-size: 9pt;"
+            "border-style: none;"
+        )
+        self.adc_stats_Label.setAlignment(PyQt6.QtCore.Qt.AlignmentFlag.AlignTop | PyQt6.QtCore.Qt.AlignmentFlag.AlignLeft)
+        self.adc_stats_Label.setWordWrap(False)
+        adc_stats_VBoxLayout.addWidget(self.adc_stats_Label)
 
 ############################################################################################################ SVM
         # --- SVM 데이터 수집 ---
@@ -978,7 +1018,25 @@ class MainWindow(QMainWindow):
         self.svm_collect_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
         self.svm_collect_GridLayout = QGridLayout()
         self.svm_collect_GroupBox.setLayout(self.svm_collect_GridLayout)
-        self.left_GridLayout.addWidget(self.svm_collect_GroupBox, 5, 0, 1, 2)          # Row5 Col0-1 - SVM Setting (전체 폭)
+        self.left_GridLayout.addWidget(self.svm_collect_GroupBox, 5, 0, 1, 1)          # Row5 Col0 - SVM Setting
+
+        # --- FFT Features 패널 (SVM Setting 오른쪽, Row5 Col1) ---
+        self.fft_features_GroupBox = QGroupBox("FFT Features")
+        self.fft_features_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
+        fft_features_VBoxLayout = QVBoxLayout()
+        self.fft_features_GroupBox.setLayout(fft_features_VBoxLayout)
+        self.left_GridLayout.addWidget(self.fft_features_GroupBox, 5, 1, 1, 1)   # Row5 Col1 - FFT Features 패널
+
+        self.fft_features_Label = QLabel("수신 대기 중...")
+        self.fft_features_Label.setStyleSheet(
+            "font-family: Consolas, monospace;"
+            "font-size: 9pt;"
+            "border-style: none;"
+        )
+        self.fft_features_Label.setAlignment(PyQt6.QtCore.Qt.AlignmentFlag.AlignTop | PyQt6.QtCore.Qt.AlignmentFlag.AlignLeft)
+        self.fft_features_Label.setWordWrap(False)
+        fft_features_VBoxLayout.addWidget(self.fft_features_Label)
+
 
         # 샘플 카운트 레이블
         self.svm_count_Label = QLabel("BackGround : 0  |  Occupancy : 0")
@@ -1246,11 +1304,14 @@ class MainWindow(QMainWindow):
         self.led_setting_GridLayout.addWidget(self.all_settings_send_PushButton, 11, 0, 1, 3)
 
         # LED ON/OFF 토글 버튼 (row 12) — 독립 유지
-        self.led_onoff_ToggleButton = QPushButton("💡 LED ON")
+        self.led_onoff_ToggleButton = QPushButton("� LED OFF")
         self.led_onoff_ToggleButton.setCheckable(True)
-        self.led_onoff_ToggleButton.setChecked(True)
         self.led_onoff_ToggleButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.led_onoff_ToggleButton.toggled.connect(self.event_send_led_onoff_command)
+        # 초기 상태: OFF (blockSignals로 시그널 발화 방지 — UART 미연결 상태에서 명령 전송 막기)
+        self.led_onoff_ToggleButton.blockSignals(True)
+        self.led_onoff_ToggleButton.setChecked(False)
+        self.led_onoff_ToggleButton.blockSignals(False)
         self.led_setting_GridLayout.addWidget(self.led_onoff_ToggleButton, 12, 0, 1, 3)
 
         # 설정 새로고침 버튼 (row 13)
@@ -1439,8 +1500,8 @@ class MainWindow(QMainWindow):
             self.port_connect_PushButton.setText("Disconnect")
             self.connect_status_Label.setText("🟢 Connected")
             self.tp_setting_PushButton.setEnabled(True)
-            # PC -> Chip 명령 송신
-            if self.uart_thread and self.uart_thread.serial_port:
+            # PC -> Chip 명령 송신 (UART만 — BLE는 연결 시 이미 ble_serial 설정됨)
+            if self.uart_thread and hasattr(self.uart_thread, 'serial_port') and self.uart_thread.serial_port:
                 self.command_sender.set_serial(self.uart_thread.serial_port)
         else:
             self.port_connect_PushButton.setText("Connect")
@@ -1479,16 +1540,27 @@ class MainWindow(QMainWindow):
             self.baudrate_sel_ComboBox.addItem(str(rate.value), rate.value)
         self.baudrate_sel_ComboBox.setCurrentText(str(upcfg.BaudRate.BAUD_1152000.value))
 
+    def _on_conn_type_toggled(self, b_uart_checked: bool):
+        """UART/BLE 라디오버튼 토글 — 관련 위젯 표시/숨김."""
+        self.port_sel_Label.setVisible(b_uart_checked)
+        self.port_sel_HBoxLayout.parentWidget()  # layout은 hide 불가, 자식 위젯 처리
+        self.port_sel_ComboBox.setVisible(b_uart_checked)
+        self.port_search_PushButton.setVisible(b_uart_checked)
+        self.baudrate_sel_Label.setVisible(b_uart_checked)
+        self.baudrate_sel_ComboBox.setVisible(b_uart_checked)
+        self._ble_device_Label.setVisible(not b_uart_checked)
+        self._ble_device_LineEdit.setVisible(not b_uart_checked)
+
     def event_port_connection(self):
-        """연결/해제 토글"""
+        """연결/해제 토글 — UART / BLE 선택에 따라 분기."""
 
         if self.uart_thread and self.uart_thread.isRunning():
-            # 연결 해제
+            # 연결 해제 (UART, BLE 공통)
             self.uart_thread.stop()
             self.port_connect_PushButton.setText("Connect")
             self.log_TextEdit.append("Disconnected.")
-        else:
-            # 연결
+        elif self._uart_RadioButton.isChecked():
+            # ── UART 연결 ──
             port = self.port_sel_ComboBox.currentData()
             self.log_TextEdit.append(f"Connected port {port}")
             if not port or NO_PORT_FOUND in port:
@@ -1498,9 +1570,22 @@ class MainWindow(QMainWindow):
             self.uart_thread = UartWorker(port, baud)
             self.uart_thread.event_new_data.connect(self.event_update_ui)
             self.uart_thread.event_connection_status.connect(self.event_connection_status_changed)
+            self.uart_thread.log_message.connect(self.log_TextEdit.append)
             self.uart_thread.start()
             self.port_connect_PushButton.setText("Connecting...")
-            self.port_connect_PushButton.setEnabled(False) # Disable button while connecting
+            self.port_connect_PushButton.setEnabled(False)
+        else:
+            # ── BLE 연결 ──
+            device_name = self._ble_device_LineEdit.text().strip() or blew.ISENSOR_BLE_NAME
+            self.uart_thread = blew.BleWorker(device_name)
+            self.uart_thread.event_new_data.connect(self.event_update_ui)
+            self.uart_thread.event_connection_status.connect(self.event_connection_status_changed)
+            self.uart_thread.log_message.connect(self.log_TextEdit.append)
+            self.uart_thread.start()
+            # BLE TX 어댑터를 command_sender에 연결
+            self.command_sender.set_serial(self.uart_thread.ble_serial)
+            self.port_connect_PushButton.setText("Connecting (BLE)...")
+            self.port_connect_PushButton.setEnabled(False)
 
     def event_send_tp_command(self):
         """TP1 값을 ESP32에 전송"""
@@ -1678,12 +1763,22 @@ class MainWindow(QMainWindow):
             # 사람 자동 저장과 상호 배제
             if self.b_auto_save_human:
                 self.svm_auto_human_ToggleButton.setChecked(False)
+            # 현재 설정값으로 새 CSV 파일 생성 (W=윈도우, S=Stride, I=저장주기)
+            new_path = tdc.make_session_csv_path(
+                i_window=self.i_adc_window_size,
+                i_stride=self.fft_stride_SpinBox.value(),
+                i_interval=self.i_auto_save_stride,
+            )
+            self.collector = tdc.TrainingDataCollector(new_path)
             self.i_fft_since_last_save = 0  # 즉시 첫 저장되도록 리셋
             self.svm_auto_bg_ToggleButton.setText("🟢 배경 자동 ON  [1]")
-            self.log_TextEdit.append(f"[SVM] 배경 자동 저장 ON — FFT {self.i_auto_save_stride}회마다 배경으로 저장됩니다.")
+            self.log_TextEdit.append(f"[SVM] 배경 자동 저장 ON — {new_path} | FFT {self.i_auto_save_stride}회마다 배경으로 저장됩니다.")
         else:
             self.svm_auto_bg_ToggleButton.setText("🔴 배경 자동 OFF  [1]")
-            self.log_TextEdit.append("[SVM] 배경 자동 저장 OFF")
+            # 버퍼에 남은 데이터 즉시 flush (20개 미만이어도 손실 방지)
+            flushed = len(self.collector._write_buffer)
+            self.collector.flush_write_buffer()
+            self.log_TextEdit.append(f"[SVM] 배경 자동 저장 OFF — 잔여 {flushed}개 flush 완료")
 
     def event_svm_auto_human_toggled(self, b_checked: bool):
         """사람 자동 저장 토글 상태 변경"""
@@ -1692,12 +1787,22 @@ class MainWindow(QMainWindow):
             # 배경 자동 저장과 상호 배제
             if self.b_auto_save_bg:
                 self.svm_auto_bg_ToggleButton.setChecked(False)
+            # 현재 설정값으로 새 CSV 파일 생성 (W=윈도우, S=Stride, I=저장주기)
+            new_path = tdc.make_session_csv_path(
+                i_window=self.i_adc_window_size,
+                i_stride=self.fft_stride_SpinBox.value(),
+                i_interval=self.i_auto_save_stride,
+            )
+            self.collector = tdc.TrainingDataCollector(new_path)
             self.i_fft_since_last_save = 0  # 즉시 첫 저장되도록 리셋
             self.svm_auto_human_ToggleButton.setText("🟢 사람 자동 ON  [2]")
-            self.log_TextEdit.append(f"[SVM] 사람 자동 저장 ON — FFT {self.i_auto_save_stride}회마다 사람으로 저장됩니다.")
+            self.log_TextEdit.append(f"[SVM] 사람 자동 저장 ON — {new_path} | FFT {self.i_auto_save_stride}회마다 사람으로 저장됩니다.")
         else:
             self.svm_auto_human_ToggleButton.setText("🔴 사람 자동 OFF  [2]")
-            self.log_TextEdit.append("[SVM] 사람 자동 저장 OFF")
+            # 버퍼에 남은 데이터 즉시 flush (20개 미만이어도 손실 방지)
+            flushed = len(self.collector._write_buffer)
+            self.collector.flush_write_buffer()
+            self.log_TextEdit.append(f"[SVM] 사람 자동 저장 OFF — 잔여 {flushed}개 flush 완료")
 
     def event_svm_auto_save_interval_changed(self, i_value: int):
         """자동 저장 주기 변경 (FFT 갱신 횟수)"""
@@ -1806,38 +1911,97 @@ class MainWindow(QMainWindow):
 
 
     def event_svm_clear(self):
-        """CSV 학습 데이터 삭제 + SVM 초기화"""
+        """CSV 파일 목록 다이얼로그 → 선택 삭제 + SVM 초기화"""
 
-        if not os.path.exists(self.collector.str_csv_path):
-            QMessageBox.warning(self, "학습 데이터 삭제 실패", f"'{self.collector.str_csv_path}' 파일이 존재하지 않습니다.")
+        # data_csv/ 폴더의 CSV 파일 목록 수집
+        data_csv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_csv")
+        csv_files = sorted(
+            [f for f in os.listdir(data_csv_dir) if f.endswith(".csv")] if os.path.isdir(data_csv_dir) else []
+        )
+
+        if not csv_files:
+            QMessageBox.information(self, "학습 데이터 삭제", "삭제할 CSV 파일이 없습니다.")
             return
 
-        ######################################################################## 물어보는 대화상자
+        # ── 파일 선택 다이얼로그 ──────────────────────────────────────────
+        dlg = QDialog(self)
+        dlg.setWindowTitle("삭제할 CSV 파일 선택")
+        dlg.setMinimumWidth(420)
+        layout = QVBoxLayout(dlg)
+
+        layout.addWidget(QLabel("삭제할 파일을 선택하세요 (복수 선택 가능):"))
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setSpacing(4)
+
+        checkboxes: list[QCheckBox] = []
+        current_file = os.path.basename(self.collector.str_csv_path)
+        for fname in csv_files:
+            label = f"{fname}  ← 현재 세션" if fname == current_file else fname
+            cb = QCheckBox(label)
+            cb.setProperty("filename", fname)
+            scroll_layout.addWidget(cb)
+            checkboxes.append(cb)
+
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+
+        # 전체 선택 / 해제 버튼 행
+        btn_row = QHBoxLayout()
+        btn_all   = QPushButton("전체 선택")
+        btn_none  = QPushButton("전체 해제")
+        btn_all.clicked.connect(lambda: [cb.setChecked(True)  for cb in checkboxes])
+        btn_none.clicked.connect(lambda: [cb.setChecked(False) for cb in checkboxes])
+        btn_row.addWidget(btn_all)
+        btn_row.addWidget(btn_none)
+        layout.addLayout(btn_row)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btn_box.accepted.connect(dlg.accept)
+        btn_box.rejected.connect(dlg.reject)
+        layout.addWidget(btn_box)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        selected = [cb.property("filename") for cb in checkboxes if cb.isChecked()]
+        if not selected:
+            return
+
+        # ── 최종 확인 ────────────────────────────────────────────────────
         reply_QMessageBox = QMessageBox.question(
             self, "학습 데이터 삭제",
-            f"'{self.collector.str_csv_path}' 파일을 삭제하고 SVM을 초기화합니다.\n계속할까요?",
+            f"선택한 {len(selected)}개 파일을 삭제하고 SVM을 초기화합니다.\n계속할까요?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        ######################################################################## 물어보는 대화상자
         if reply_QMessageBox == QMessageBox.StandardButton.No:
             return
-        
-        if os.path.exists(self.collector.str_csv_path):
-            os.remove(self.collector.str_csv_path)
-        # if os.path.exists(self.str_svm_waveform_csv_path):
-        #     os.remove(self.str_svm_waveform_csv_path)
-        self.svm_handle = svm.SVM_Module()  # 완전 초기화
-        self.collector  = tdc.TrainingDataCollector()  # 카운터/버퍼 리셋
-        self._svm_boundary_cache     = None
-        self._svm_pca_boundary_cache = None
-        self._svm_2d_model  = None
-        self._svm_2d_scaler = None
 
+        # ── 삭제 실행 ────────────────────────────────────────────────────
+        deleted_current = False
+        for fname in selected:
+            fpath = os.path.join(data_csv_dir, fname)
+            if os.path.exists(fpath):
+                os.remove(fpath)
+            if fname == current_file:
+                deleted_current = True
 
-        self.svm_status_Label.setText("미학습")
-        self.svm_count_Label.setText("BackGround : 0  |  Occupancy : 0")
+        # 현재 세션 파일이 삭제된 경우 SVM/수집기 초기화
+        if deleted_current:
+            self.svm_handle = svm.SVM_Module()
+            self.collector  = tdc.TrainingDataCollector()
+            self._svm_boundary_cache     = None
+            self._svm_pca_boundary_cache = None
+            self._svm_2d_model  = None
+            self._svm_2d_scaler = None
+            self.svm_status_Label.setText("미학습")
+            self.svm_count_Label.setText("BackGround : 0  |  Occupancy : 0")
 
-        self.log_TextEdit.append("[SVM] 학습 데이터 삭제 및 초기화 완료")
+        self.log_TextEdit.append(f"[SVM] {len(selected)}개 CSV 파일 삭제 완료: {', '.join(selected)}")
 
 
         # # 산점도 초기화
@@ -2118,7 +2282,7 @@ class MainWindow(QMainWindow):
         self.create_line(target_PlotWidget, cfg.TP1_RCK_LINE_NAME, self.i_tp1_rck, f'TP1_RCK={self.i_tp1_rck}', cfg.TP1_RCK_COLOR)
         self.create_scatter(target_PlotWidget, cfg.TP1_POINT_NAME, cfg.TP1_POINT_COLOR)
         self.create_scatter(target_PlotWidget, cfg.TP1_RCK_POINT_NAME, cfg.TP1_RCK_POINT_COLOR)
-        self.create_label(target_PlotWidget, cfg.ADC_LABEL_NAME, cfg.ADC_LABEL_ANCHOR_X, cfg.ADC_LABEL_ANCHOR_Y, cfg.ADC_LABEL_COLOR)
+        # (ADC 통계는 좌측 패널 adc_stats_Label 에 표시 — 그래프 내 TextItem 제거됨)
 
         self.adc_raw_plot_TabWidget.addTab(target_PlotWidget, graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME])
 
@@ -2162,7 +2326,7 @@ class MainWindow(QMainWindow):
         # peak_TextItem = pyqtgraph.TextItem(anchor=(0, 1), color='y')
         # target_PlotWidget.addItem(peak_TextItem)
 
-        self.create_label(target_PlotWidget, cfg.FFT_LABEL_NAME, cfg.FFT_LABEL_ANCHOR_X, cfg.FFT_LABEL_ANCHOR_Y, cfg.FFT_LABEL_COLOR)
+        # (FFT 특징값은 좌측 패널 fft_features_Label 에 표시 — 그래프 내 주석 제거)
 
         # tp1_recheck_lines[graph_tab_name] = self.tp1_rck_InfiniteLine
         self.adc_fft_plot_TabWidget.addTab(target_PlotWidget, graph_plot_value[enum_graph_plot_index.STR_PLOT_NAME])
@@ -2583,13 +2747,6 @@ class MainWindow(QMainWindow):
         if n > 0:
             inter_Widget.setXRange(0, n - 1, padding=0.02)
 
-
-        target_label = None
-        items = getattr(PlotItem, 'items', None)  # 일부 버전은 속성, 일부는 다른 구조일 수 있음
-        for item in items:
-            if isinstance(item, pyqtgraph.TextItem) and getattr(item, 'role', None) == cfg.ADC_LABEL_NAME:
-                target_label = item
-
 ######## TODO : get_adc_buffer_info 수정하기
         # (
         #     self.i_adc_buffer_len
@@ -2617,13 +2774,8 @@ class MainWindow(QMainWindow):
             f"TP1 : {self.i_tp1_over_count}\n"
             f"TP1_RCK : {self.i_tp1_rck_over_count}\n"
         )
-        target_label.setText(s_stats_text)
-
-        ViewBox = PlotItem.getViewBox()
-        x_max = ViewBox.viewRange()[0][1]
-        y_max = ViewBox.viewRange()[1][1]
-
-        target_label.setPos(x_max, y_max)
+        # 좌측 패널 ADC 주석 레이블 갱신 (그래프 내 TextItem 제거됨)
+        self.adc_stats_Label.setText(s_stats_text)
 
     # def compute_fft(self, adc_buffer, apply_window=True):
     #     """ADC 버퍼에 FFT 적용
@@ -2737,12 +2889,6 @@ class MainWindow(QMainWindow):
                                                   style=pyqtgraph.QtCore.Qt.PenStyle.SolidLine),
                               name='Mag × Gain')
 
-        target_label = None
-        items = getattr(PlotItem, 'items', None)  # 일부 버전은 속성, 일부는 다른 구조일 수 있음
-        for item in items:
-            if isinstance(item, pyqtgraph.TextItem) and getattr(item, 'role', None) == cfg.FFT_LABEL_NAME:
-                target_label = item
-
         # 기본 FFT 통계
         s_stats_text = (
             f"Peak Freq : {self.f_fft_peak_freq:.2f} Hz\n"
@@ -2752,33 +2898,32 @@ class MainWindow(QMainWindow):
         if self.fft_features_data is not None:
             ft = self.fft_features_data
             s_stats_text += (
-                f"--- FFT Features ---\n"
-                f"Centroid      (무게중심 주파수) : {ft.f_centroid:.2f} Hz\n"
-                f"Rolloff       (롤오프 주파수)   : {ft.f_spectral_rolloff:.2f} Hz\n"
-                f"Bandwidth     (대역폭)          : {ft.f_spectral_bandwidth:.2f} Hz\n"
-                f"Peak Freq     (1위 피크 주파수) : {ft.f_peak_freq:.2f} Hz\n"
-                f"2nd Peak Freq (2위 피크 주파수) : {ft.f_second_peak_freq:.2f} Hz\n"
-                f"Peak Count    (피크 빈 개수)    : {ft.i_peak_count}\n"
-                f"RMS           (RMS 진폭)        : {ft.f_rms:.4f}\n"
-                f"Avg Energy    (평균 에너지)     : {ft.ui32_avg_energy}\n"
-                f"Peak Energy   (피크 에너지)     : {ft.ui32_peak_energy}\n"
-                f"Low Ratio     (저주파 비율)     : {ft.f_low_ratio:.3f}\n"
-                f"Mid Ratio     (중주파 비율)     : {ft.f_mid_ratio:.3f}\n"
-                f"High Ratio    (고주파 비율)     : {ft.f_high_ratio:.3f}\n"
-                f"L/H Ratio     (저/고주파 비율)  : {ft.f_low_to_high_ratio:.3f}\n"
-                f"P1/P2 Ratio   (1위/2위 피크 비율): {ft.f_peak1_to_peak2_ratio:.3f}\n"
-                f"Peak/Avg E    (피크/평균 에너지 비율): {ft.f_peak_to_avg_e:.3f}\n"
-                f"E Variance    (에너지 분산)     : {ft.f_energy_variance:.2f}\n"
-                f"Kurtosis      (첨도)            : {ft.f_kurtosis:.3f}\n"
-                f"Skewness      (왜도)            : {ft.f_skewness:.3f}\n"
+                f"\n[FFT Features]\n"
+                f"Centroid      : {ft.f_centroid:.2f} Hz\n"
+                f"Rolloff       : {ft.f_spectral_rolloff:.2f} Hz\n"
+                f"Bandwidth     : {ft.f_spectral_bandwidth:.2f} Hz\n"
+                f"Peak Freq     : {ft.f_peak_freq:.2f} Hz\n"
+                f"2nd Peak Freq : {ft.f_second_peak_freq:.2f} Hz\n"
+                f"Peak Count    : {ft.i_peak_count}\n"
+                f"RMS           : {ft.f_rms:.4f}\n"
+                f"Avg Energy    : {ft.ui32_avg_energy}\n"
+                f"Peak Energy   : {ft.ui32_peak_energy}\n"
+                f"Low Ratio     : {ft.f_low_ratio:.3f}\n"
+                f"Mid Ratio     : {ft.f_mid_ratio:.3f}\n"
+                f"High Ratio    : {ft.f_high_ratio:.3f}\n"
+                f"L/H Ratio     : {ft.f_low_to_high_ratio:.3f}\n"
+                f"P1/P2 Ratio   : {ft.f_peak1_to_peak2_ratio:.3f}\n"
+                f"Peak/Avg E    : {ft.f_peak_to_avg_e:.3f}\n"
+                f"E Variance    : {ft.f_energy_variance:.2f}\n"
+                f"Kurtosis      : {ft.f_kurtosis:.3f}\n"
+                f"Skewness      : {ft.f_skewness:.3f}\n"
+                f"DC Ratio      : {ft.f_dc_ratio:.3f}\n"
+                f"ΔPeak Freq    : {ft.f_delta_peak_freq:.2f} Hz\n"
+                f"Flatness      : {ft.f_spectral_flatness:.4f}\n"
             )
 
-        target_label.setText(s_stats_text)
-        ViewBox = PlotItem.getViewBox()
-        x_max = ViewBox.viewRange()[0][1]
-        y_max = ViewBox.viewRange()[1][1]
-
-        target_label.setPos(x_max, y_max)
+        # 좌측 패널 FFT Features 레이블 갱신 (그래프 내 TextItem 제거됨)
+        self.fft_features_Label.setText(s_stats_text)
 
 
     _SVM_COL_LABEL_MAP = {

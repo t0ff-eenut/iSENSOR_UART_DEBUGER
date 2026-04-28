@@ -2,6 +2,55 @@
 
 ---
 
+## v0.7.0 — BLE 통신 모듈 추가 (UART/BLE 토글)
+
+**날짜:** 2026-04-28
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `ble_worker.py` | **신규** — `BleWorker(QThread)` 구현; Nordic UART Service(NUS) GATT 기반 BLE 통신; `UartWorker`와 동일한 시그널(`event_new_data`, `event_connection_status`, `log_message`) 인터페이스 제공 |
+| `ble_worker.py` | `BleSerial` 어댑터 클래스 — `serial.Serial.write()` 인터페이스 구현, 기존 `CommandSender.set_serial()` 재사용 가능 |
+| `debugger_start.py` | Connection GroupBox에 UART/BLE 선택 `QButtonGroup` (RadioButton) 추가 (Row 0) |
+| `debugger_start.py` | BLE 선택 시 포트/보드레이트 위젯 숨김, 장치명 입력 QLineEdit 표시 (`iSENSOR` 기본값) |
+| `debugger_start.py` | `event_port_connection()` — 선택된 통신 방식에 따라 `UartWorker` / `BleWorker` 분기 생성 |
+
+### 의존성
+
+```
+pip install bleak
+```
+
+### BLE GATT UUID (Nordic UART Service)
+
+| UUID | 방향 | 용도 |
+|---|---|---|
+| `6E400001-...` | — | NUS Service |
+| `6E400002-...` | PC → ESP32 | Write (명령 전송) |
+| `6E400003-...` | ESP32 → PC | Notify (데이터 수신) |
+
+---
+
+## v0.6.5 — CSV 삭제 개선 + LED 버그 수정 + 자동 저장 개선 + UI 개선
+
+**날짜:** 2026-04-28
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `debugger_start.py` | `event_svm_clear()` 전면 재작성 — 다중 선택 QDialog(QCheckBox 목록) 표시; 현재 세션 파일 "← 현재 세션" 표시; 현재 파일 삭제 시에만 collector/SVM 리셋 |
+| `debugger_start.py` | LED 토글 버튼 초기화 버그 수정 — `blockSignals(True/False)` 적용, 초기 상태 `setChecked(False)` ("🔴 LED OFF") |
+| `debugger_start.py` | 자동 수집(BG/Human) 토글 OFF 시 `flush_write_buffer()` 호출 — 20개 미만 버퍼 데이터 손실 방지 |
+| `debugger_start.py` | FFT Y축 레이블 "강도" → "에너지" 변경 |
+| `debugger_start.py` | 좌측 패널 레이아웃 재구성 — Row4 Col1: ADC 주석(`adc_stats_GroupBox`), Row5 Col1: FFT Features(`fft_features_GroupBox`) |
+| `debugger_start.py` | ADC/FFT 그래프 내 TextItem 제거 → 좌측 패널 QLabel(`adc_stats_Label`, `fft_features_Label`)로 이전 |
+| `AI/training_data_collector.py` | `make_session_csv_path()` — `i_window`, `i_stride`, `i_interval` 파라미터 추가; 파일명에 메타데이터 포함 (`_W256_S32_I1`) |
+| `debugger_start.py` | 자동 수집 토글 ON 시 현재 설정값(`i_adc_window_size`, `fft_stride_SpinBox`, `i_auto_save_stride`)으로 새 collector 생성 |
+
+---
+
 ## v0.6.4 — Settings 패킷 `fft_stride` 필드 추가 (동기화 완성)
 
 **날짜:** 2026-04-27

@@ -33,11 +33,24 @@ _CSV_HEADER = [
 
 
 # data_csv/ 폴더 안에 타임스탬프 기반 파일명을 생성하는 헬퍼
-def make_session_csv_path(base_dir: str = "data_csv") -> str:
-    """앱 시작 시 호출 — data_csv/svm_data_YYYYMMDD_HHMMSS.csv 경로 반환."""
+def make_session_csv_path(base_dir: str = "data_csv",
+                          i_window: int = 0,
+                          i_stride: int = 0,
+                          i_interval: int = 0) -> str:
+    """자동 수집 토글 ON 시 호출 — 수집 조건을 파일명에 포함하여 반환.
+
+    Args:
+        i_window:   Window Size (ADC 샘플 수)
+        i_stride:   FFT Stride (샘플 단위)
+        i_interval: 저장 주기 (FFT 갱신 횟수)
+
+    Returns:
+        예) data_csv/svm_data_20260428_112250_W256_S32_I1.csv
+    """
     os.makedirs(base_dir, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    return os.path.join(base_dir, f"svm_data_{ts}.csv")
+    meta = f"_W{i_window}_S{i_stride}_I{i_interval}" if (i_window or i_stride or i_interval) else ""
+    return os.path.join(base_dir, f"svm_data_{ts}{meta}.csv")
 
 
 class TrainingDataCollector:
