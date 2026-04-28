@@ -275,8 +275,12 @@ class UartWorker(PyQt6.QtCore.QThread):
 
         while self.b_uart_thread_running:
             try:
-                if self.serial_port.in_waiting > 0:
-                    byte_data:bytes = self.serial_port.read(self.serial_port.in_waiting)                    
+                # ── [macOS] read(1) 블로킹 방식 ──────────────────────────────────────────
+                # macOS 일부 USB-UART 드라이버에서 in_waiting이 항상 0을 반환하는 문제 대응
+                byte_data:bytes = self.serial_port.read(1)
+                if byte_data:
+                    if self.serial_port.in_waiting > 0:
+                        byte_data += self.serial_port.read(self.serial_port.in_waiting)
                     for byte in byte_data:
                         complete_receive_data:updm.UartReceiveData = self.UartReceiveParser_handle.feed_byte(byte)
                         if complete_receive_data:
@@ -285,6 +289,18 @@ class UartWorker(PyQt6.QtCore.QThread):
                                 self.event_new_data.emit(sensor_data)
                             else:
                                 print(f"debugger_start.py | run() | sensor_data = None for type {complete_receive_data.bytes_data_type}")
+                # ── [Windows] in_waiting 폴링 방식 ──────────────────────────────────────
+                # Windows에서 정상 동작. macOS에서는 in_waiting이 0으로 고정되는 경우 있음
+                # if self.serial_port.in_waiting > 0:
+                #     byte_data:bytes = self.serial_port.read(self.serial_port.in_waiting)
+                #     for byte in byte_data:
+                #         complete_receive_data:updm.UartReceiveData = self.UartReceiveParser_handle.feed_byte(byte)
+                #         if complete_receive_data:
+                #             sensor_data = self.DataParser_handle.data_parser(complete_receive_data)
+                #             if sensor_data:
+                #                 self.event_new_data.emit(sensor_data)
+                #             else:
+                #                 print(f"debugger_start.py | run() | sensor_data = None for type {complete_receive_data.bytes_data_type}")
             except serial.SerialException as e:
                 self.log_message.emit(f"✗ Serial error: {e}")
                 self.b_uart_thread_running = False

@@ -89,7 +89,7 @@ class SensorData:
     # occupancy_buffer: Optional[List[bool]] = None     # (비활성화)
     
     # 설정 데이터 (타입 6)
-    settings:Optional[SettingsData] = None
+    settings:Optional['SettingsData'] = None
     # settings: Optional[parse_settings] = None
     
     # 프로파일링 데이터 (타입 11)

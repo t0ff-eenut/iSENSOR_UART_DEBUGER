@@ -197,7 +197,7 @@ class UartReceiveParser:
         self.enum_parse_state = enum_parse_state.READ_ETX
         return None
     
-    def parse_etx(self) -> Optional[updm.UartFrame]:
+    def parse_etx(self) -> Optional[updm.UartReceiveData]:
         """ETX 패턴 파싱 및 프레임 완성 (3 bytes)"""
         if len(self.A_receive_byte_buffer) < upcfg.RECEIVE_HEADER_LENGTH + self.bytes_receive_data_length + upcfg.RECEIVE_CHECKSUM_LENGTH + upcfg.UART_RECEIVE_ETX_SIZE:
             return None

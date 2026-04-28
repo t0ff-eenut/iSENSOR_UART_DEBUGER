@@ -2,8 +2,8 @@
 WINDOW_TITLE:str        = 'iSENSOR PIR SENSOR DEBUG'
 WINDOW_POSITION_X:int   = 100
 WINDOW_POSITION_Y:int   = 100
-WINDOW_WIDTH:int        = 2400
-WINDOW_HEIGHT:int       = 800
+WINDOW_WIDTH:int        = 1600
+WINDOW_HEIGHT:int       = 700
 LEFT_BOX_WIDTH:int      = 800
 
 
