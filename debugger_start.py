@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QPushButton, QGridLayout, QLabel, QTextEdit, QGroupBox, QTabWidget,
     QSpinBox, QDoubleSpinBox, QAbstractSpinBox, QMessageBox,
     QSizePolicy, QDialog, QCheckBox, QScrollArea, QDialogButtonBox, QLineEdit,
-    QRadioButton, QButtonGroup
+    QRadioButton, QButtonGroup, QProgressBar
 )
 from PyQt6.QtGui import QShortcut, QKeySequence
 
@@ -48,7 +48,8 @@ MACRO_FONT_NAME = "font-family: {};"
 MACRO_FONT_BOLD = "font-weight: bold;"
 MACRO_FONT_SIZE = "font-size: {}pt;"
 
-BUTTON_HOVER_BG = "QPushButton:hover { background-color: %s; }"
+BUTTON_HOVER_BG      = "QPushButton:hover { background-color: %s; }"
+BUTTON_HOVER_BG_BOLD = "QPushButton { font-weight: bold; } QPushButton:hover { background-color: %s; }"
 
 MACRO_BORDER_RADIUS = "border-radius: {}px;"
 MACRO_PADDING = "padding: {}px;"
@@ -227,6 +228,66 @@ class SvmRebuild2dWorker(PyQt6.QtCore.QThread):
         model_2d  = SVC(kernel='rbf', C=1.0, gamma='scale', probability=True)
         model_2d.fit(X_scaled, self._y)
         self.finished.emit(scaler_2d, model_2d, self._x_col, self._y_col)
+
+
+class MlpTrainWorker(PyQt6.QtCore.QThread):
+    """MLP 학습을 백그라운드에서 실행하는 워커 스레드.
+
+    Signals:
+        epoch_progress(epoch, total, loss, train_acc, val_acc) : 매 에폭마다 발생
+        log_message(str)                                       : CSV 로드 / 전처리 로그
+        finished(bool)                                         : 학습 완료 여부
+    """
+    epoch_progress = PyQt6.QtCore.pyqtSignal(int, int, float, float, float)
+    log_message    = PyQt6.QtCore.pyqtSignal(str)
+    finished       = PyQt6.QtCore.pyqtSignal(bool)
+
+    def __init__(self, mlp_handle, str_csv_path: str,
+                 epochs: int = None, learning_rate: float = None,
+                 early_stop_patience: int = None,
+                 hidden_layers: list = None,
+                 dropout_rate: float = None,
+                 batch_size: int = None,
+                 val_ratio: float = None,
+                 random_state: int = None,
+                 stratify: bool = None,
+                 log_interval: int = None,
+                 feature_mode: str = None):
+        super().__init__()
+        self._mlp_handle          = mlp_handle
+        self._str_csv_path        = str_csv_path
+        self._epochs              = epochs
+        self._learning_rate       = learning_rate
+        self._early_stop_patience = early_stop_patience
+        self._hidden_layers       = hidden_layers
+        self._dropout_rate        = dropout_rate
+        self._batch_size          = batch_size
+        self._val_ratio           = val_ratio
+        self._random_state        = random_state
+        self._stratify            = stratify
+        self._log_interval        = log_interval
+        self._feature_mode        = feature_mode
+
+    def run(self):
+        def _cb(epoch, total, loss, train_acc, val_acc):
+            self.epoch_progress.emit(epoch, total, float(loss),
+                                     float(train_acc), float(val_acc))
+
+        result = self._mlp_handle.train(self._str_csv_path,
+                                        progress_callback=_cb,
+                                        log_callback=self.log_message.emit,
+                                        epochs=self._epochs,
+                                        learning_rate=self._learning_rate,
+                                        early_stop_patience=self._early_stop_patience,
+                                        hidden_layers=self._hidden_layers,
+                                        dropout_rate=self._dropout_rate,
+                                        batch_size=self._batch_size,
+                                        val_ratio=self._val_ratio,
+                                        random_state=self._random_state,
+                                        stratify=self._stratify,
+                                        log_interval=self._log_interval,
+                                        feature_mode=self._feature_mode)
+        self.finished.emit(result)
 
 
 class UartWorker(PyQt6.QtCore.QThread):
@@ -612,9 +673,10 @@ class MainWindow(QMainWindow):
         self.main_HBoxLayout.addWidget(self.left_Widget, stretch=1)     # 1-1. 상위 레이아웃에 위젯 적용
 
 # --- 좌측 패널 구성 ---
-        self.left_GridLayout = QGridLayout()            # 2. 2열 그리드 레이아웃 생성
-        self.left_GridLayout.setColumnStretch(0, 1)     # 좌열 / 우열 동등 비율
+        self.left_GridLayout = QGridLayout()            # 2. 3열 그리드 레이아웃 생성
+        self.left_GridLayout.setColumnStretch(0, 1)     # 좌열 / 중열 / 우열 동등 비율
         self.left_GridLayout.setColumnStretch(1, 1)
+        self.left_GridLayout.setColumnStretch(2, 1)
         self.left_Widget.setLayout(self.left_GridLayout)     # 3. 레이아웃을 대상 위젯에 적용
 # --- 제어창 표시 설정 ---
         self.left_control_Label = QLabel("제어창")             # 1. 대상 위젯 생성
@@ -623,7 +685,7 @@ class MainWindow(QMainWindow):
                                               + MACRO_FONT_SIZE.format(14)
                                               )  # * 위젯 폰트 설정
         self.left_control_Label.setFixedHeight(30)             # * 위젯 가로 사이즈 설정
-        self.left_GridLayout.addWidget(self.left_control_Label, 0, 0, 1, 2)    # Row0 - 전체 2열 차지
+        self.left_GridLayout.addWidget(self.left_control_Label, 0, 0, 1, 3)    # Row0 - 전체 3열 차지
 # --- Connection 그룹 설정 ---
         self.connection_GroupBox = QGroupBox("Connection")             # 1. 대상 위젯 생성
         # self.connection_GroupBox.setFlat(True)
@@ -1016,7 +1078,7 @@ class MainWindow(QMainWindow):
         self.adc_stats_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
         adc_stats_VBoxLayout = QVBoxLayout()
         self.adc_stats_GroupBox.setLayout(adc_stats_VBoxLayout)
-        self.left_GridLayout.addWidget(self.adc_stats_GroupBox, 4, 1, 1, 1)   # Row4 Col1 - ADC 주석 패널
+        self.left_GridLayout.addWidget(self.adc_stats_GroupBox, 1, 2, 3, 1)   # Row1-3 Col2 - ADC 주석 패널
 
         self.adc_stats_Label = QLabel("수신 대기 중...")
         self.adc_stats_Label.setStyleSheet(
@@ -1041,7 +1103,7 @@ class MainWindow(QMainWindow):
         self.fft_features_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
         fft_features_VBoxLayout = QVBoxLayout()
         self.fft_features_GroupBox.setLayout(fft_features_VBoxLayout)
-        self.left_GridLayout.addWidget(self.fft_features_GroupBox, 5, 1, 1, 1)   # Row5 Col1 - FFT Features 패널
+        self.left_GridLayout.addWidget(self.fft_features_GroupBox, 4, 2, 2, 1)   # Row4-5 Col2 - FFT Features 패널
 
         self.fft_features_Label = QLabel("수신 대기 중...")
         self.fft_features_Label.setStyleSheet(
@@ -1101,13 +1163,8 @@ class MainWindow(QMainWindow):
         self.svm_collect_GridLayout.addWidget(self.svm_auto_save_interval_SpinBox, 3, 1)
 
         # 단축키: 1=배경 자동 토글, 2=사람 자동 토글, 3=학습 데이터 삭제
-        QShortcut(QKeySequence("1"), self).activated.connect(
-            lambda: self.svm_auto_bg_ToggleButton.setChecked(not self.svm_auto_bg_ToggleButton.isChecked())
-        )
-        QShortcut(QKeySequence("2"), self).activated.connect(
-            lambda: self.svm_auto_human_ToggleButton.setChecked(not self.svm_auto_human_ToggleButton.isChecked())
-        )
-        QShortcut(QKeySequence("3"), self).activated.connect(self.event_svm_clear)
+        # QShortcut 대신 앱 레벨 eventFilter 사용 → SpinBox/LineEdit 포커스와 무관하게 동작
+        QApplication.instance().installEventFilter(self)
 
         # SVM 학습 버튼
         self.svm_train_PushButton = QPushButton("🤖 SVM 학습")
@@ -1180,6 +1237,200 @@ class MainWindow(QMainWindow):
         self.svm_collect_GridLayout.addWidget(self.svm_show_occu_ToggleButton, 11, 1)
 
 ############################################################################################################ SVM
+
+############################################################################################################ MLP Training
+        self.mlp_train_GroupBox = QGroupBox("MLP Training")
+        self.mlp_train_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
+        self.mlp_train_GridLayout = QGridLayout()
+        self.mlp_train_GroupBox.setLayout(self.mlp_train_GridLayout)
+        self.left_GridLayout.addWidget(self.mlp_train_GroupBox, 4, 1, 2, 1)     # Row4-5 Col1 - MLP Training
+
+        # CSV 파일 선택 레이블 + 버튼
+        self.mlp_csv_Label = QLabel("CSV: data_csv/ 전체 병합 학습")
+        self.mlp_csv_Label.setStyleSheet("" + MACRO_BORDER_STYLE.format('none'))
+        self.mlp_train_GridLayout.addWidget(self.mlp_csv_Label, 0, 0, 1, 2)
+
+        # ── 하이퍼파라미터 설정 행 ────────────────────────────
+        import AI.mlp.nn_mlp as _nn_mlp_ref
+
+        # 에폭
+        self.mlp_epochs_Label = QLabel("에폭")
+        self.mlp_epochs_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_train_GridLayout.addWidget(self.mlp_epochs_Label, 1, 0)
+
+        self.mlp_epochs_SpinBox = QSpinBox()
+        self.mlp_epochs_SpinBox.setRange(10, 2000)
+        self.mlp_epochs_SpinBox.setSingleStep(50)
+        self.mlp_epochs_SpinBox.setValue(_nn_mlp_ref.EPOCHS)
+        self.mlp_train_GridLayout.addWidget(self.mlp_epochs_SpinBox, 1, 1)
+
+        # 학습률
+        self.mlp_lr_Label = QLabel("LR")
+        self.mlp_lr_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_train_GridLayout.addWidget(self.mlp_lr_Label, 2, 0)
+
+        self.mlp_lr_ComboBox = QComboBox()
+        for _lr_val in ["1e-3", "5e-4", "1e-4", "5e-5"]:
+            self.mlp_lr_ComboBox.addItem(_lr_val)
+        self.mlp_lr_ComboBox.setCurrentText(f"{_nn_mlp_ref.LEARNING_RATE:.0e}")
+        self.mlp_train_GridLayout.addWidget(self.mlp_lr_ComboBox, 2, 1)
+
+        # Early Stop patience
+        self.mlp_es_Label = QLabel("Early Stop")
+        self.mlp_es_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_train_GridLayout.addWidget(self.mlp_es_Label, 3, 0)
+
+        self.mlp_es_SpinBox = QSpinBox()
+        self.mlp_es_SpinBox.setRange(0, 200)
+        self.mlp_es_SpinBox.setSingleStep(5)
+        self.mlp_es_SpinBox.setValue(20)
+        self.mlp_es_SpinBox.setSpecialValueText("비활성화")  # 0일 때 표시
+        self.mlp_train_GridLayout.addWidget(self.mlp_es_SpinBox, 3, 1)
+
+        # 레이어 구조
+        self.mlp_layers_Label = QLabel("Layer")
+        self.mlp_layers_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_train_GridLayout.addWidget(self.mlp_layers_Label, 4, 0)
+
+        self.mlp_layers_ComboBox = QComboBox()
+        for _l in ["128-64-32", "64-32", "256-128-64", "128-64", "64"]:
+            self.mlp_layers_ComboBox.addItem(_l)
+        _default_layers = '-'.join(str(h) for h in _nn_mlp_ref.HIDDEN_LAYERS)
+        idx = self.mlp_layers_ComboBox.findText(_default_layers)
+        self.mlp_layers_ComboBox.setCurrentIndex(idx if idx >= 0 else 0)
+        self.mlp_train_GridLayout.addWidget(self.mlp_layers_ComboBox, 4, 1)
+
+        # Dropout
+        self.mlp_dropout_Label = QLabel("Dropout")
+        self.mlp_dropout_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_train_GridLayout.addWidget(self.mlp_dropout_Label, 5, 0)
+
+        self.mlp_dropout_ComboBox = QComboBox()
+        for _d in ["0.0", "0.1", "0.2", "0.3", "0.4", "0.5"]:
+            self.mlp_dropout_ComboBox.addItem(_d)
+        self.mlp_dropout_ComboBox.setCurrentText(str(_nn_mlp_ref.DROPOUT_RATE))
+        self.mlp_train_GridLayout.addWidget(self.mlp_dropout_ComboBox, 5, 1)
+
+        # Batch size
+        self.mlp_batch_Label = QLabel("Batch")
+        self.mlp_batch_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_train_GridLayout.addWidget(self.mlp_batch_Label, 6, 0)
+
+        self.mlp_batch_SpinBox = QSpinBox()
+        self.mlp_batch_SpinBox.setRange(4, 256)
+        self.mlp_batch_SpinBox.setSingleStep(8)
+        self.mlp_batch_SpinBox.setValue(_nn_mlp_ref.BATCH_SIZE)
+        self.mlp_train_GridLayout.addWidget(self.mlp_batch_SpinBox, 6, 1)
+
+        # 검증 비율 (Val Ratio)
+        self.mlp_val_ratio_Label = QLabel("검증 비율")
+        self.mlp_val_ratio_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_val_ratio_Label.setToolTip("전체 데이터 중 검증에 사용할 비율 (예: 0.2 = 20%)")
+        self.mlp_train_GridLayout.addWidget(self.mlp_val_ratio_Label, 7, 0)
+
+        self.mlp_val_ratio_ComboBox = QComboBox()
+        for _vr in ["0.10", "0.15", "0.20", "0.25", "0.30"]:
+            self.mlp_val_ratio_ComboBox.addItem(_vr)
+        self.mlp_val_ratio_ComboBox.setCurrentText(f"{_nn_mlp_ref.VAL_RATIO:.2f}")
+        self.mlp_train_GridLayout.addWidget(self.mlp_val_ratio_ComboBox, 7, 1)
+
+        # 분리 시드 (random_state)
+        self.mlp_seed_Label = QLabel("분리 시드\n(-1=매번 다름, 숫자=고정)")
+        self.mlp_seed_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_seed_Label.setToolTip("학습/검증 분리 시 사용하는 랜덤 시드\n-1 → 실행마다 다르게 분리 (재현 불가)\n0 이상 → 항상 동일하게 분리 (재현 가능)")
+        self.mlp_train_GridLayout.addWidget(self.mlp_seed_Label, 8, 0)
+
+        self.mlp_seed_SpinBox = QSpinBox()
+        self.mlp_seed_SpinBox.setRange(-1, 9999)
+        self.mlp_seed_SpinBox.setSingleStep(1)
+        self.mlp_seed_SpinBox.setValue(42)
+        self.mlp_seed_SpinBox.setSpecialValueText("랜덤 (-1)")
+        self.mlp_train_GridLayout.addWidget(self.mlp_seed_SpinBox, 8, 1)
+
+        # 비율 고정 (stratify)
+        self.mlp_stratify_Label = QLabel("비율 고정")
+        self.mlp_stratify_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_stratify_Label.setToolTip("배경/사람 비율을 학습·검증에 동일하게 유지할지 여부")
+        self.mlp_train_GridLayout.addWidget(self.mlp_stratify_Label, 9, 0)
+
+        self.mlp_stratify_ComboBox = QComboBox()
+        self.mlp_stratify_ComboBox.addItem("사용 (비율 동일하게 분리)")
+        self.mlp_stratify_ComboBox.addItem("미사용 (완전 랜덤 분리)")
+        self.mlp_train_GridLayout.addWidget(self.mlp_stratify_ComboBox, 9, 1)
+
+        # 로그 출력 주기
+        self.mlp_log_interval_Label = QLabel("로그 주기")
+        self.mlp_log_interval_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_log_interval_Label.setToolTip("몇 에폭마다 손실/정확도를 출력할지")
+        self.mlp_train_GridLayout.addWidget(self.mlp_log_interval_Label, 10, 0)
+
+        self.mlp_log_interval_SpinBox = QSpinBox()
+        self.mlp_log_interval_SpinBox.setRange(1, 100)
+        self.mlp_log_interval_SpinBox.setSingleStep(1)
+        self.mlp_log_interval_SpinBox.setValue(10)
+        self.mlp_log_interval_SpinBox.setSuffix(" 에폭마다")
+        self.mlp_train_GridLayout.addWidget(self.mlp_log_interval_SpinBox, 10, 1)
+
+        # 특징 모드 선택
+        self.mlp_feature_mode_Label = QLabel("특징 모드")
+        self.mlp_feature_mode_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_feature_mode_Label.setToolTip(
+            "ESP32 (21개): ESP32가 계산한 특징 그대로 학습\n"
+            "PC 재계산 (25개): FFT 데이터로 PC에서 재계산한 특징으로 학습"
+        )
+        self.mlp_train_GridLayout.addWidget(self.mlp_feature_mode_Label, 11, 0)
+
+        self.mlp_feature_mode_ComboBox = QComboBox()
+        self.mlp_feature_mode_ComboBox.addItem("ESP32 (21개 특징)")
+        self.mlp_feature_mode_ComboBox.addItem("PC 재계산 (25개 특징)")
+        self.mlp_feature_mode_ComboBox.setToolTip(
+            "학습에 사용할 특징 세트를 선택합니다.\n"
+            "PC 재계산: FFT 원시 데이터로 PC에서 25개 특징 추출 → ESP32 결과와 비교 가능"
+        )
+        self.mlp_train_GridLayout.addWidget(self.mlp_feature_mode_ComboBox, 11, 1)
+
+        # 학습 버튼
+        self.mlp_train_PushButton = QPushButton("🧠 MLP 학습")
+        self.mlp_train_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.mlp_train_PushButton.clicked.connect(self.event_mlp_train)
+        self.mlp_train_GridLayout.addWidget(self.mlp_train_PushButton, 12, 0, 1, 2)
+
+        # 에폭 진행률 바
+        self.mlp_progress_ProgressBar = QProgressBar()
+        self.mlp_progress_ProgressBar.setRange(0, 100)
+        self.mlp_progress_ProgressBar.setValue(0)
+        self.mlp_progress_ProgressBar.setTextVisible(True)
+        self.mlp_progress_ProgressBar.setFormat("대기 중")
+        self.mlp_train_GridLayout.addWidget(self.mlp_progress_ProgressBar, 13, 0, 1, 2)
+
+        # 학습 상태 레이블
+        self.mlp_status_Label = QLabel("미학습" if not self.mlp_handle.b_is_trained else "모델 로드 완료")
+        self.mlp_status_Label.setStyleSheet("" + MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
+        self.mlp_train_GridLayout.addWidget(self.mlp_status_Label, 14, 0, 1, 2)
+
+        # ── 저장 모델 선택 ──────────────────────────────────────
+        self.mlp_model_Label = QLabel("💾 모델 선택")
+        self.mlp_model_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_Label, 15, 0)
+
+        self.mlp_model_ComboBox = QComboBox()
+        self.mlp_model_ComboBox.setToolTip("models/ 폴더의 버전 .pt 파일 목록")
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_ComboBox, 15, 1)
+
+        self.mlp_model_refresh_PushButton = QPushButton("🔄 목록 갱신")
+        self.mlp_model_refresh_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.mlp_model_refresh_PushButton.clicked.connect(self._refresh_mlp_model_list)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_refresh_PushButton, 16, 0)
+
+        self.mlp_model_load_PushButton = QPushButton("📂 모델 로드")
+        self.mlp_model_load_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.mlp_model_load_PushButton.clicked.connect(self.event_mlp_load_model)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_load_PushButton, 16, 1)
+
+        # 초기 목록 채우기
+        self._refresh_mlp_model_list()
+
+############################################################################################################ MLP Training
 
 ############################################################################################################ LED & 타이머 설정
         self.led_setting_GroupBox = QGroupBox("iSENSOR ESP Control")
@@ -1315,7 +1566,7 @@ class MainWindow(QMainWindow):
 
         # 일괄 전송 버튼 (row 11) — TP + 모든 LED/타이머 설정 한 번에 전송
         self.all_settings_send_PushButton = _mk_btn("📡 전체 설정 전송하기")
-        self.all_settings_send_PushButton.setStyleSheet("" + MACRO_FONT_BOLD + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.all_settings_send_PushButton.setStyleSheet(BUTTON_HOVER_BG_BOLD % cfg.LINE_COLOR)
         self.all_settings_send_PushButton.clicked.connect(self.event_send_all_settings_command)
         self.led_setting_GridLayout.addWidget(self.all_settings_send_PushButton, 11, 0, 1, 3)
 
@@ -1430,6 +1681,7 @@ class MainWindow(QMainWindow):
 
         self.create_mlp_prob_tab()
         self.create_mlp_history_tab()
+        self.create_mlp_train_curve_tab()
 
         # self.svm_scatter_PlotWidget = pyqtgraph.PlotWidget()
         # self.svm_scatter_PlotWidget.setTitle("SVM Feature Space")
@@ -1772,6 +2024,27 @@ class MainWindow(QMainWindow):
     #     """마지막 FFT raw magnitudes 반환 (게인 미적용)"""
     #     return getattr(self, '_last_fft_raw', None), getattr(self, '_last_fft_freqs', None)
 
+    def eventFilter(self, watched, event):
+        """앱 레벨 이벤트 필터 — SpinBox/LineEdit 포커스와 무관하게 1/2/3 단축키 처리."""
+        if event.type() == PyQt6.QtCore.QEvent.Type.KeyPress:
+            focused = QApplication.focusWidget()
+            # 텍스트 입력 위젯에 포커스가 없을 때만 숫자 단축키 발동
+            if not isinstance(focused, (QSpinBox, QDoubleSpinBox, QLineEdit)):
+                key = event.key()
+                if event.modifiers() == PyQt6.QtCore.Qt.KeyboardModifier.NoModifier:
+                    if key == PyQt6.QtCore.Qt.Key.Key_1:
+                        self.svm_auto_bg_ToggleButton.setChecked(
+                            not self.svm_auto_bg_ToggleButton.isChecked())
+                        return True
+                    elif key == PyQt6.QtCore.Qt.Key.Key_2:
+                        self.svm_auto_human_ToggleButton.setChecked(
+                            not self.svm_auto_human_ToggleButton.isChecked())
+                        return True
+                    elif key == PyQt6.QtCore.Qt.Key.Key_3:
+                        self.event_svm_clear()
+                        return True
+        return super().eventFilter(watched, event)
+
     def event_svm_auto_bg_toggled(self, b_checked: bool):
         """배경 자동 저장 토글 상태 변경"""
         self.b_auto_save_bg = b_checked
@@ -1840,7 +2113,9 @@ class MainWindow(QMainWindow):
         # A_feature = self.svm_handle.extract_features(A_mags_raw, A_freqs)
         # A_feature = self.svm_handle.extract_features()
         # self.svm_handle.save_sample(A_feature, svm.enum_label.LABEL_BACKGROUND, self.svm_handle.str_svm_csv_path)
-        self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_BACKGROUND)
+        self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_BACKGROUND,
+                                    A_adc=self.A_adc_buffer or None,
+                                    A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None)
         self.collector.flush_write_buffer()  # 수동 저장: 버퍼 대기 없이 즉시 기록
 
         # if self._last_adc_raw:
@@ -1870,7 +2145,9 @@ class MainWindow(QMainWindow):
             ######################################################################## 경고 대화상자
             return
 
-        self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_HUMAN)
+        self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_HUMAN,
+                                    A_adc=self.A_adc_buffer or None,
+                                    A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None)
         self.collector.flush_write_buffer()  # 수동 저장: 버퍼 대기 없이 즉시 기록
 
         self.update_svm_label_count()
@@ -1886,14 +2163,17 @@ class MainWindow(QMainWindow):
         if new_indices == self.svm_handle.A_feature_indices:
             return  # 변경 없으면 아무것도 안 함
 
-        self.svm_handle.A_feature_indices = new_indices
+        self.svm_handle.A_feature_indices      = new_indices
+        self.mlp_handle.feature_indices          = new_indices  # MLP도 동기화
         self._refresh_axis_combos()  # 콤보박스를 새 특징 목록에 맞게 갱신
 
         # 특징 변경 시 기존 학습 모델 무효화
         self.svm_handle.b_is_trained = False
+        self.mlp_handle.b_is_trained = False
         self._svm_boundary_cache     = None
         self._svm_pca_boundary_cache = None
         self.svm_status_Label.setText("미학습 (특징 변경됨)")
+        self.mlp_status_Label.setText("미학습 (특징 변경됨)")
 
         # 레이블 업데이트
         n = len(new_indices)
@@ -1925,6 +2205,159 @@ class MainWindow(QMainWindow):
             self.svm_status_Label.setText("학습 실패 - 데이터 부족")
             QMessageBox.warning(self, "학습 실패", "데이터가 부족합니다.\n10개 이상 수집하세요.")
 
+    # ──────────────────────────────────────────────────────────────────
+    # MLP 학습
+    # ──────────────────────────────────────────────────────────────────
+    def event_mlp_train(self):
+        """현재 수집 세션 CSV로 MLP 학습 (백그라운드 스레드)"""
+        self.mlp_train_PushButton.setEnabled(False)
+        self.mlp_status_Label.setText("학습 중...")
+        self.mlp_progress_ProgressBar.setValue(0)
+        self.mlp_progress_ProgressBar.setFormat("에폭 0 / ?")
+
+        # 학습 곡선 버퍼 초기화
+        self._mlp_train_epochs.clear()
+        self._mlp_train_loss.clear()
+        self._mlp_train_train_acc.clear()
+        self._mlp_train_val_acc.clear()
+        self._mlp_curve_loss.setData([], [])
+        self._mlp_curve_train_acc.setData([], [])
+        self._mlp_curve_val_acc.setData([], [])
+
+        # 학습 곡선 탭으로 전환
+        for i in range(self.mlp_plot_TabWidget.count()):
+            if self.mlp_plot_TabWidget.tabText(i) == "MLP 학습 곡선":
+                self.mlp_plot_TabWidget.setCurrentIndex(i)
+                break
+
+        # GUI 설정값 파싱
+        _hidden = [int(x) for x in self.mlp_layers_ComboBox.currentText().split('-')]
+        _feat_mode = 'pc' if self.mlp_feature_mode_ComboBox.currentIndex() == 1 else 'esp32'
+
+        self._mlp_train_worker = MlpTrainWorker(
+            self.mlp_handle,
+            os.path.dirname(self.collector.str_csv_path),
+            epochs              = self.mlp_epochs_SpinBox.value(),
+            learning_rate       = float(self.mlp_lr_ComboBox.currentText()),
+            early_stop_patience = self.mlp_es_SpinBox.value(),
+            hidden_layers       = _hidden,
+            dropout_rate        = float(self.mlp_dropout_ComboBox.currentText()),
+            batch_size          = self.mlp_batch_SpinBox.value(),
+            val_ratio           = float(self.mlp_val_ratio_ComboBox.currentText()),
+            random_state        = self.mlp_seed_SpinBox.value(),
+            stratify            = (self.mlp_stratify_ComboBox.currentIndex() == 0),
+            log_interval        = self.mlp_log_interval_SpinBox.value(),
+            feature_mode        = _feat_mode,
+        )
+        self._mlp_train_worker.epoch_progress.connect(self._on_mlp_epoch_progress)
+        self._mlp_train_worker.log_message.connect(self.log_TextEdit.append)
+        self._mlp_train_worker.finished.connect(self._on_mlp_train_finished)
+        self._mlp_train_worker.start()
+
+    def _on_mlp_epoch_progress(self, epoch: int, total: int,
+                                loss: float, train_acc: float, val_acc: float):
+        """매 에폭 완료 시 진행률 바 + 학습 곡선 갱신 (메인 스레드)"""
+        pct = int(epoch / total * 100)
+        self.mlp_progress_ProgressBar.setValue(pct)
+        self.mlp_progress_ProgressBar.setFormat(
+            f"에폭 {epoch}/{total}  loss:{loss:.4f}  val:{val_acc:.1%}"
+        )
+        self.mlp_status_Label.setText(
+            f"학습 중...  {epoch}/{total}  train:{train_acc:.1%}  val:{val_acc:.1%}"
+        )
+
+        self._mlp_train_epochs.append(epoch)
+        self._mlp_train_loss.append(loss)
+        self._mlp_train_train_acc.append(train_acc)
+        self._mlp_train_val_acc.append(val_acc)
+
+        self._mlp_curve_loss.setData(self._mlp_train_epochs, self._mlp_train_loss)
+        self._mlp_curve_train_acc.setData(self._mlp_train_epochs, self._mlp_train_train_acc)
+        self._mlp_curve_val_acc.setData(self._mlp_train_epochs, self._mlp_train_val_acc)
+
+    def _on_mlp_train_finished(self, b_train_done: bool):
+        """MLP 학습 완료 후 UI 업데이트 (메인 스레드)"""
+        self.mlp_train_PushButton.setEnabled(True)
+        if b_train_done:
+            best_val = max(self._mlp_train_val_acc) if self._mlp_train_val_acc else 0.0
+            self.mlp_progress_ProgressBar.setValue(100)
+            self.mlp_progress_ProgressBar.setFormat(f"완료  최고 검증: {best_val:.1%}")
+            self.mlp_status_Label.setText(f"학습 완료  최고 검증 정확도: {best_val:.1%}")
+            self.log_TextEdit.append(f"[MLP] 학습 완료  최고 검증 정확도: {best_val:.1%}")
+            # 학습 완료 후 모델 목록 갱신
+            self._refresh_mlp_model_list()
+        else:
+            self.mlp_progress_ProgressBar.setFormat("학습 실패")
+            self.mlp_status_Label.setText("학습 실패 - 데이터 부족")
+            QMessageBox.warning(self, "MLP 학습 실패", "데이터가 부족합니다.\n10개 이상 수집하세요.")
+
+    # ──────────────────────────────────────────────────────────────────
+    # MLP 모델 선택 / 로드
+    # ──────────────────────────────────────────────────────────────────
+    def _refresh_mlp_model_list(self):
+        """models/ 폴더의 버전 .pt 파일 목록으로 ComboBox 갱신"""
+        import glob
+        model_dir = self.mlp_handle.models_dir()
+        if not os.path.isdir(model_dir):
+            return
+        # 버전 파일만 수집 (_scaler.pkl, mlp_weights.pt 제외)
+        files = sorted(
+            [f for f in os.listdir(model_dir)
+             if f.endswith('.pt') and f != 'mlp_weights.pt' and '_scaler' not in f],
+            reverse=True  # 최신 파일명이 위에 오도록
+        )
+        self.mlp_model_ComboBox.clear()
+        for f in files:
+            self.mlp_model_ComboBox.addItem(f)
+        if files:
+            self.mlp_model_ComboBox.setCurrentIndex(0)
+
+    def event_mlp_load_model(self):
+        """선택된 .pt 파일 로드 + 저장된 학습 곡선 표시"""
+        name = self.mlp_model_ComboBox.currentText()
+        if not name:
+            QMessageBox.information(self, "모델 로드", "선택된 모델이 없습니다.\n목록을 갱신하거나 먼저 학습하세요.")
+            return
+        pt_path = os.path.join(self.mlp_handle.models_dir(), name)
+        history = self.mlp_handle.load_model_file(pt_path)
+        if not self.mlp_handle.b_is_trained:
+            QMessageBox.warning(self, "모델 로드 실패", f"모델 로드에 실패했습니다.\n{name}")
+            return
+
+        # 상태 업데이트
+        self.mlp_status_Label.setText(f"모델 로드: {name}")
+        self.log_TextEdit.append(f"[MLP] 모델 로드 → {name}")
+
+        # 학습 곡선 표시
+        if history and history.get('epochs'):
+            epochs     = history['epochs']
+            loss_data  = history.get('loss', [])
+            train_data = history.get('train_acc', [])
+            val_data   = history.get('val_acc', [])
+
+            # 버퍼 교체 (실시간 학습 후 덮어쓰기 방지용으로 복사)
+            self._mlp_train_epochs    = list(epochs)
+            self._mlp_train_loss      = list(loss_data)
+            self._mlp_train_train_acc = list(train_data)
+            self._mlp_train_val_acc   = list(val_data)
+
+            self._mlp_curve_loss.setData(epochs, loss_data)
+            self._mlp_curve_train_acc.setData(epochs, train_data)
+            self._mlp_curve_val_acc.setData(epochs, val_data)
+
+            # 학습 곡선 탭으로 전환
+            for i in range(self.mlp_plot_TabWidget.count()):
+                if self.mlp_plot_TabWidget.tabText(i) == "MLP 학습 곡선":
+                    self.mlp_plot_TabWidget.setCurrentIndex(i)
+                    break
+
+            best_val = max(val_data) if val_data else 0.0
+            self.log_TextEdit.append(f"[MLP] 학습 이력 표시 — {len(epochs)}에폭  최고 검증: {best_val:.1%}")
+        else:
+            self.log_TextEdit.append("[MLP] 학습 이력 없음 (이전 학습 파일 — 재학습하면 생성됩니다)")
+            self._mlp_curve_loss.setData([], [])
+            self._mlp_curve_train_acc.setData([], [])
+            self._mlp_curve_val_acc.setData([], [])
 
     def event_svm_clear(self):
         """CSV 파일 목록 다이얼로그 → 선택 삭제 + SVM 초기화"""
@@ -2489,7 +2922,31 @@ class MainWindow(QMainWindow):
         pw.getViewBox().setRange(xRange=(0, 100), yRange=(0, 20), padding=0)
 
         self.mlp_plot_TabWidget.addTab(pw, "MLP 히스토리")
-    #     """ADC 버퍼에 FFT 적용
+
+    def create_mlp_train_curve_tab(self):
+        """MLP 학습 곡선 탭 — 에폭별 Loss / Train Acc / Val Acc 실시간 표시"""
+        pw = pyqtgraph.PlotWidget()
+        pw.setTitle("MLP 학습 곡선", color='w', size='12pt')
+        pw.setLabel('bottom', 'Epoch', **{'font-size': '11pt'})
+        pw.setLabel('left',   '값',    **{'font-size': '11pt'})
+        pw.setYRange(0, 1.1, padding=0)
+        pw.showGrid(x=True, y=True, alpha=0.3)
+        pw.addLegend(offset=(10, 10))
+        pw.setMenuEnabled(False)
+
+        self._mlp_curve_loss      = pw.plot([], [], pen=pyqtgraph.mkPen('y',  width=1), name='Loss')
+        self._mlp_curve_train_acc = pw.plot([], [], pen=pyqtgraph.mkPen('#44ee80', width=2), name='Train Acc')
+        self._mlp_curve_val_acc   = pw.plot([], [], pen=pyqtgraph.mkPen('#ee4444', width=2), name='Val Acc')
+
+        # 학습 곡선 데이터 버퍼
+        self._mlp_train_epochs    = []
+        self._mlp_train_loss      = []
+        self._mlp_train_train_acc = []
+        self._mlp_train_val_acc   = []
+
+        self.mlp_plot_TabWidget.addTab(pw, "MLP 학습 곡선")
+
+
         
     #     Args:
     #         adc_buffer: ADC 샘플 배열 (예: 300개의 uint16)
@@ -3798,9 +4255,13 @@ class MainWindow(QMainWindow):
                             self.i_fft_since_last_save = 0
                             self._last_auto_saved_fft_key = _cur_key
                             if self.b_auto_save_bg:
-                                self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_BACKGROUND)
+                                self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_BACKGROUND,
+                                                           A_adc=self.A_adc_buffer or None,
+                                                           A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None)
                             else:
-                                self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_HUMAN)
+                                self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_HUMAN,
+                                                           A_adc=self.A_adc_buffer or None,
+                                                           A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None)
                             self.update_svm_label_count()
 
         # """UI 업데이트: 로그, 그래프, 설정 표시"""

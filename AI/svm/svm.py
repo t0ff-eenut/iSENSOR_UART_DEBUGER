@@ -123,21 +123,8 @@ class SVM_Module():
         self.f_confidence   = 0.0
 
         # 학습/예측에 사용할 컬럼 인덱스 (0~20: UART FftFeaturesData 21개 특징)
-        # 기본값: PIR 인체 감지 권장 10개
-        #   LOW_TO_HIGH_RATIO(4), KURTOSIS(6), CENTROID(7), PEAK_FREQ(8), LOW_RATIO(9),
-        #   RMS(10), AVG_ENERGY(11), PEAK_TO_AVG_E(14), PEAK1_TO_PEAK2_RATIO(16), SKEWNESS(17)
-        self.A_feature_indices: list = sorted([
-            int(enum_csv_col.LOW_TO_HIGH_RATIO),    # 4
-            int(enum_csv_col.KURTOSIS),             # 6
-            int(enum_csv_col.CENTROID),             # 7
-            int(enum_csv_col.PEAK_FREQ),            # 8
-            int(enum_csv_col.LOW_RATIO),            # 9
-            int(enum_csv_col.RMS),                  # 10
-            int(enum_csv_col.AVG_ENERGY),           # 11
-            int(enum_csv_col.PEAK_TO_AVG_E),        # 14
-            int(enum_csv_col.PEAK1_TO_PEAK2_RATIO), # 16
-            int(enum_csv_col.SKEWNESS),             # 17
-        ])
+        # 기본값: 전체 21개 사용 (GUI에서 특징 선택 가능)
+        self.A_feature_indices: list = list(range(21))
 
         self.b_is_trained:bool      = False
 

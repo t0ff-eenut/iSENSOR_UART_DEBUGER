@@ -2,6 +2,111 @@
 
 ---
 
+## v0.9.0 — PC 특징 재계산 모드 + GPU 가속 학습
+
+**날짜:** 2026-04-29
+
+### 추가 / 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/pc_feature_extractor.py` | **신규** — FFT 원시 데이터(129개 빈)로 PC에서 25개 특징 재계산 (`magnitudes_1~15`, `peak_freq`, `peak_mag`, `std_mag`, `centroid`, `low/mid_energy`, `rms`, `low_ratio`, `spectral_entropy`, `peak_to_mean`) |
+| `AI/mlp/nn_mlp.py` | `train()` / `_train_impl()` — `feature_mode` 파라미터 추가 (`'esp32'` / `'pc'`) |
+| `AI/mlp/nn_mlp.py` | `_train_impl()` — feature_mode에 따라 ESP32 21개 특징 또는 PC 재계산 25개 특징 분기 |
+| `AI/mlp/nn_mlp.py` | `OccupancyMLP` 초기화 — `_n_features = X_train.shape[1]`로 동적 입력 크기 처리 (esp32/pc 모두 대응) |
+| `AI/mlp/nn_mlp.py` | `_save_model()` — `feature_mode` 파라미터 추가, PC 모드 시 파일명에 `_pc` 태그 포함 |
+| `AI/mlp/nn_mlp.py` | `_train_impl()` — CUDA 자동 감지 및 GPU 학습 지원 (`torch.device('cuda'/'cpu')`) |
+| `AI/mlp/nn_mlp.py` | `_train_impl()` — 학습 시작 시 사용 디바이스 + GPU 이름 출력 |
+| `AI/mlp/nn_mlp.py` | `_train_impl()` — 학습 배치 텐서 `.to(device)` 적용 |
+| `AI/mlp/nn_mlp.py` | `_evaluate()` — `device` 파라미터 추가, 배치 텐서 `.to(device)` 적용 |
+| `AI/mlp/nn_mlp.py` | `_permutation_importance()` — `device` 파라미터 추가, 추론 텐서 `.to(device)` + `.cpu().numpy()` 변환 |
+| `debugger_start.py` | `MlpTrainWorker` — `feature_mode` 파라미터 추가, `train()` 호출 시 전달 |
+| `debugger_start.py` | MLP Training GroupBox — Row 11에 **"특징 모드"** ComboBox 추가 (`ESP32 (21개 특징)` / `PC 재계산 (25개 특징)`) |
+| `debugger_start.py` | `event_mlp_train()` — 선택된 특징 모드를 파싱해 `MlpTrainWorker`에 전달 |
+
+---
+
+## v0.8.0 — MLP 학습 파이프라인 개선 + GUI 하이퍼파라미터 전면 설정
+
+**날짜:** 2026-04-29
+
+### 추가 / 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | `_load_csv()` — 파일별 샘플 수 출력, 병합 총계 출력 |
+| `AI/mlp/nn_mlp.py` | `_train_impl()` — 학습/검증 분리 개수·비율 출력 |
+| `AI/mlp/nn_mlp.py` | `_train_impl()` — Best checkpoint (`state_dict` clone + 학습 완료 후 복원) |
+| `AI/mlp/nn_mlp.py` | `_train_impl()` — Early stopping (`patience` 에폭 이상 Val Acc 미개선 시 자동 중단) |
+| `AI/mlp/nn_mlp.py` | `OccupancyMLP.__init__` — `hidden_layers`, `dropout_rate` 런타임 파라미터화 |
+| `AI/mlp/nn_mlp.py` | `train()` / `_train_impl()` — 6가지 하이퍼파라미터(`epochs`, `lr`, `early_stop_patience`, `hidden_layers`, `dropout_rate`, `batch_size`) + 4가지 분리 설정(`val_ratio`, `random_state`, `stratify`, `log_interval`) 파라미터 추가 |
+| `AI/mlp/nn_mlp.py` | `_train_impl()` — 학습 시작 시 사용 특징 이름 출력 (`enum_csv_col` 활용) |
+| `AI/mlp/nn_mlp.py` | `_save_model()` — `history` 파라미터 추가, 버전 파일명과 동일한 패턴으로 `_history.json` 저장 |
+| `AI/mlp/nn_mlp.py` | `load_model_file()` 신규 — 지정 `.pt` 파일 로드 + `_history.json` 반환 |
+| `AI/mlp/nn_mlp.py` | `models_dir()` 신규 — `models/` 폴더 절대 경로 반환 |
+| `AI/mlp/nn_mlp.py` | `_infer_arch_from_state_dict()` 신규 — `state_dict` shape 역추론으로 `(input_size, hidden_layers)` 반환 |
+| `AI/mlp/nn_mlp.py` | `_rebuild_model_from_state_dict()` 신규 — 구조 불일치 시 모델 자동 재빌드 (구버전 .pt 로드 가능) |
+| `AI/mlp/nn_mlp.py` | `MLP_Module.feature_indices` — `@property`로 변경, `_svm_ref.A_feature_indices` 항상 동기화 |
+| `AI/svm/svm.py` | `A_feature_indices` — `list(range(21))` 전체 21개 특징 사용으로 변경 |
+| `debugger_start.py` | `MlpTrainWorker` — 10가지 하이퍼파라미터 전달 지원 |
+| `debugger_start.py` | MLP Training GroupBox — GUI 위젯 전면 추가: 에폭/LR/Early Stop/Layer/Dropout/Batch/검증비율/분리시드/비율고정/로그주기 |
+| `debugger_start.py` | `_on_mlp_train_finished()` — 학습 완료 후 모델 목록 자동 갱신 |
+| `debugger_start.py` | `_refresh_mlp_model_list()` 신규 — `models/` 폴더 버전 `.pt` 파일 목록 ComboBox 갱신 |
+| `debugger_start.py` | `event_mlp_load_model()` 신규 — 선택 모델 로드 + 저장된 학습 곡선 그래프 자동 표시 |
+| `debugger_start.py` | `event_svm_feature_select()` — SVM 특징 변경 시 MLP `feature_indices`도 동기화 |
+| `debugger_start.py` | `BUTTON_HOVER_BG_BOLD` 상수 추가 — `font-weight: bold` + hover 색상 혼합 스타일시트 |
+| `debugger_start.py` | `log_TextEdit.append` — 학습 로그 GUI 실시간 출력 (`_Tee` 콜백 연결) |
+
+### 버그 수정
+
+| 파일 | 수정 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | `_try_load_model()` / `load_model_file()` — `_rebuild_model_from_state_dict()` 적용으로 구조 불일치 오류 해결 |
+| `debugger_start.py` | `MACRO_FONT_BOLD + BUTTON_HOVER_BG` 혼합 → `BUTTON_HOVER_BG_BOLD`로 교체, Qt 스타일시트 파싱 경고 제거 |
+
+### GUI MLP Training 패널 최종 레이아웃
+
+```
+Row  0 : CSV 경로 안내
+Row  1 : 에폭 (10~2000)
+Row  2 : LR (학습률)
+Row  3 : Early Stop (0=비활성화)
+Row  4 : Layer 구조
+Row  5 : Dropout
+Row  6 : Batch
+Row  7 : 검증 비율  (전체 중 검증에 쓸 비율)
+Row  8 : 분리 시드  (-1=매번 다름, 42=고정)
+Row  9 : 비율 고정  (배경:사람 비율 유지 여부)
+Row 10 : 로그 주기  (몇 에폭마다 출력)
+Row 11 : [🧠 MLP 학습] 버튼
+Row 12 : 진행률 바
+Row 13 : 상태 레이블
+Row 14 : 모델 선택 ComboBox
+Row 15 : [🔄 목록 갱신] [📂 모델 로드]
+```
+
+---
+
+## v0.7.1 — requirements.txt 추가 (가상환경 의존성 관리)
+
+**날짜:** 2026-04-28
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `requirements.txt` | **신규** — 프로젝트 외부 의존성 목록: `PyQt6`, `pyqtgraph`, `pyserial`, `bleak`, `numpy`, `scikit-learn`, `torch` |
+
+### 사용법
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+---
+
 ## v0.7.0 — BLE 통신 모듈 추가 (UART/BLE 토글)
 
 **날짜:** 2026-04-28

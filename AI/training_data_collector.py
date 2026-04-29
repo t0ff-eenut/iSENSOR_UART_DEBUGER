@@ -21,15 +21,23 @@ if _SVM_DIR not in sys.path:
 import svm  # enum_label, feature_vector_from_uart, I_FEATURES_COUNT
 
 
-_CSV_HEADER = [
+_CSV_HEADER_FEATURES = [
     "spectral_rolloff", "spectral_bandwidth", "peak_count", "mid_ratio",
     "low_to_high_ratio", "second_peak_freq", "kurtosis", "centroid",
     "peak_freq", "low_ratio", "rms", "avg_energy", "peak_energy",
     "energy_variance", "peak_to_avg_e", "high_ratio",
     "peak1_to_peak2_ratio", "skewness",
     "dc_ratio", "delta_peak_freq", "spectral_flatness",
-    "label",
 ]
+
+
+def _build_header(n_adc: int, n_fft: int) -> list:
+    """특징 21열 + adc_N열 + fft_M열 + label 로 구성된 헤더를 반환."""
+    h = list(_CSV_HEADER_FEATURES)
+    h += [f"adc_{i}" for i in range(n_adc)]
+    h += [f"fft_{i}" for i in range(n_fft)]
+    h.append("label")
+    return h
 
 
 # data_csv/ 폴더 안에 타임스탬프 기반 파일명을 생성하는 헬퍼
@@ -72,6 +80,10 @@ class TrainingDataCollector:
         self._write_buffer: list  = []
         self._b_need_header: bool = not os.path.exists(str_csv_path)
 
+        # ADC / FFT 배열 크기 (첫 샘플 수신 시 확정)
+        self._i_adc_len: int = 0
+        self._i_fft_len: int = 0
+
         # 앱 시작 시 기존 CSV 에서 카운터 초기화
         self._load_counts_from_csv()
 
@@ -102,17 +114,29 @@ class TrainingDataCollector:
     # 공개 인터페이스
     # ------------------------------------------------------------------
 
-    def save_sample(self, ft, i_label: int):
-        """FftFeaturesData + 레이블을 버퍼에 추가하고 필요 시 CSV 에 flush.
+    def save_sample(self, ft, i_label: int,
+                    A_adc=None, A_fft_mag=None):
+        """FftFeaturesData + 레이블(+ 선택적 원시 배열)을 버퍼에 추가하고 필요 시 CSV 에 flush.
 
         Args:
-            ft      : FftFeaturesData (None 이면 무시)
-            i_label : enum_label.LABEL_BACKGROUND (0) or LABEL_HUMAN (1)
+            ft        : FftFeaturesData (None 이면 무시)
+            i_label   : enum_label.LABEL_BACKGROUND (0) or LABEL_HUMAN (1)
+            A_adc     : ADC 샘플 배열 (list/ndarray, 예: 256개)  — CNN 학습용
+            A_fft_mag : FFT magnitude 배열 (list/ndarray, 예: 129개) — CNN 학습용
         """
         if ft is None:
             return
 
-        A_row = list(svm.feature_vector_from_uart(ft)) + [float(i_label)]
+        A_adc_list = list(A_adc)     if A_adc     is not None else []
+        A_fft_list = list(A_fft_mag) if A_fft_mag is not None else []
+
+        # 배열 크기 최초 확정
+        if A_adc_list and self._i_adc_len == 0:
+            self._i_adc_len = len(A_adc_list)
+        if A_fft_list and self._i_fft_len == 0:
+            self._i_fft_len = len(A_fft_list)
+
+        A_row = list(svm.feature_vector_from_uart(ft)) + A_adc_list + A_fft_list + [float(i_label)]
 
         if i_label == svm.enum_label.LABEL_BACKGROUND:
             self.i_bg_count += 1
@@ -133,7 +157,7 @@ class TrainingDataCollector:
         with open(self.str_csv_path, 'a', newline='') as f:
             writer = csv.writer(f)
             if b_write_header:
-                writer.writerow(_CSV_HEADER)
+                writer.writerow(_build_header(self._i_adc_len, self._i_fft_len))
                 self._b_need_header = False
             writer.writerows(self._write_buffer)
 

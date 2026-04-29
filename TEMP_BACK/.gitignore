@@ -1,0 +1,40 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+.cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Node.js
+node_modules/
+AI/node_modules/
+
+# ESP-IDF Build Files
+build/
+sdkconfig.old
+managed_components/
+dependencies.lock
+
+
+# # Doxygen Generated Documentation
+# docs/Doxygen/Output/
+# docs/Doxygen/doxygen_warnings.log
+
+
+
+
+
+
+
+

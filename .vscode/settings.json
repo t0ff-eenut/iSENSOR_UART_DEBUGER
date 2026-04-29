@@ -1,3 +1,4 @@
 {
-    "editor.stickyScroll.enabled": "true"
+    "editor.stickyScroll.enabled": "true",
+    "cmake.sourceDirectory": "C:/Users/iSEN/Desktop/project/iSENSOR_UART_DEBUGER/AI/node_modules/bare-fs"
 }

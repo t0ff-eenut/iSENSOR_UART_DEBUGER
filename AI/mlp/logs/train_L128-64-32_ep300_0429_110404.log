@@ -1,0 +1,25 @@
+[MLP]   svm_data_20260428_164908_W256_S32_I1.csv            529샘플
+[MLP]   svm_data_20260428_171251_W256_S32_I1.csv             10샘플
+[MLP]   svm_data_20260428_171310_W256_S32_I1.csv            964샘플
+[MLP]   svm_data_20260429_104801_W256_S32_I1.csv            170샘플
+[MLP] CSV 4개 병합  →  총 1673샘플
+[MLP] 로드 완료 | 전체: 1673개  (배경: 709, 사람: 964)
+[MLP] 학습: 1338개 (80%)  검증: 335개 (20%)
+[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[MLP]  구조: 21 → 128 → 64 → 32 → 2
+[MLP]  에폭: 300  배치: 16  LR: 1e-03  Dropout: 0.3  Early Stop: patience=20
+[MLP]  사용 특징 (21개): SPECTRAL_ROLLOFF, SPECTRAL_BANDWIDTH, PEAK_COUNT, MID_RATIO, LOW_TO_HIGH_RATIO, SECOND_PEAK_FREQ, KURTOSIS, CENTROID, PEAK_FREQ, LOW_RATIO, RMS, AVG_ENERGY, PEAK_ENERGY, ENERGY_VARIANCE, PEAK_TO_AVG_E, HIGH_RATIO, PEAK1_TO_PEAK2_RATIO, SKEWNESS, DC_RATIO, DELTA_PEAK_FREQ, SPECTRAL_FLATNESS
+[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  에폭  10/300 | 손실: 0.5324 | 학습: 72.6% | 검증: 70.4% | lr: 1.00e-03
+  에폭  20/300 | 손실: 0.5058 | 학습: 75.0% | 검증: 69.6% | lr: 1.00e-03
+[MLP] ⏹ Early stopping — 24에폭 (검증 정확도 20에폭간 개선 없음)
+[MLP] ✅ 학습 완료 | [128 → 64 → 32] | 최고 검증 정확도: 72.8%  (베스트 체크포인트 복원됨)
+[MLP] 저장 완료 → c:\Users\iSEN\Desktop\project\iSENSOR_UART_DEBUGER\AI\mlp\models\mlp_weights.pt  (추론용)
+[MLP] 버전 보관 → c:\Users\iSEN\Desktop\project\iSENSOR_UART_DEBUGER\AI\mlp\models\mlp_L128-64-32_ep300_lr5e-04_0429_1104.pt
+[MLP] 📊 학습 이력 저장 → c:\Users\iSEN\Desktop\project\iSENSOR_UART_DEBUGER\AI\mlp\models\train_history.json
+
+  ── 이전 학습과 비교 ──────────────────────────────────
+  이전 최고 검증 정확도: 71.8%
+  현재 최고 검증 정확도: 72.8%
+  변화: +1.1%p  ↑ 개선
+

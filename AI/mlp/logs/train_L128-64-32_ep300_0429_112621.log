@@ -1,0 +1,743 @@
+[MLP]   svm_data_20260428_164908_W256_S32_I1.csv            529샘플
+[MLP]   svm_data_20260428_171251_W256_S32_I1.csv             10샘플
+[MLP]   svm_data_20260428_171310_W256_S32_I1.csv            964샘플
+[MLP]   svm_data_20260429_104801_W256_S32_I1.csv            170샘플
+[MLP]   svm_data_20260429_112044_W256_S1_I1.csv             287샘플
+[MLP] CSV 5개 병합  →  총 1960샘플
+[MLP] 로드 완료 | 전체: 1960개  (배경: 996, 사람: 964)
+[MLP] 학습: 1568개 (80%)  검증: 392개 (20%)  [비율고정: 유지 | 분리시드: 랜덤]
+[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[MLP]  구조: 21 → 128 → 64 → 32 → 2
+[MLP]  에폭: 500  배치: 16  LR: 1e-03  Dropout: 0.3  Early Stop: 비활성화
+[MLP]  사용 특징 (21개): SPECTRAL_ROLLOFF, SPECTRAL_BANDWIDTH, PEAK_COUNT, MID_RATIO, LOW_TO_HIGH_RATIO, SECOND_PEAK_FREQ, KURTOSIS, CENTROID, PEAK_FREQ, LOW_RATIO, RMS, AVG_ENERGY, PEAK_ENERGY, ENERGY_VARIANCE, PEAK_TO_AVG_E, HIGH_RATIO, PEAK1_TO_PEAK2_RATIO, SKEWNESS, DC_RATIO, DELTA_PEAK_FREQ, SPECTRAL_FLATNESS
+[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  에폭   1/500 | 손실: 0.5493 | 학습: 70.8% | 검증: 69.1% | lr: 1.00e-03 ★
+  에폭   2/500 | 손실: 0.4789 | 학습: 73.4% | 검증: 72.7% | lr: 1.00e-03 ★
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭   3/500 | 손실: 0.4617 | 학습: 74.9% | 검증: 75.3% | lr: 1.00e-03 ★
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭   4/500 | 손실: 0.4592 | 학습: 75.5% | 검증: 75.0% | lr: 1.00e-03
+  에폭   5/500 | 손실: 0.4541 | 학습: 76.1% | 검증: 73.7% | lr: 1.00e-03
+  에폭   6/500 | 손실: 0.4520 | 학습: 77.7% | 검증: 74.2% | lr: 1.00e-03
+  에폭   7/500 | 손실: 0.4439 | 학습: 77.9% | 검증: 74.0% | lr: 1.00e-03
+  에폭   8/500 | 손실: 0.4406 | 학습: 78.1% | 검증: 74.2% | lr: 1.00e-03
+  에폭   9/500 | 손실: 0.4362 | 학습: 78.9% | 검증: 74.0% | lr: 1.00e-03
+  에폭  10/500 | 손실: 0.4373 | 학습: 78.8% | 검증: 75.8% | lr: 1.00e-03 ★
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭  11/500 | 손실: 0.4458 | 학습: 79.6% | 검증: 74.5% | lr: 1.00e-03
+  에폭  12/500 | 손실: 0.4479 | 학습: 79.3% | 검증: 74.7% | lr: 1.00e-03
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭  13/500 | 손실: 0.4155 | 학습: 81.6% | 검증: 77.3% | lr: 1.00e-03 ★
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭  14/500 | 손실: 0.3976 | 학습: 79.7% | 검증: 75.0% | lr: 1.00e-03
+  에폭  15/500 | 손실: 0.4152 | 학습: 81.0% | 검증: 74.2% | lr: 1.00e-03
+  에폭  16/500 | 손실: 0.4117 | 학습: 82.5% | 검증: 76.3% | lr: 1.00e-03
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭  17/500 | 손실: 0.3840 | 학습: 82.3% | 검증: 74.0% | lr: 1.00e-03
+  에폭  18/500 | 손실: 0.4561 | 학습: 81.9% | 검증: 73.7% | lr: 1.00e-03
+  에폭  19/500 | 손실: 0.3832 | 학습: 82.5% | 검증: 75.5% | lr: 1.00e-03
+  에폭  20/500 | 손실: 0.3811 | 학습: 83.4% | 검증: 76.0% | lr: 1.00e-03
+  에폭  21/500 | 손실: 0.3880 | 학습: 84.2% | 검증: 75.5% | lr: 1.00e-03
+  에폭  22/500 | 손실: 0.3790 | 학습: 83.2% | 검증: 74.7% | lr: 1.00e-03
+  에폭  23/500 | 손실: 0.4175 | 학습: 84.7% | 검증: 75.3% | lr: 1.00e-03
+  에폭  24/500 | 손실: 0.4092 | 학습: 84.1% | 검증: 74.2% | lr: 1.00e-03
+  에폭  25/500 | 손실: 0.3465 | 학습: 86.0% | 검증: 73.2% | lr: 1.00e-03
+  에폭  26/500 | 손실: 0.3404 | 학습: 84.9% | 검증: 76.5% | lr: 1.00e-03
+  에폭  27/500 | 손실: 0.3329 | 학습: 86.2% | 검증: 73.2% | lr: 1.00e-03
+  에폭  28/500 | 손실: 0.4034 | 학습: 86.8% | 검증: 75.8% | lr: 1.00e-03
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭  29/500 | 손실: 0.3741 | 학습: 85.7% | 검증: 75.5% | lr: 1.00e-03
+  에폭  30/500 | 손실: 0.3689 | 학습: 86.4% | 검증: 73.2% | lr: 1.00e-03
+  에폭  31/500 | 손실: 0.3718 | 학습: 86.8% | 검증: 73.2% | lr: 1.00e-03
+  에폭  32/500 | 손실: 0.3410 | 학습: 86.2% | 검증: 74.5% | lr: 1.00e-03
+  에폭  33/500 | 손실: 0.4220 | 학습: 86.4% | 검증: 75.0% | lr: 1.00e-03
+  에폭  34/500 | 손실: 0.3727 | 학습: 86.2% | 검증: 76.0% | lr: 1.00e-03
+  에폭  35/500 | 손실: 0.3648 | 학습: 85.3% | 검증: 74.5% | lr: 1.00e-03
+  에폭  36/500 | 손실: 0.3257 | 학습: 87.9% | 검증: 73.0% | lr: 1.00e-03
+  에폭  37/500 | 손실: 0.3686 | 학습: 86.8% | 검증: 76.3% | lr: 1.00e-03
+  에폭  38/500 | 손실: 0.3947 | 학습: 87.8% | 검증: 76.3% | lr: 1.00e-03
+  에폭  39/500 | 손실: 0.3688 | 학습: 87.4% | 검증: 73.5% | lr: 1.00e-03
+  에폭  40/500 | 손실: 0.3140 | 학습: 87.9% | 검증: 75.5% | lr: 1.00e-03
+  에폭  41/500 | 손실: 0.2868 | 학습: 89.3% | 검증: 73.2% | lr: 1.00e-03
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭  42/500 | 손실: 0.3338 | 학습: 89.7% | 검증: 73.0% | lr: 1.00e-03
+  에폭  43/500 | 손실: 0.3720 | 학습: 89.2% | 검증: 74.2% | lr: 1.00e-03
+  에폭  44/500 | 손실: 0.3275 | 학습: 89.0% | 검증: 73.7% | lr: 1.00e-03
+  에폭  45/500 | 손실: 0.2744 | 학습: 90.4% | 검증: 75.8% | lr: 1.00e-03
+  에폭  46/500 | 손실: 0.2650 | 학습: 90.8% | 검증: 74.2% | lr: 1.00e-03
+  에폭  47/500 | 손실: 0.3185 | 학습: 90.6% | 검증: 74.7% | lr: 1.00e-03
+  에폭  48/500 | 손실: 0.2611 | 학습: 91.7% | 검증: 75.8% | lr: 1.00e-03
+  에폭  49/500 | 손실: 0.4750 | 학습: 88.6% | 검증: 73.5% | lr: 1.00e-03
+  에폭  50/500 | 손실: 0.3043 | 학습: 90.3% | 검증: 73.0% | lr: 1.00e-03
+  에폭  51/500 | 손실: 0.3346 | 학습: 91.4% | 검증: 73.7% | lr: 1.00e-03
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭  52/500 | 손실: 0.2546 | 학습: 91.7% | 검증: 74.0% | lr: 1.00e-03
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭  53/500 | 손실: 0.2673 | 학습: 92.8% | 검증: 72.7% | lr: 1.00e-03
+  에폭  54/500 | 손실: 0.2260 | 학습: 92.5% | 검증: 73.0% | lr: 1.00e-03
+  에폭  55/500 | 손실: 0.2204 | 학습: 93.1% | 검증: 73.5% | lr: 1.00e-03
+  에폭  56/500 | 손실: 0.2892 | 학습: 93.0% | 검증: 74.0% | lr: 1.00e-03
+  에폭  57/500 | 손실: 0.3043 | 학습: 92.3% | 검증: 74.5% | lr: 1.00e-03
+  에폭  58/500 | 손실: 0.2536 | 학습: 94.3% | 검증: 73.5% | lr: 1.00e-03
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭  59/500 | 손실: 0.2582 | 학습: 93.5% | 검증: 74.7% | lr: 1.00e-03
+  에폭  60/500 | 손실: 0.3899 | 학습: 91.8% | 검증: 74.5% | lr: 1.00e-03
+  에폭  61/500 | 손실: 0.3208 | 학습: 93.0% | 검증: 74.2% | lr: 1.00e-03
+  에폭  62/500 | 손실: 0.3219 | 학습: 93.6% | 검증: 73.7% | lr: 1.00e-03
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭  63/500 | 손실: 0.3731 | 학습: 91.3% | 검증: 74.7% | lr: 1.00e-03
+  에폭  64/500 | 손실: 0.2233 | 학습: 93.8% | 검증: 74.2% | lr: 1.00e-03
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+  에폭  65/500 | 손실: 0.2725 | 학습: 93.6% | 검증: 73.7% | lr: 1.00e-03
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: False
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭  66/500 | 손실: 0.3488 | 학습: 93.0% | 검증: 74.0% | lr: 5.00e-04
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭  67/500 | 손실: 0.2056 | 학습: 94.5% | 검증: 72.7% | lr: 5.00e-04
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭  68/500 | 손실: 0.2803 | 학습: 94.6% | 검증: 74.2% | lr: 5.00e-04
+  에폭  69/500 | 손실: 0.3776 | 학습: 93.1% | 검증: 74.7% | lr: 5.00e-04
+  에폭  70/500 | 손실: 0.1955 | 학습: 94.8% | 검증: 74.0% | lr: 5.00e-04
+  에폭  71/500 | 손실: 0.1862 | 학습: 95.7% | 검증: 73.0% | lr: 5.00e-04
+  에폭  72/500 | 손실: 0.2036 | 학습: 95.7% | 검증: 73.5% | lr: 5.00e-04
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭  73/500 | 손실: 0.3107 | 학습: 94.7% | 검증: 75.0% | lr: 5.00e-04
+  에폭  74/500 | 손실: 0.3140 | 학습: 93.9% | 검증: 75.0% | lr: 5.00e-04
+  에폭  75/500 | 손실: 0.3361 | 학습: 95.5% | 검증: 74.2% | lr: 5.00e-04
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭  76/500 | 손실: 0.1836 | 학습: 95.8% | 검증: 75.3% | lr: 5.00e-04
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭  77/500 | 손실: 0.2419 | 학습: 95.3% | 검증: 74.5% | lr: 5.00e-04
+  에폭  78/500 | 손실: 0.2271 | 학습: 96.1% | 검증: 74.0% | lr: 5.00e-04
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭  79/500 | 손실: 0.2925 | 학습: 96.0% | 검증: 75.3% | lr: 5.00e-04
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭  80/500 | 손실: 0.4055 | 학습: 94.1% | 검증: 74.7% | lr: 5.00e-04
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭  81/500 | 손실: 0.1914 | 학습: 95.5% | 검증: 75.3% | lr: 5.00e-04
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭  82/500 | 손실: 0.3173 | 학습: 95.8% | 검증: 75.5% | lr: 5.00e-04
+  에폭  83/500 | 손실: 0.3008 | 학습: 95.1% | 검증: 75.8% | lr: 5.00e-04
+  에폭  84/500 | 손실: 0.2665 | 학습: 95.9% | 검증: 75.0% | lr: 5.00e-04
+  에폭  85/500 | 손실: 0.2923 | 학습: 95.9% | 검증: 76.0% | lr: 5.00e-04
+  에폭  86/500 | 손실: 0.3210 | 학습: 96.0% | 검증: 75.0% | lr: 5.00e-04
+  에폭  87/500 | 손실: 0.2801 | 학습: 96.2% | 검증: 75.5% | lr: 2.50e-04
+  에폭  88/500 | 손실: 0.2623 | 학습: 95.0% | 검증: 74.7% | lr: 2.50e-04
+  에폭  89/500 | 손실: 0.1821 | 학습: 96.6% | 검증: 76.3% | lr: 2.50e-04
+  에폭  90/500 | 손실: 0.1445 | 학습: 96.6% | 검증: 76.5% | lr: 2.50e-04
+  에폭  91/500 | 손실: 0.1616 | 학습: 96.4% | 검증: 75.5% | lr: 2.50e-04
+  에폭  92/500 | 손실: 0.3344 | 학습: 95.9% | 검증: 74.2% | lr: 2.50e-04
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭  93/500 | 손실: 0.2818 | 학습: 96.3% | 검증: 75.3% | lr: 2.50e-04
+  에폭  94/500 | 손실: 0.3152 | 학습: 95.9% | 검증: 75.3% | lr: 2.50e-04
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭  95/500 | 손실: 0.2920 | 학습: 96.0% | 검증: 75.8% | lr: 2.50e-04
+  에폭  96/500 | 손실: 0.3287 | 학습: 95.6% | 검증: 76.0% | lr: 2.50e-04
+  에폭  97/500 | 손실: 0.2813 | 학습: 95.7% | 검증: 75.0% | lr: 2.50e-04
+  에폭  98/500 | 손실: 0.2716 | 학습: 96.4% | 검증: 76.3% | lr: 2.50e-04
+  에폭  99/500 | 손실: 0.2595 | 학습: 96.4% | 검증: 75.0% | lr: 2.50e-04
+  에폭 100/500 | 손실: 0.2588 | 학습: 96.0% | 검증: 75.8% | lr: 2.50e-04
+  에폭 101/500 | 손실: 0.2252 | 학습: 96.4% | 검증: 75.0% | lr: 1.25e-04
+  에폭 102/500 | 손실: 0.2370 | 학습: 95.9% | 검증: 75.0% | lr: 1.25e-04
+  에폭 103/500 | 손실: 0.2251 | 학습: 95.2% | 검증: 74.2% | lr: 1.25e-04
+  에폭 104/500 | 손실: 0.1813 | 학습: 95.8% | 검증: 75.8% | lr: 1.25e-04
+  에폭 105/500 | 손실: 0.1467 | 학습: 96.6% | 검증: 75.8% | lr: 1.25e-04
+  에폭 106/500 | 손실: 0.1461 | 학습: 96.7% | 검증: 76.5% | lr: 1.25e-04
+  에폭 107/500 | 손실: 0.3717 | 학습: 96.6% | 검증: 74.7% | lr: 1.25e-04
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 108/500 | 손실: 0.1541 | 학습: 96.8% | 검증: 74.5% | lr: 1.25e-04
+  에폭 109/500 | 손실: 0.1352 | 학습: 96.9% | 검증: 75.5% | lr: 1.25e-04
+  에폭 110/500 | 손실: 0.1444 | 학습: 97.1% | 검증: 75.8% | lr: 1.25e-04
+  에폭 111/500 | 손실: 0.1795 | 학습: 96.7% | 검증: 75.8% | lr: 1.25e-04
+  에폭 112/500 | 손실: 0.1787 | 학습: 96.8% | 검증: 74.0% | lr: 1.25e-04
+  에폭 113/500 | 손실: 0.4182 | 학습: 95.8% | 검증: 73.5% | lr: 1.25e-04
+  에폭 114/500 | 손실: 0.1523 | 학습: 97.3% | 검증: 75.3% | lr: 1.25e-04
+  에폭 115/500 | 손실: 0.2384 | 학습: 97.3% | 검증: 75.3% | lr: 1.25e-04
+  에폭 116/500 | 손실: 0.2141 | 학습: 97.1% | 검증: 76.5% | lr: 1.25e-04
+  에폭 117/500 | 손실: 0.2642 | 학습: 96.7% | 검증: 76.5% | lr: 1.25e-04
+  에폭 118/500 | 손실: 0.3436 | 학습: 95.5% | 검증: 75.3% | lr: 1.25e-04
+  에폭 119/500 | 손실: 0.2884 | 학습: 96.7% | 검증: 75.5% | lr: 1.25e-04
+  에폭 120/500 | 손실: 0.4104 | 학습: 95.1% | 검증: 75.5% | lr: 6.25e-05
+  에폭 121/500 | 손실: 0.1795 | 학습: 97.4% | 검증: 76.8% | lr: 6.25e-05
+  에폭 122/500 | 손실: 0.1573 | 학습: 96.9% | 검증: 76.8% | lr: 6.25e-05
+  에폭 123/500 | 손실: 0.1383 | 학습: 97.3% | 검증: 76.5% | lr: 6.25e-05
+  에폭 124/500 | 손실: 0.3118 | 학습: 97.3% | 검증: 76.3% | lr: 6.25e-05
+  에폭 125/500 | 손실: 0.3073 | 학습: 97.3% | 검증: 75.0% | lr: 6.25e-05
+  에폭 126/500 | 손실: 0.2233 | 학습: 97.4% | 검증: 75.8% | lr: 6.25e-05
+  에폭 127/500 | 손실: 0.1993 | 학습: 96.0% | 검증: 74.2% | lr: 6.25e-05
+  에폭 128/500 | 손실: 0.2125 | 학습: 96.4% | 검증: 75.3% | lr: 6.25e-05
+  에폭 129/500 | 손실: 0.2211 | 학습: 97.2% | 검증: 74.5% | lr: 6.25e-05
+  에폭 130/500 | 손실: 0.1446 | 학습: 97.2% | 검증: 75.5% | lr: 6.25e-05
+  에폭 131/500 | 손실: 0.1719 | 학습: 95.4% | 검증: 73.0% | lr: 3.13e-05
+  에폭 132/500 | 손실: 0.1487 | 학습: 97.1% | 검증: 75.3% | lr: 3.13e-05
+  에폭 133/500 | 손실: 0.1699 | 학습: 95.4% | 검증: 74.2% | lr: 3.13e-05
+  에폭 134/500 | 손실: 0.2787 | 학습: 96.6% | 검증: 75.0% | lr: 3.13e-05
+  에폭 135/500 | 손실: 0.2349 | 학습: 97.1% | 검증: 73.5% | lr: 3.13e-05
+  에폭 136/500 | 손실: 0.2628 | 학습: 95.3% | 검증: 75.5% | lr: 3.13e-05
+  에폭 137/500 | 손실: 0.2140 | 학습: 97.1% | 검증: 75.5% | lr: 3.13e-05
+  에폭 138/500 | 손실: 0.2455 | 학습: 96.5% | 검증: 74.0% | lr: 3.13e-05
+  에폭 139/500 | 손실: 0.2040 | 학습: 96.2% | 검증: 74.2% | lr: 3.13e-05
+  에폭 140/500 | 손실: 0.2369 | 학습: 96.7% | 검증: 75.3% | lr: 3.13e-05
+  에폭 141/500 | 손실: 0.2201 | 학습: 95.5% | 검증: 75.0% | lr: 3.13e-05
+  에폭 142/500 | 손실: 0.2284 | 학습: 97.0% | 검증: 76.3% | lr: 1.56e-05
+  에폭 143/500 | 손실: 0.2792 | 학습: 96.6% | 검증: 76.3% | lr: 1.56e-05
+  에폭 144/500 | 손실: 0.2412 | 학습: 97.1% | 검증: 74.7% | lr: 1.56e-05
+  에폭 145/500 | 손실: 0.2301 | 학습: 97.3% | 검증: 74.7% | lr: 1.56e-05
+  에폭 146/500 | 손실: 0.2579 | 학습: 97.4% | 검증: 76.8% | lr: 1.56e-05
+  에폭 147/500 | 손실: 0.4339 | 학습: 95.7% | 검증: 74.2% | lr: 1.56e-05
+  에폭 148/500 | 손실: 0.4430 | 학습: 97.2% | 검증: 75.3% | lr: 1.56e-05
+  에폭 149/500 | 손실: 0.1484 | 학습: 96.5% | 검증: 74.5% | lr: 1.56e-05
+  에폭 150/500 | 손실: 0.2598 | 학습: 97.1% | 검증: 76.0% | lr: 1.56e-05
+  에폭 151/500 | 손실: 0.1703 | 학습: 97.1% | 검증: 76.5% | lr: 1.56e-05
+  에폭 152/500 | 손실: 0.1608 | 학습: 97.1% | 검증: 75.3% | lr: 1.56e-05
+  에폭 153/500 | 손실: 0.2165 | 학습: 96.6% | 검증: 76.0% | lr: 7.81e-06
+  에폭 154/500 | 손실: 0.2559 | 학습: 96.4% | 검증: 74.2% | lr: 7.81e-06
+  에폭 155/500 | 손실: 0.2533 | 학습: 97.0% | 검증: 76.8% | lr: 7.81e-06
+  에폭 156/500 | 손실: 0.2318 | 학습: 96.7% | 검증: 73.7% | lr: 7.81e-06
+  에폭 157/500 | 손실: 0.2446 | 학습: 95.4% | 검증: 73.2% | lr: 7.81e-06
+  에폭 158/500 | 손실: 0.2573 | 학습: 95.0% | 검증: 75.8% | lr: 7.81e-06
+  에폭 159/500 | 손실: 0.2812 | 학습: 96.6% | 검증: 76.5% | lr: 7.81e-06
+  에폭 160/500 | 손실: 0.2361 | 학습: 97.4% | 검증: 76.0% | lr: 7.81e-06
+  에폭 161/500 | 손실: 0.2302 | 학습: 96.1% | 검증: 74.5% | lr: 7.81e-06
+  에폭 162/500 | 손실: 0.2081 | 학습: 96.7% | 검증: 76.5% | lr: 7.81e-06
+  에폭 163/500 | 손실: 0.2422 | 학습: 97.8% | 검증: 75.5% | lr: 7.81e-06
+  에폭 164/500 | 손실: 0.2186 | 학습: 96.4% | 검증: 75.8% | lr: 3.91e-06
+  에폭 165/500 | 손실: 0.2018 | 학습: 97.3% | 검증: 75.8% | lr: 3.91e-06
+  에폭 166/500 | 손실: 0.1908 | 학습: 95.9% | 검증: 76.0% | lr: 3.91e-06
+  에폭 167/500 | 손실: 0.1786 | 학습: 96.3% | 검증: 76.3% | lr: 3.91e-06
+  에폭 168/500 | 손실: 0.3999 | 학습: 96.0% | 검증: 73.5% | lr: 3.91e-06
+  에폭 169/500 | 손실: 0.1624 | 학습: 95.8% | 검증: 74.0% | lr: 3.91e-06
+  에폭 170/500 | 손실: 0.1526 | 학습: 96.6% | 검증: 76.5% | lr: 3.91e-06
+  에폭 171/500 | 손실: 0.1429 | 학습: 97.1% | 검증: 75.5% | lr: 3.91e-06
+  에폭 172/500 | 손실: 0.1388 | 학습: 97.4% | 검증: 75.5% | lr: 3.91e-06
+  에폭 173/500 | 손실: 0.1625 | 학습: 96.7% | 검증: 74.7% | lr: 3.91e-06
+  에폭 174/500 | 손실: 0.1486 | 학습: 96.6% | 검증: 75.5% | lr: 3.91e-06
+  에폭 175/500 | 손실: 0.1429 | 학습: 96.7% | 검증: 76.3% | lr: 1.95e-06
+  에폭 176/500 | 손실: 0.1385 | 학습: 97.1% | 검증: 74.7% | lr: 1.95e-06
+  에폭 177/500 | 손실: 0.2063 | 학습: 97.1% | 검증: 75.5% | lr: 1.95e-06
+  에폭 178/500 | 손실: 0.2399 | 학습: 95.9% | 검증: 75.8% | lr: 1.95e-06
+  에폭 179/500 | 손실: 0.3016 | 학습: 97.1% | 검증: 76.0% | lr: 1.95e-06
+  에폭 180/500 | 손실: 0.2880 | 학습: 96.9% | 검증: 75.8% | lr: 1.95e-06
+  에폭 181/500 | 손실: 0.1408 | 학습: 96.9% | 검증: 75.3% | lr: 1.95e-06
+  에폭 182/500 | 손실: 0.1637 | 학습: 96.0% | 검증: 73.7% | lr: 1.95e-06
+  에폭 183/500 | 손실: 0.2109 | 학습: 97.3% | 검증: 77.3% | lr: 1.95e-06
+  에폭 184/500 | 손실: 0.1954 | 학습: 97.1% | 검증: 75.5% | lr: 1.95e-06
+  에폭 185/500 | 손실: 0.1684 | 학습: 97.4% | 검증: 76.0% | lr: 1.95e-06
+  에폭 186/500 | 손실: 0.1798 | 학습: 96.6% | 검증: 76.0% | lr: 1.00e-06
+  에폭 187/500 | 손실: 0.1820 | 학습: 97.4% | 검증: 74.0% | lr: 1.00e-06
+  에폭 188/500 | 손실: 0.4243 | 학습: 96.9% | 검증: 76.5% | lr: 1.00e-06
+  에폭 189/500 | 손실: 0.4260 | 학습: 97.8% | 검증: 75.8% | lr: 1.00e-06
+  에폭 190/500 | 손실: 0.4430 | 학습: 96.3% | 검증: 74.7% | lr: 1.00e-06
+  에폭 191/500 | 손실: 0.1756 | 학습: 96.9% | 검증: 74.2% | lr: 1.00e-06
+  에폭 192/500 | 손실: 0.1777 | 학습: 95.5% | 검증: 73.2% | lr: 1.00e-06
+  에폭 193/500 | 손실: 0.1496 | 학습: 96.9% | 검증: 74.2% | lr: 1.00e-06
+  에폭 194/500 | 손실: 0.1419 | 학습: 96.9% | 검증: 76.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 195/500 | 손실: 0.1533 | 학습: 96.7% | 검증: 74.0% | lr: 1.00e-06
+  에폭 196/500 | 손실: 0.1640 | 학습: 96.5% | 검증: 75.8% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 197/500 | 손실: 0.2475 | 학습: 96.2% | 검증: 74.7% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 198/500 | 손실: 0.2886 | 학습: 97.0% | 검증: 76.0% | lr: 1.00e-06
+  에폭 199/500 | 손실: 0.1725 | 학습: 95.8% | 검증: 75.0% | lr: 1.00e-06
+  에폭 200/500 | 손실: 0.2527 | 학습: 97.0% | 검증: 76.0% | lr: 1.00e-06
+  에폭 201/500 | 손실: 0.1816 | 학습: 97.4% | 검증: 76.3% | lr: 1.00e-06
+  에폭 202/500 | 손실: 0.1869 | 학습: 96.5% | 검증: 76.5% | lr: 1.00e-06
+  에폭 203/500 | 손실: 0.1828 | 학습: 95.5% | 검증: 75.8% | lr: 1.00e-06
+  에폭 204/500 | 손실: 0.1646 | 학습: 96.8% | 검증: 76.0% | lr: 1.00e-06
+  에폭 205/500 | 손실: 0.2400 | 학습: 96.9% | 검증: 75.0% | lr: 1.00e-06
+  에폭 206/500 | 손실: 0.1982 | 학습: 96.0% | 검증: 74.5% | lr: 1.00e-06
+  에폭 207/500 | 손실: 0.1438 | 학습: 97.1% | 검증: 75.3% | lr: 1.00e-06
+  에폭 208/500 | 손실: 0.1619 | 학습: 96.0% | 검증: 74.2% | lr: 1.00e-06
+  에폭 209/500 | 손실: 0.4147 | 학습: 96.3% | 검증: 74.0% | lr: 1.00e-06
+  에폭 210/500 | 손실: 0.2904 | 학습: 96.8% | 검증: 76.3% | lr: 1.00e-06
+  에폭 211/500 | 손실: 0.2869 | 학습: 97.2% | 검증: 75.0% | lr: 1.00e-06
+  에폭 212/500 | 손실: 0.2265 | 학습: 97.5% | 검증: 75.3% | lr: 1.00e-06
+  에폭 213/500 | 손실: 0.1824 | 학습: 97.0% | 검증: 75.5% | lr: 1.00e-06
+  에폭 214/500 | 손실: 0.1423 | 학습: 97.4% | 검증: 77.0% | lr: 1.00e-06
+  에폭 215/500 | 손실: 0.2302 | 학습: 96.4% | 검증: 76.3% | lr: 1.00e-06
+  에폭 216/500 | 손실: 0.2042 | 학습: 97.4% | 검증: 75.3% | lr: 1.00e-06
+  에폭 217/500 | 손실: 0.1633 | 학습: 96.9% | 검증: 75.3% | lr: 1.00e-06
+  에폭 218/500 | 손실: 0.2182 | 학습: 96.7% | 검증: 75.3% | lr: 1.00e-06
+  에폭 219/500 | 손실: 0.1844 | 학습: 95.7% | 검증: 75.3% | lr: 1.00e-06
+  에폭 220/500 | 손실: 0.1764 | 학습: 96.5% | 검증: 74.7% | lr: 1.00e-06
+  에폭 221/500 | 손실: 0.1894 | 학습: 96.7% | 검증: 75.8% | lr: 1.00e-06
+  에폭 222/500 | 손실: 0.1544 | 학습: 95.5% | 검증: 75.5% | lr: 1.00e-06
+  에폭 223/500 | 손실: 0.1611 | 학습: 95.2% | 검증: 74.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 224/500 | 손실: 0.3261 | 학습: 97.3% | 검증: 75.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 225/500 | 손실: 0.1340 | 학습: 97.0% | 검증: 75.3% | lr: 1.00e-06
+  에폭 226/500 | 손실: 0.1729 | 학습: 96.2% | 검증: 74.7% | lr: 1.00e-06
+  에폭 227/500 | 손실: 0.1877 | 학습: 96.0% | 검증: 74.0% | lr: 1.00e-06
+  에폭 228/500 | 손실: 0.2910 | 학습: 95.3% | 검증: 74.0% | lr: 1.00e-06
+  에폭 229/500 | 손실: 0.2702 | 학습: 97.0% | 검증: 76.3% | lr: 1.00e-06
+  에폭 230/500 | 손실: 0.2128 | 학습: 96.9% | 검증: 75.8% | lr: 1.00e-06
+  에폭 231/500 | 손실: 0.1509 | 학습: 96.9% | 검증: 75.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 232/500 | 손실: 0.1347 | 학습: 96.0% | 검증: 76.3% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 233/500 | 손실: 0.1952 | 학습: 97.5% | 검증: 74.7% | lr: 1.00e-06
+  에폭 234/500 | 손실: 0.2826 | 학습: 96.9% | 검증: 76.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 235/500 | 손실: 0.2505 | 학습: 96.9% | 검증: 75.8% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 236/500 | 손실: 0.1613 | 학습: 96.6% | 검증: 76.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 237/500 | 손실: 0.2012 | 학습: 95.5% | 검증: 76.8% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 238/500 | 손실: 0.2384 | 학습: 96.7% | 검증: 75.0% | lr: 1.00e-06
+  에폭 239/500 | 손실: 0.1464 | 학습: 96.9% | 검증: 74.7% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 240/500 | 손실: 0.1563 | 학습: 96.5% | 검증: 76.3% | lr: 1.00e-06
+  에폭 241/500 | 손실: 0.1567 | 학습: 96.4% | 검증: 75.3% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 242/500 | 손실: 0.2066 | 학습: 97.5% | 검증: 76.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 243/500 | 손실: 0.1384 | 학습: 97.3% | 검증: 75.8% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 244/500 | 손실: 0.1988 | 학습: 97.6% | 검증: 76.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 245/500 | 손실: 0.2192 | 학습: 96.0% | 검증: 76.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 246/500 | 손실: 0.2708 | 학습: 97.1% | 검증: 75.8% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 247/500 | 손실: 0.3251 | 학습: 96.4% | 검증: 74.2% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 248/500 | 손실: 0.1943 | 학습: 95.2% | 검증: 74.7% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 249/500 | 손실: 0.2988 | 학습: 96.6% | 검증: 74.5% | lr: 1.00e-06
+  에폭 250/500 | 손실: 0.1413 | 학습: 96.9% | 검증: 75.3% | lr: 1.00e-06
+  에폭 251/500 | 손실: 0.2852 | 학습: 96.6% | 검증: 75.5% | lr: 1.00e-06
+  에폭 252/500 | 손실: 0.2867 | 학습: 95.9% | 검증: 76.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 253/500 | 손실: 0.1279 | 학습: 97.3% | 검증: 76.3% | lr: 1.00e-06
+  에폭 254/500 | 손실: 0.3819 | 학습: 97.1% | 검증: 76.0% | lr: 1.00e-06
+  에폭 255/500 | 손실: 0.1532 | 학습: 96.4% | 검증: 76.0% | lr: 1.00e-06
+  에폭 256/500 | 손실: 0.1533 | 학습: 96.4% | 검증: 73.5% | lr: 1.00e-06
+  에폭 257/500 | 손실: 0.1353 | 학습: 97.0% | 검증: 75.5% | lr: 1.00e-06
+  에폭 258/500 | 손실: 0.1285 | 학습: 97.1% | 검증: 75.0% | lr: 1.00e-06
+  에폭 259/500 | 손실: 0.2474 | 학습: 97.4% | 검증: 76.3% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 260/500 | 손실: 0.1981 | 학습: 96.6% | 검증: 75.5% | lr: 1.00e-06
+  에폭 261/500 | 손실: 0.1513 | 학습: 97.1% | 검증: 75.3% | lr: 1.00e-06
+  에폭 262/500 | 손실: 0.1608 | 학습: 95.0% | 검증: 75.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 263/500 | 손실: 0.2718 | 학습: 97.6% | 검증: 75.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 264/500 | 손실: 0.2167 | 학습: 97.5% | 검증: 75.5% | lr: 1.00e-06
+  에폭 265/500 | 손실: 0.1736 | 학습: 97.0% | 검증: 75.0% | lr: 1.00e-06
+  에폭 266/500 | 손실: 0.1387 | 학습: 96.9% | 검증: 76.5% | lr: 1.00e-06
+  에폭 267/500 | 손실: 0.2494 | 학습: 96.5% | 검증: 76.3% | lr: 1.00e-06
+  에폭 268/500 | 손실: 0.2940 | 학습: 96.5% | 검증: 74.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 269/500 | 손실: 0.3006 | 학습: 97.0% | 검증: 75.8% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 270/500 | 손실: 0.3122 | 학습: 94.3% | 검증: 74.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 271/500 | 손실: 0.1665 | 학습: 95.5% | 검증: 74.7% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 272/500 | 손실: 0.2987 | 학습: 97.1% | 검증: 75.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 273/500 | 손실: 0.1481 | 학습: 96.6% | 검증: 75.3% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 274/500 | 손실: 0.1535 | 학습: 96.2% | 검증: 76.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 275/500 | 손실: 0.2584 | 학습: 97.3% | 검증: 75.5% | lr: 1.00e-06
+  에폭 276/500 | 손실: 0.1543 | 학습: 96.2% | 검증: 74.5% | lr: 1.00e-06
+  에폭 277/500 | 손실: 0.1924 | 학습: 94.6% | 검증: 74.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 278/500 | 손실: 0.1322 | 학습: 97.4% | 검증: 77.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 279/500 | 손실: 0.1741 | 학습: 97.4% | 검증: 75.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 280/500 | 손실: 0.2303 | 학습: 95.1% | 검증: 75.3% | lr: 1.00e-06
+  에폭 281/500 | 손실: 0.1787 | 학습: 94.0% | 검증: 74.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 282/500 | 손실: 0.2516 | 학습: 96.7% | 검증: 74.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 283/500 | 손실: 0.2851 | 학습: 97.3% | 검증: 76.3% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 284/500 | 손실: 0.1325 | 학습: 97.3% | 검증: 75.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 285/500 | 손실: 0.1483 | 학습: 96.8% | 검증: 75.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 286/500 | 손실: 0.1252 | 학습: 97.4% | 검증: 76.8% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 287/500 | 손실: 0.2874 | 학습: 97.4% | 검증: 76.3% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 288/500 | 손실: 0.2807 | 학습: 97.3% | 검증: 75.0% | lr: 1.00e-06
+  에폭 289/500 | 손실: 0.2258 | 학습: 97.1% | 검증: 76.3% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 290/500 | 손실: 0.1434 | 학습: 97.4% | 검증: 75.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 291/500 | 손실: 0.1222 | 학습: 97.4% | 검증: 75.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 292/500 | 손실: 0.2877 | 학습: 97.3% | 검증: 75.3% | lr: 1.00e-06
+  에폭 293/500 | 손실: 0.2282 | 학습: 97.4% | 검증: 77.3% | lr: 1.00e-06
+  에폭 294/500 | 손실: 0.1880 | 학습: 97.8% | 검증: 75.8% | lr: 1.00e-06
+  에폭 295/500 | 손실: 0.1810 | 학습: 97.3% | 검증: 76.3% | lr: 1.00e-06
+  에폭 296/500 | 손실: 0.1420 | 학습: 96.9% | 검증: 75.8% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 297/500 | 손실: 0.2736 | 학습: 96.9% | 검증: 75.0% | lr: 1.00e-06
+  에폭 298/500 | 손실: 0.2224 | 학습: 97.4% | 검증: 75.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 299/500 | 손실: 0.2195 | 학습: 97.3% | 검증: 76.0% | lr: 1.00e-06
+  에폭 300/500 | 손실: 0.1793 | 학습: 97.6% | 검증: 76.0% | lr: 1.00e-06
+  에폭 301/500 | 손실: 0.2426 | 학습: 97.1% | 검증: 74.7% | lr: 1.00e-06
+  에폭 302/500 | 손실: 0.2359 | 학습: 95.9% | 검증: 74.7% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 303/500 | 손실: 0.2354 | 학습: 97.4% | 검증: 76.3% | lr: 1.00e-06
+  에폭 304/500 | 손실: 0.1592 | 학습: 97.0% | 검증: 76.0% | lr: 1.00e-06
+  에폭 305/500 | 손실: 0.2699 | 학습: 95.6% | 검증: 76.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 306/500 | 손실: 0.1620 | 학습: 96.9% | 검증: 75.8% | lr: 1.00e-06
+  에폭 307/500 | 손실: 0.1655 | 학습: 95.4% | 검증: 75.0% | lr: 1.00e-06
+  에폭 308/500 | 손실: 0.1440 | 학습: 96.0% | 검증: 74.5% | lr: 1.00e-06
+  에폭 309/500 | 손실: 0.1413 | 학습: 96.7% | 검증: 76.3% | lr: 1.00e-06
+  에폭 310/500 | 손실: 0.1583 | 학습: 95.6% | 검증: 74.7% | lr: 1.00e-06
+  에폭 311/500 | 손실: 0.1541 | 학습: 95.6% | 검증: 74.7% | lr: 1.00e-06
+  에폭 312/500 | 손실: 0.2917 | 학습: 96.4% | 검증: 73.7% | lr: 1.00e-06
+  에폭 313/500 | 손실: 0.1627 | 학습: 97.4% | 검증: 77.6% | lr: 1.00e-06 ★
+  에폭 314/500 | 손실: 0.2062 | 학습: 94.1% | 검증: 73.2% | lr: 1.00e-06
+  에폭 315/500 | 손실: 0.1855 | 학습: 95.7% | 검증: 75.0% | lr: 1.00e-06
+  에폭 316/500 | 손실: 0.2268 | 학습: 97.6% | 검증: 75.3% | lr: 1.00e-06
+  에폭 317/500 | 손실: 0.3107 | 학습: 96.4% | 검증: 76.0% | lr: 1.00e-06
+  에폭 318/500 | 손실: 0.1493 | 학습: 96.9% | 검증: 74.2% | lr: 1.00e-06
+  에폭 319/500 | 손실: 0.1506 | 학습: 95.9% | 검증: 74.0% | lr: 1.00e-06
+  에폭 320/500 | 손실: 0.1388 | 학습: 96.7% | 검증: 74.7% | lr: 1.00e-06
+  에폭 321/500 | 손실: 0.1717 | 학습: 97.1% | 검증: 74.2% | lr: 1.00e-06
+  에폭 322/500 | 손실: 0.2198 | 학습: 95.3% | 검증: 74.7% | lr: 1.00e-06
+  에폭 323/500 | 손실: 0.2825 | 학습: 97.5% | 검증: 75.8% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 324/500 | 손실: 0.3025 | 학습: 97.1% | 검증: 75.8% | lr: 1.00e-06
+  에폭 325/500 | 손실: 0.1405 | 학습: 96.4% | 검증: 76.3% | lr: 1.00e-06
+  에폭 326/500 | 손실: 0.1969 | 학습: 95.7% | 검증: 74.5% | lr: 1.00e-06
+  에폭 327/500 | 손실: 0.2419 | 학습: 94.8% | 검증: 74.7% | lr: 1.00e-06
+  에폭 328/500 | 손실: 0.2518 | 학습: 97.2% | 검증: 77.0% | lr: 1.00e-06
+  에폭 329/500 | 손실: 0.2377 | 학습: 97.3% | 검증: 76.0% | lr: 1.00e-06
+  에폭 330/500 | 손실: 0.2903 | 학습: 96.7% | 검증: 75.5% | lr: 1.00e-06
+  에폭 331/500 | 손실: 0.1636 | 학습: 95.2% | 검증: 74.7% | lr: 1.00e-06
+  에폭 332/500 | 손실: 0.1795 | 학습: 95.6% | 검증: 74.7% | lr: 1.00e-06
+  에폭 333/500 | 손실: 0.2040 | 학습: 96.9% | 검증: 75.0% | lr: 1.00e-06
+  에폭 334/500 | 손실: 0.2236 | 학습: 97.2% | 검증: 76.5% | lr: 1.00e-06
+  에폭 335/500 | 손실: 0.4328 | 학습: 96.8% | 검증: 75.5% | lr: 1.00e-06
+  에폭 336/500 | 손실: 0.2998 | 학습: 96.2% | 검증: 74.2% | lr: 1.00e-06
+  에폭 337/500 | 손실: 0.2356 | 학습: 96.6% | 검증: 75.8% | lr: 1.00e-06
+  에폭 338/500 | 손실: 0.3099 | 학습: 96.9% | 검증: 75.3% | lr: 1.00e-06
+  에폭 339/500 | 손실: 0.3127 | 학습: 92.9% | 검증: 74.5% | lr: 1.00e-06
+  에폭 340/500 | 손실: 0.2927 | 학습: 97.2% | 검증: 76.0% | lr: 1.00e-06
+  에폭 341/500 | 손실: 0.1430 | 학습: 96.8% | 검증: 75.5% | lr: 1.00e-06
+  에폭 342/500 | 손실: 0.2057 | 학습: 96.0% | 검증: 74.0% | lr: 1.00e-06
+  에폭 343/500 | 손실: 0.1620 | 학습: 97.3% | 검증: 75.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 344/500 | 손실: 0.2026 | 학습: 97.0% | 검증: 75.3% | lr: 1.00e-06
+  에폭 345/500 | 손실: 0.1883 | 학습: 96.1% | 검증: 74.0% | lr: 1.00e-06
+  에폭 346/500 | 손실: 0.1406 | 학습: 96.9% | 검증: 74.5% | lr: 1.00e-06
+  에폭 347/500 | 손실: 0.1674 | 학습: 97.4% | 검증: 75.3% | lr: 1.00e-06
+  에폭 348/500 | 손실: 0.1402 | 학습: 96.9% | 검증: 76.5% | lr: 1.00e-06
+  에폭 349/500 | 손실: 0.3777 | 학습: 97.8% | 검증: 76.5% | lr: 1.00e-06
+  에폭 350/500 | 손실: 0.1422 | 학습: 97.6% | 검증: 75.8% | lr: 1.00e-06
+  에폭 351/500 | 손실: 0.1402 | 학습: 97.1% | 검증: 75.3% | lr: 1.00e-06
+  에폭 352/500 | 손실: 0.1293 | 학습: 97.4% | 검증: 76.3% | lr: 1.00e-06
+  에폭 353/500 | 손실: 0.1326 | 학습: 97.1% | 검증: 76.0% | lr: 1.00e-06
+  에폭 354/500 | 손실: 0.1925 | 학습: 93.1% | 검증: 74.5% | lr: 1.00e-06
+  에폭 355/500 | 손실: 0.1505 | 학습: 96.0% | 검증: 75.8% | lr: 1.00e-06
+  에폭 356/500 | 손실: 0.1990 | 학습: 93.6% | 검증: 75.3% | lr: 1.00e-06
+  에폭 357/500 | 손실: 0.3004 | 학습: 95.5% | 검증: 73.5% | lr: 1.00e-06
+  에폭 358/500 | 손실: 0.3222 | 학습: 97.7% | 검증: 75.8% | lr: 1.00e-06
+  에폭 359/500 | 손실: 0.2470 | 학습: 95.6% | 검증: 74.0% | lr: 1.00e-06
+  에폭 360/500 | 손실: 0.2493 | 학습: 97.3% | 검증: 75.5% | lr: 1.00e-06
+  에폭 361/500 | 손실: 0.4468 | 학습: 96.9% | 검증: 75.3% | lr: 1.00e-06
+  에폭 362/500 | 손실: 0.1954 | 학습: 96.7% | 검증: 77.6% | lr: 1.00e-06
+  에폭 363/500 | 손실: 0.1864 | 학습: 95.8% | 검증: 76.8% | lr: 1.00e-06
+  에폭 364/500 | 손실: 0.2289 | 학습: 96.3% | 검증: 74.7% | lr: 1.00e-06
+  에폭 365/500 | 손실: 0.2308 | 학습: 96.2% | 검증: 76.5% | lr: 1.00e-06
+  에폭 366/500 | 손실: 0.2855 | 학습: 96.1% | 검증: 74.2% | lr: 1.00e-06
+  에폭 367/500 | 손실: 0.2467 | 학습: 97.2% | 검증: 75.8% | lr: 1.00e-06
+  에폭 368/500 | 손실: 0.4563 | 학습: 96.6% | 검증: 76.0% | lr: 1.00e-06
+  에폭 369/500 | 손실: 0.1687 | 학습: 97.4% | 검증: 74.2% | lr: 1.00e-06
+  에폭 370/500 | 손실: 0.1369 | 학습: 97.1% | 검증: 75.5% | lr: 1.00e-06
+  에폭 371/500 | 손실: 0.1940 | 학습: 95.2% | 검증: 75.3% | lr: 1.00e-06
+  에폭 372/500 | 손실: 0.1677 | 학습: 96.7% | 검증: 76.8% | lr: 1.00e-06
+  에폭 373/500 | 손실: 0.1900 | 학습: 94.9% | 검증: 74.5% | lr: 1.00e-06
+  에폭 374/500 | 손실: 0.1392 | 학습: 97.4% | 검증: 76.8% | lr: 1.00e-06
+  에폭 375/500 | 손실: 0.1704 | 학습: 96.9% | 검증: 75.3% | lr: 1.00e-06
+  에폭 376/500 | 손실: 0.1479 | 학습: 97.0% | 검증: 75.8% | lr: 1.00e-06
+  에폭 377/500 | 손실: 0.2715 | 학습: 97.6% | 검증: 76.0% | lr: 1.00e-06
+  에폭 378/500 | 손실: 0.2958 | 학습: 92.5% | 검증: 73.5% | lr: 1.00e-06
+  에폭 379/500 | 손실: 0.3020 | 학습: 96.6% | 검증: 75.8% | lr: 1.00e-06
+  에폭 380/500 | 손실: 0.2221 | 학습: 96.5% | 검증: 75.8% | lr: 1.00e-06
+  에폭 381/500 | 손실: 0.1491 | 학습: 96.1% | 검증: 75.0% | lr: 1.00e-06
+  에폭 382/500 | 손실: 0.1601 | 학습: 96.4% | 검증: 75.0% | lr: 1.00e-06
+  에폭 383/500 | 손실: 0.1848 | 학습: 95.4% | 검증: 75.3% | lr: 1.00e-06
+  에폭 384/500 | 손실: 0.1575 | 학습: 96.8% | 검증: 75.8% | lr: 1.00e-06
+  에폭 385/500 | 손실: 0.1737 | 학습: 95.2% | 검증: 74.7% | lr: 1.00e-06
+  에폭 386/500 | 손실: 0.1749 | 학습: 96.8% | 검증: 75.0% | lr: 1.00e-06
+  에폭 387/500 | 손실: 0.2259 | 학습: 97.4% | 검증: 75.5% | lr: 1.00e-06
+  에폭 388/500 | 손실: 0.2743 | 학습: 93.1% | 검증: 74.2% | lr: 1.00e-06
+  에폭 389/500 | 손실: 0.1702 | 학습: 96.0% | 검증: 74.5% | lr: 1.00e-06
+  에폭 390/500 | 손실: 0.1471 | 학습: 95.7% | 검증: 74.5% | lr: 1.00e-06
+  에폭 391/500 | 손실: 0.1392 | 학습: 96.4% | 검증: 75.0% | lr: 1.00e-06
+  에폭 392/500 | 손실: 0.2388 | 학습: 96.2% | 검증: 74.5% | lr: 1.00e-06
+  에폭 393/500 | 손실: 0.1424 | 학습: 97.1% | 검증: 75.0% | lr: 1.00e-06
+  에폭 394/500 | 손실: 0.1779 | 학습: 96.6% | 검증: 76.3% | lr: 1.00e-06
+  에폭 395/500 | 손실: 0.1522 | 학습: 96.4% | 검증: 74.0% | lr: 1.00e-06
+  에폭 396/500 | 손실: 0.1603 | 학습: 96.6% | 검증: 75.5% | lr: 1.00e-06
+  에폭 397/500 | 손실: 0.1588 | 학습: 94.8% | 검증: 74.7% | lr: 1.00e-06
+  에폭 398/500 | 손실: 0.2051 | 학습: 95.7% | 검증: 74.5% | lr: 1.00e-06
+  에폭 399/500 | 손실: 0.2103 | 학습: 97.4% | 검증: 76.5% | lr: 1.00e-06
+  에폭 400/500 | 손실: 0.1454 | 학습: 96.4% | 검증: 75.3% | lr: 1.00e-06
+  에폭 401/500 | 손실: 0.2019 | 학습: 95.5% | 검증: 75.8% | lr: 1.00e-06
+  에폭 402/500 | 손실: 0.1491 | 학습: 96.2% | 검증: 76.3% | lr: 1.00e-06
+  에폭 403/500 | 손실: 0.4244 | 학습: 97.0% | 검증: 76.8% | lr: 1.00e-06
+  에폭 404/500 | 손실: 0.3979 | 학습: 97.3% | 검증: 76.3% | lr: 1.00e-06
+  에폭 405/500 | 손실: 0.1565 | 학습: 95.7% | 검증: 73.5% | lr: 1.00e-06
+  에폭 406/500 | 손실: 0.1372 | 학습: 97.1% | 검증: 76.5% | lr: 1.00e-06
+  에폭 407/500 | 손실: 0.1340 | 학습: 97.2% | 검증: 76.0% | lr: 1.00e-06
+  에폭 408/500 | 손실: 0.2226 | 학습: 97.8% | 검증: 76.0% | lr: 1.00e-06
+  에폭 409/500 | 손실: 0.1414 | 학습: 96.4% | 검증: 76.0% | lr: 1.00e-06
+  에폭 410/500 | 손실: 0.1389 | 학습: 97.3% | 검증: 74.7% | lr: 1.00e-06
+  에폭 411/500 | 손실: 0.1517 | 학습: 97.6% | 검증: 75.3% | lr: 1.00e-06
+  에폭 412/500 | 손실: 0.1421 | 학습: 96.5% | 검증: 75.5% | lr: 1.00e-06
+  에폭 413/500 | 손실: 0.1601 | 학습: 95.5% | 검증: 74.7% | lr: 1.00e-06
+  에폭 414/500 | 손실: 0.1391 | 학습: 97.0% | 검증: 75.8% | lr: 1.00e-06
+  에폭 415/500 | 손실: 0.1551 | 학습: 96.8% | 검증: 75.8% | lr: 1.00e-06
+  에폭 416/500 | 손실: 0.1311 | 학습: 97.1% | 검증: 77.0% | lr: 1.00e-06
+  에폭 417/500 | 손실: 0.1881 | 학습: 96.2% | 검증: 76.3% | lr: 1.00e-06
+  에폭 418/500 | 손실: 0.1824 | 학습: 97.8% | 검증: 76.3% | lr: 1.00e-06
+  에폭 419/500 | 손실: 0.2917 | 학습: 96.0% | 검증: 75.3% | lr: 1.00e-06
+  에폭 420/500 | 손실: 0.3231 | 학습: 97.3% | 검증: 75.8% | lr: 1.00e-06
+  에폭 421/500 | 손실: 0.1609 | 학습: 95.4% | 검증: 71.9% | lr: 1.00e-06
+  에폭 422/500 | 손실: 0.1515 | 학습: 95.3% | 검증: 74.5% | lr: 1.00e-06
+  에폭 423/500 | 손실: 0.1812 | 학습: 96.0% | 검증: 75.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 424/500 | 손실: 0.2344 | 학습: 96.8% | 검증: 75.8% | lr: 1.00e-06
+  에폭 425/500 | 손실: 0.1546 | 학습: 96.6% | 검증: 76.5% | lr: 1.00e-06
+  에폭 426/500 | 손실: 0.1236 | 학습: 97.3% | 검증: 76.3% | lr: 1.00e-06
+  에폭 427/500 | 손실: 0.1437 | 학습: 97.0% | 검증: 74.7% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 428/500 | 손실: 0.2441 | 학습: 97.4% | 검증: 75.8% | lr: 1.00e-06
+  에폭 429/500 | 손실: 0.2943 | 학습: 97.0% | 검증: 73.7% | lr: 1.00e-06
+  에폭 430/500 | 손실: 0.1456 | 학습: 96.4% | 검증: 75.8% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 431/500 | 손실: 0.1293 | 학습: 97.3% | 검증: 76.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 432/500 | 손실: 0.2179 | 학습: 95.7% | 검증: 74.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 433/500 | 손실: 0.3367 | 학습: 95.4% | 검증: 74.5% | lr: 1.00e-06
+  에폭 434/500 | 손실: 0.3238 | 학습: 95.6% | 검증: 74.2% | lr: 1.00e-06
+  에폭 435/500 | 손실: 0.4255 | 학습: 96.7% | 검증: 75.5% | lr: 1.00e-06
+  에폭 436/500 | 손실: 0.2724 | 학습: 97.6% | 검증: 76.0% | lr: 1.00e-06
+  에폭 437/500 | 손실: 0.3005 | 학습: 97.1% | 검증: 76.5% | lr: 1.00e-06
+  에폭 438/500 | 손실: 0.1617 | 학습: 95.9% | 검증: 73.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 439/500 | 손실: 0.1468 | 학습: 96.2% | 검증: 72.7% | lr: 1.00e-06
+  에폭 440/500 | 손실: 0.1972 | 학습: 95.8% | 검증: 73.7% | lr: 1.00e-06
+  에폭 441/500 | 손실: 0.2903 | 학습: 96.3% | 검증: 75.8% | lr: 1.00e-06
+  에폭 442/500 | 손실: 0.2175 | 학습: 95.9% | 검증: 75.8% | lr: 1.00e-06
+  에폭 443/500 | 손실: 0.2072 | 학습: 96.0% | 검증: 75.0% | lr: 1.00e-06
+  에폭 444/500 | 손실: 0.1980 | 학습: 96.7% | 검증: 75.3% | lr: 1.00e-06
+  에폭 445/500 | 손실: 0.2053 | 학습: 96.2% | 검증: 75.8% | lr: 1.00e-06
+  에폭 446/500 | 손실: 0.2443 | 학습: 95.9% | 검증: 75.0% | lr: 1.00e-06
+  에폭 447/500 | 손실: 0.4047 | 학습: 97.3% | 검증: 76.0% | lr: 1.00e-06
+  에폭 448/500 | 손실: 0.1600 | 학습: 95.6% | 검증: 75.0% | lr: 1.00e-06
+  에폭 449/500 | 손실: 0.2090 | 학습: 97.2% | 검증: 76.0% | lr: 1.00e-06
+  에폭 450/500 | 손실: 0.1365 | 학습: 97.6% | 검증: 75.8% | lr: 1.00e-06
+  에폭 451/500 | 손실: 0.1842 | 학습: 96.4% | 검증: 76.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 452/500 | 손실: 0.1958 | 학습: 97.6% | 검증: 76.0% | lr: 1.00e-06
+  에폭 453/500 | 손실: 0.1289 | 학습: 97.6% | 검증: 76.3% | lr: 1.00e-06
+  에폭 454/500 | 손실: 0.1227 | 학습: 97.8% | 검증: 76.0% | lr: 1.00e-06
+  에폭 455/500 | 손실: 0.1704 | 학습: 96.6% | 검증: 75.0% | lr: 1.00e-06
+  에폭 456/500 | 손실: 0.3558 | 학습: 97.8% | 검증: 76.5% | lr: 1.00e-06
+  에폭 457/500 | 손실: 0.2288 | 학습: 97.3% | 검증: 76.5% | lr: 1.00e-06
+  에폭 458/500 | 손실: 0.2787 | 학습: 97.2% | 검증: 76.0% | lr: 1.00e-06
+  에폭 459/500 | 손실: 0.1860 | 학습: 97.3% | 검증: 76.0% | lr: 1.00e-06
+  에폭 460/500 | 손실: 0.1352 | 학습: 96.7% | 검증: 75.0% | lr: 1.00e-06
+  에폭 461/500 | 손실: 0.1859 | 학습: 97.1% | 검증: 75.8% | lr: 1.00e-06
+  에폭 462/500 | 손실: 0.1437 | 학습: 96.5% | 검증: 75.5% | lr: 1.00e-06
+  에폭 463/500 | 손실: 0.1783 | 학습: 97.7% | 검증: 75.8% | lr: 1.00e-06
+  에폭 464/500 | 손실: 0.1291 | 학습: 97.8% | 검증: 76.5% | lr: 1.00e-06
+  에폭 465/500 | 손실: 0.1554 | 학습: 97.3% | 검증: 76.0% | lr: 1.00e-06
+  에폭 466/500 | 손실: 0.2253 | 학습: 97.1% | 검증: 76.0% | lr: 1.00e-06
+  에폭 467/500 | 손실: 0.1665 | 학습: 95.5% | 검증: 75.8% | lr: 1.00e-06
+  에폭 468/500 | 손실: 0.1492 | 학습: 96.7% | 검증: 75.8% | lr: 1.00e-06
+  에폭 469/500 | 손실: 0.3245 | 학습: 96.0% | 검증: 73.7% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 470/500 | 손실: 0.1371 | 학습: 97.8% | 검증: 75.8% | lr: 1.00e-06
+  에폭 471/500 | 손실: 0.1853 | 학습: 95.0% | 검증: 73.7% | lr: 1.00e-06
+  에폭 472/500 | 손실: 0.2120 | 학습: 95.1% | 검증: 75.5% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 473/500 | 손실: 0.1620 | 학습: 94.9% | 검증: 74.7% | lr: 1.00e-06
+  에폭 474/500 | 손실: 0.1148 | 학습: 97.3% | 검증: 76.3% | lr: 1.00e-06
+  에폭 475/500 | 손실: 0.2645 | 학습: 95.8% | 검증: 74.2% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 476/500 | 손실: 0.2584 | 학습: 97.1% | 검증: 75.8% | lr: 1.00e-06
+  에폭 477/500 | 손실: 0.2079 | 학습: 97.4% | 검증: 75.3% | lr: 1.00e-06
+  에폭 478/500 | 손실: 0.2534 | 학습: 96.1% | 검증: 75.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 479/500 | 손실: 0.1898 | 학습: 97.4% | 검증: 76.3% | lr: 1.00e-06
+  에폭 480/500 | 손실: 0.1578 | 학습: 97.3% | 검증: 76.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 481/500 | 손실: 0.1605 | 학습: 96.4% | 검증: 75.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 482/500 | 손실: 0.1390 | 학습: 97.4% | 검증: 76.0% | lr: 1.00e-06
+  에폭 483/500 | 손실: 0.2394 | 학습: 95.3% | 검증: 74.5% | lr: 1.00e-06
+  에폭 484/500 | 손실: 0.1992 | 학습: 94.6% | 검증: 73.2% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 485/500 | 손실: 0.1540 | 학습: 96.4% | 검증: 74.7% | lr: 1.00e-06
+  에폭 486/500 | 손실: 0.1350 | 학습: 96.3% | 검증: 75.5% | lr: 1.00e-06
+  에폭 487/500 | 손실: 0.1271 | 학습: 97.3% | 검증: 75.3% | lr: 1.00e-06
+  에폭 488/500 | 손실: 0.1392 | 학습: 97.0% | 검증: 75.8% | lr: 1.00e-06
+  에폭 489/500 | 손실: 0.1429 | 학습: 97.0% | 검증: 76.5% | lr: 1.00e-06
+  에폭 490/500 | 손실: 0.1427 | 학습: 97.1% | 검증: 76.5% | lr: 1.00e-06
+  에폭 491/500 | 손실: 0.1351 | 학습: 96.8% | 검증: 76.3% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 492/500 | 손실: 0.1447 | 학습: 96.7% | 검증: 74.0% | lr: 1.00e-06
+  에폭 493/500 | 손실: 0.1370 | 학습: 97.0% | 검증: 77.8% | lr: 1.00e-06 ★
+  에폭 494/500 | 손실: 0.1700 | 학습: 96.9% | 검증: 75.0% | lr: 1.00e-06
+  에폭 495/500 | 손실: 0.2017 | 학습: 94.5% | 검증: 73.5% | lr: 1.00e-06
+  에폭 496/500 | 손실: 0.1682 | 학습: 95.9% | 검증: 75.0% | lr: 1.00e-06
+  에폭 497/500 | 손실: 0.1800 | 학습: 94.6% | 검증: 74.0% | lr: 1.00e-06
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
+data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
+  에폭 498/500 | 손실: 0.1635 | 학습: 94.8% | 검증: 74.0% | lr: 1.00e-06
+  에폭 499/500 | 손실: 0.1505 | 학습: 95.8% | 검증: 73.7% | lr: 1.00e-06
+  에폭 500/500 | 손실: 0.2324 | 학습: 95.0% | 검증: 74.2% | lr: 1.00e-06
+[MLP] ✅ 학습 완료 | [128 → 64 → 32] | 최고 검증 정확도: 77.8%  (베스트 체크포인트 복원됨)
+[MLP] 저장 완료 → c:\Users\iSEN\Desktop\project\iSENSOR_UART_DEBUGER\AI\mlp\models\mlp_weights.pt  (추론용)
+[MLP] 버전 보관 → c:\Users\iSEN\Desktop\project\iSENSOR_UART_DEBUGER\AI\mlp\models\mlp_L128-64-32_ep300_lr5e-04_0429_1128.pt
+[MLP] 📊 학습 이력 저장 → c:\Users\iSEN\Desktop\project\iSENSOR_UART_DEBUGER\AI\mlp\models\train_history.json
+
+  ── 이전 학습과 비교 ──────────────────────────────────
+  이전 최고 검증 정확도: 77.6%
+  현재 최고 검증 정확도: 77.8%
+  변화: +0.3%p  ↑ 개선
+
