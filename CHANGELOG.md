@@ -2,6 +2,18 @@
 
 ---
 
+## v0.9.1 — ModuleNotFoundError 핫픽스
+
+**날짜:** 2026-04-29
+
+### 버그 수정
+
+| 파일 | 수정 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | PC 특징 모드 선택 시 `ModuleNotFoundError: No module named 'pc_feature_extractor'` 오류 수정 — `__file__` 기준으로 `AI/mlp/` 경로를 `sys.path`에 동적 추가 (debugger_start.py 실행 시 작업 디렉토리가 다를 때도 정상 임포트) |
+
+---
+
 ## v0.9.0 — PC 특징 재계산 모드 + GPU 가속 학습
 
 **날짜:** 2026-04-29
