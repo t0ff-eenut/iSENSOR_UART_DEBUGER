@@ -1,0 +1,22 @@
+[MLP]   svm_data_20260428_164908_W256_S32_I1.csv            529샘플
+[MLP]   svm_data_20260428_171251_W256_S32_I1.csv             10샘플
+[MLP]   svm_data_20260428_171310_W256_S32_I1.csv            964샘플
+[MLP]   svm_data_20260429_104801_W256_S32_I1.csv            170샘플
+[MLP]   svm_data_20260429_112044_W256_S1_I1.csv             287샘플
+[MLP]   svm_data_20260429_121425.csv                          1샘플
+[MLP]   svm_data_20260504_104600_W256_S2_I1.csv            1502샘플
+[MLP]   svm_data_20260507_110627.csv                          1샘플
+[MLP]   svm_data_20260507_110739_W256_S1_I1.csv             125샘플
+[MLP]   svm_data_20260507_110824_W256_S1_I1.csv             956샘플
+[MLP]   svm_data_20260507_111128_W256_S2_I1.csv            1128샘플
+[MLP]   svm_data_20260507_111854.csv                       2908샘플
+[MLP] CSV 12개 병합  →  총 8581샘플
+[MLP] 로드 완료 | 전체: 8581개  (배경: 4709, 사람: 3872)
+[MLP] 특징 모드: ESP32 (21개)
+[MLP] 학습: 6864개 (80%)  검증: 1717개 (20%)  [비율고정: 유지 | 분리시드: 42]
+[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[MLP]  디바이스: cuda (NVIDIA GeForce GTX 1660 SUPER)
+[MLP]  구조: 21 → 128 → 64 → 32 → 2
+[MLP]  에폭: 500  배치: 32  LR: 5e-04  Dropout: 0.4  Early Stop: patience=30
+[MLP]  사용 특징 (21개): SPECTRAL_ROLLOFF, SPECTRAL_BANDWIDTH, PEAK_COUNT, MID_RATIO, LOW_TO_HIGH_RATIO, SECOND_PEAK_FREQ, KURTOSIS, CENTROID, PEAK_FREQ, LOW_RATIO, RMS, AVG_ENERGY, PEAK_ENERGY, ENERGY_VARIANCE, PEAK_TO_AVG_E, HIGH_RATIO, PEAK1_TO_PEAK2_RATIO, SKEWNESS, DC_RATIO, DELTA_PEAK_FREQ, SPECTRAL_FLATNESS
+[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

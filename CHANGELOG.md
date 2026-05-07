@@ -2,6 +2,138 @@
 
 ---
 
+## v0.9.9 — 학습 비교 지표 확장 및 GUI 설정 유지
+
+**날짜:** 2026-05-07
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | 학습 완료 후 추가 비교 지표 계산 및 `train_history.json` 저장: `best_epoch`, `min_val_loss`, `human_recall`(TPR), `human_fnr`(FNR), `bg_tnr`(TNR), `bg_fpr`(FPR), `f1_human` |
+| `AI/mlp/nn_mlp.py` | `_save_history()` 비교 출력을 테이블 형식으로 개편 — 지표명/이전값/현재값/변화/방향 5열 |
+| `AI/mlp/nn_mlp.py` | 비교 지표에 **사람 오탐률 FNR** (사람→배경 눈침) 및 **배경 정확 탐지율 TNR** 추가 — 사람 TPR·FNR·배경 TNR·FPR 4개 대칭 구조 |
+| `debugger_start.py` | `_save_settings()` — 프로그램 종료 시 UI 설정을 `ui_settings.json`으로 저장 |
+| `debugger_start.py` | `_load_settings()` — 프로그램 시작 시 `ui_settings.json`에서 UI 설정 복원 (특징 선택, MLP 파라미터 13개 항목) |
+
+### 수정
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | 기존 `_save_history()` 단일 정확도 비교 → 7개 지표 테이블 비교로 교체 |
+| `debugger_start.py` | `closeEvent`에 `_save_settings()` 호출 추가 |
+
+---
+
+## v0.9.8 — RobustScaler 선택 기능 및 모델 파일명 개선
+
+**날짜:** 2026-05-07
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | `from sklearn.preprocessing import RobustScaler` 추가 |
+| `AI/mlp/nn_mlp.py` | `train()` / `_train_impl()`에 `scaler_type: str = None` 파라미터 추가 — `'robust'` 지정 시 RobustScaler(중앙값/IQR), 기본값은 StandardScaler(z-score) |
+| `AI/mlp/nn_mlp.py` | `_save_model()` — RobustScaler 선택 시 모델/스케일러 파일명에 `_rb` 태그 삽입 |
+| `AI/mlp/nn_mlp.py` | `_make_log_path()` — RobustScaler 선택 시 로그 파일명에 `_rb` 태그 삽입 |
+| `AI/mlp/nn_mlp.py` | `_permutation_importance()` 출력에 `_FEAT_KO` 딕셔너리 추가, 각 특징명 옆에 한글명 병기 |
+| `debugger_start.py` | MLP 학습 패널에 **스케일러 선택 ComboBox** 추가 (`Standard (z-score)` / `Robust (중앙값/IQR)`) — row 13, 기존 row 13 이하 항목은 +1 이동 |
+| `debugger_start.py` | `MlpTrainWorker`에 `scaler_type` 파라미터 추가 및 `train()` 호출 시 전달 |
+| `debugger_start.py` | `event_mlp_train()`에서 스케일러 ComboBox 선택값 읽어 Worker에 전달 |
+
+---
+
+## v0.9.7 — CSV 세션 단일화 및 MLP 학습 곡선 Train/Val Loss 분리
+
+**날짜:** 2026-05-07
+
+### 수정
+
+| 파일 | 변경 내용 |
+|---|---|
+| `debugger_start.py` | 배경/사람 자동 저장 토글 ON 시 매번 새 CSV를 생성하던 동작 제거; 프로그램 시작 시 `__init__`에서 생성한 `collector`를 프로그램 종료까지 재사용 — 토글을 여러 번 껐다 켜도 하나의 CSV 파일에 계속 누적 저장됨 |
+| `debugger_start.py` | `MlpTrainWorker.epoch_progress` 시그널에 `val_loss` 추가 (시그니처: `int, int, float, float, float, float`) |
+| `debugger_start.py` | `_on_mlp_epoch_progress()` — `val_loss` 파라미터 추가; 진행 바 포맷에 `val_loss` 수치 표시 |
+| `debugger_start.py` | MLP 학습 곡선 탭에 **Val Loss (주황색, `#ff9900`)** 곡선 추가; `_mlp_train_val_loss` 버퍼 추가 |
+| `debugger_start.py` | 모델 로드(`event_mlp_select`) 시 저장된 `val_loss` 이력을 그래프에 반영 |
+| `AI/mlp/nn_mlp.py` | `_evaluate_loss(loader, criterion, device)` 메서드 추가 — DataLoader 기준 평균 val loss 계산 |
+| `AI/mlp/nn_mlp.py` | 학습 루프에서 매 에폭 `val_loss` 계산 및 `history['val_loss']` 저장 |
+| `AI/mlp/nn_mlp.py` | `progress_callback` 시그니처 변경: `(epoch, total, train_loss, val_loss, train_acc, val_acc)` |
+
+---
+
+## v0.9.6 — ESP32+FFT 확장 모드 및 PC-ADC 재계산 모드 추가
+
+**날짜:** 2026-05-04
+
+### 추가
+
+**원인**
+- PC 모드(`feature_mode='pc'`)가 CSV에 미리 저장된 FFT 빈 컬럼을 재사용해 ADC 원본 신호의 위상·스케일 정보 손실
+- ESP32 모드의 21개 UART 특징이 저주파 FFT 에너지 분포(빈 1~15)를 포함하지 않아 저속 움직임 판별 정확도 저하
+- `_predict()` 가 단일 경로(esp32)만 지원해 모드 전환 시 특징 수 불일치로 스케일러 오류 발생 가능
+
+**수정**
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/pc_feature_extractor.py` | `ADC_START_COL = 21`, `ADC_N_SAMPLES = 256` 상수 추가; 내부 헬퍼 `_extract_features_from_fft_arr()` / `_extract_features_batch()` 로 공통 로직 분리 |
+| `AI/mlp/pc_feature_extractor.py` | `extract_pc_features_from_adc(row_full)` / `extract_pc_features_from_adc_batch(X_full)` — CSV ADC 컬럼(21~276) → numpy FFT → 25개 특징 (학습용) |
+| `AI/mlp/pc_feature_extractor.py` | `compute_pc_features_realtime(A_adc)` — ADC 배열 직접 입력 → 25개 특징 (실시간 추론용) |
+| `AI/svm/svm.py` | `enum_csv_col`에 `FFT_BIN_1 ~ FFT_BIN_15` (index 21~35) 추가; `feature_vector_from_uart_extended(ft, A_fft_mags)` — 21 + 저주파 bins 1~15 = **36차원** 벡터; `I_FEATURES_COUNT_EXTENDED = 36` 상수 추가 |
+| `AI/mlp/nn_mlp.py` | `_A_fft_mags_cache` / `_A_adc_cache` 멤버 추가; `mlp()` 에 `A_fft_mags`, `A_adc` 파라미터 추가 |
+| `AI/mlp/nn_mlp.py` | `_feat_mode` 프로퍼티 — `scaler.n_features_in_` 로 모드 자동 추론 (21→`esp32`, 36→`esp32_fft`, 25→`pc`) |
+| `AI/mlp/nn_mlp.py` | `_predict()` — 모드별 특징 벡터 구성 분기 (`esp32_fft` / `pc` / `esp32`) |
+| `AI/mlp/nn_mlp.py` | `_train_impl(feature_mode='esp32_fft')` — CSV `fft_1~15` 컬럼을 UART 21개에 결합해 36개로 학습; `feature_mode='pc'` — ADC 컬럼 → numpy FFT → 25개로 학습 |
+| `debugger_start.py` | `mlp_handle.mlp()` 호출에 `A_fft_mags=self.A_fft_magnitudes`, `A_adc=self.A_adc_buffer` 전달 |
+
+**결과**
+- PC 모드: ADC 원본 → numpy FFT 직접 계산으로 CSV 저장 FFT 빈 컬럼 불필요, 정보 손실 없음
+- ESP32 모드(`esp32_fft`): 저주파 FFT 빈 1~15 추가로 36차원 특징 벡터 구성, 저속 움직임 감지 향상 기대
+- 실시간 추론 시 로드된 모델의 `scaler.n_features_in_` 에서 모드 자동 판별 — 수동 설정 불필요
+
+---
+
+## v0.9.4 — PCA 그래프 특징 텍스트 구버전 속성 참조 제거
+
+**날짜:** 2026-05-04
+
+### 버그 수정
+
+| 파일 | 수정 내용 |
+|---|---|
+| `debugger_start.py` | `update_svm_pca_graph()` — `h.f_peak_freq` 등 `SVM_Module` 구버전 속성 직접 참조 제거; `svm.feature_vector_from_uart(h.ft)`로 특징 벡터 추출 후 `enum_csv_col` 인덱스 기반 `_fv(col)` 헬퍼로 교체 |
+| `debugger_start.py` | `update_svm_pca_graph()` — 존재하지 않는 특징 항목(`peak_mag`, `avg_mag`, `std_mag`, `low/mid/high_energy`) → 현재 21개 UART 특징 기반 항목(`kurtosis`, `skewness`, `dc_ratio`, `spectral_flatness`)으로 교체 |
+
+---
+
+## v0.9.3 — SVM 그래프 실시간 점 위치 구버전 속성 참조 제거
+
+**날짜:** 2026-05-04
+
+### 버그 수정
+
+| 파일 | 수정 내용 |
+|---|---|
+| `debugger_start.py` | `update_svm_graph()` — `_col_to_attr` 딕셔너리(구버전 PC 25-특징 기반 `enum_csv_col` 키 사용) 전체 제거; `AttributeError: type object 'enum_csv_col' has no attribute 'PEAK_MAG'` 오류 수정 |
+| `debugger_start.py` | `update_svm_graph()` — 현재 프레임 좌표 계산을 `svm.feature_vector_from_uart(svm_handle.ft)[int(col)]` 직접 인덱싱으로 교체 (now_scatter, 2D SVM 판정 블록 모두 적용) |
+
+---
+
+## v0.9.2 — MLP 자동 로드 시 PC 모델 혼용 방지
+
+**날짜:** 2026-05-04
+
+### 버그 수정
+
+| 파일 | 수정 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | `_try_load_model()` — 파일명 역순 정렬 시 `_pc_` 접두 모델(PC 25-특징 전용)이 UART 21-특징 파이프라인에 우선 로드되는 문제 수정; candidates 필터에 `'_pc_' not in os.path.basename(p)` 조건 추가 |
+| `AI/mlp/nn_mlp.py` | `_try_load_model()` — `ValueError: X has 21 features, but StandardScaler is expecting 25 features` 오류 방지 |
+
+---
+
 ## v0.9.1 — ModuleNotFoundError 핫픽스
 
 **날짜:** 2026-04-29

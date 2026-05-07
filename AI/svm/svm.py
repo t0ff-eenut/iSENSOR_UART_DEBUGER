@@ -49,6 +49,19 @@ class enum_label(enum.IntEnum):
 # | 20 | spectral_flatness     | f_spectral_flatness
 # | 21 (마지막)             | label
 I_FEATURES_COUNT: int = 21  # FftFeaturesData 필드 수
+I_FEATURES_COUNT_EXTENDED: int = 36  # 21개 UART 특징 + 저주파 FFT 빈 1~15 (15개)
+
+
+def feature_vector_from_uart_extended(ft, A_fft_mags) -> numpy.ndarray:
+    """FftFeaturesData (21개) + FftData.magnitudes[1~15] (15개) = 36차원 벡터.
+
+    Args:
+        ft          : FftFeaturesData (UART 타입 13)
+        A_fft_mags  : 길이 ≥ 16인 FFT magnitude 배열 (UART 타입 12, 클라이언트 sqrt 복원)
+    """
+    base    = feature_vector_from_uart(ft)
+    fft_low = numpy.array(A_fft_mags[1:16], dtype=float)
+    return numpy.concatenate([base, fft_low])
 
 
 def feature_vector_from_uart(ft) -> numpy.ndarray:
@@ -103,6 +116,22 @@ class enum_csv_col(enum.IntEnum):
     DC_RATIO              = 18
     DELTA_PEAK_FREQ       = 19
     SPECTRAL_FLATNESS     = 20
+    # 저주파 FFT 빈 magnitude (FftData.magnitudes[1~15])
+    FFT_BIN_1  = 21
+    FFT_BIN_2  = 22
+    FFT_BIN_3  = 23
+    FFT_BIN_4  = 24
+    FFT_BIN_5  = 25
+    FFT_BIN_6  = 26
+    FFT_BIN_7  = 27
+    FFT_BIN_8  = 28
+    FFT_BIN_9  = 29
+    FFT_BIN_10 = 30
+    FFT_BIN_11 = 31
+    FFT_BIN_12 = 32
+    FFT_BIN_13 = 33
+    FFT_BIN_14 = 34
+    FFT_BIN_15 = 35
 
 
 class SVM_Module():

@@ -30,13 +30,17 @@ import os
 import sys
 import csv
 import json
+import logging
+
+# nn_mlp 전용 로거 — debugger_start.py 에서 핸들러를 추가해 GUI 경고창 연동
+logger = logging.getLogger('nn_mlp')
 import pickle
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.model_selection import train_test_split
 
 # svm.py는 AI/svm/ 폴더에 위치하므로 경로 추가
@@ -213,6 +217,10 @@ class MLP_Module:
         self.A_probability: list = [1.0, 0.0]
         self.f_confidence: float = 0.0
 
+        # 실시간 추론용 캐시 (mlp() 호출 시 갱신)
+        self._A_fft_mags_cache: list = []   # FFT magnitude (esp32_fft 모드용)
+        self._A_adc_cache: list      = []   # ADC 샘플 (pc 모드 실시간 추론용)
+
         # 이전에 저장된 모델이 있으면 자동 로드
         self._try_load_model()
 
@@ -232,16 +240,28 @@ class MLP_Module:
     def input_size(self) -> int:
         return len(self._svm_ref.A_feature_indices)
 
+    @property
+    def _feat_mode(self) -> str:
+        """스케일러 특징 수에서 학습 모드를 추론 (21→esp32, 36→esp32_fft, 25→pc)."""
+        n = getattr(self.scaler, 'n_features_in_', self.input_size)
+        if n == svm.I_FEATURES_COUNT_EXTENDED:
+            return 'esp32_fft'
+        if n == 25:
+            return 'pc'
+        return 'esp32'
+
     # ─────────────────────────────────────────────────────────
     # 외부에서 호출하는 메인 함수 (svm.svm()과 동일한 시그니처)
     # ─────────────────────────────────────────────────────────
-    def mlp(self, input_ft):
+    def mlp(self, input_ft, A_fft_mags=None, A_adc=None):
         """
         UART 수신 FftFeaturesData로 재실 여부를 판단합니다.
         (SVM_Module.svm()과 동일한 반환값 구조)
 
         Args:
-            input_ft: FftFeaturesData — None이면 무시
+            input_ft   : FftFeaturesData — None이면 무시
+            A_fft_mags : FFT magnitude 배열 (esp32_fft 모드 추론 시 필요)
+            A_adc      : ADC 샘플 배열 (pc 모드 실시간 추론 시 필요)
 
         Returns:
             (A_probability, i_label, f_confidence)
@@ -251,6 +271,12 @@ class MLP_Module:
 
         # SVM 참조 객체에 ft 등록
         self._svm_ref.ft = input_ft
+
+        # 캐시 갱신
+        if A_fft_mags is not None:
+            self._A_fft_mags_cache = A_fft_mags
+        if A_adc is not None:
+            self._A_adc_cache = A_adc
 
         # 학습된 경우에만 예측
         if self.b_is_trained:
@@ -272,7 +298,8 @@ class MLP_Module:
               random_state: int = None,
               stratify: bool = None,
               log_interval: int = None,
-              feature_mode: str = None) -> bool:
+              feature_mode: str = None,
+              scaler_type: str = None) -> bool:
         """
         CSV 파일을 로드해 MLP를 학습합니다.
 
@@ -283,7 +310,7 @@ class MLP_Module:
             ↓
           train(80%) / val(20%) 분리
             ↓
-          StandardScaler로 정규화 (평균0, 표준편차1)
+          StandardScaler/RobustScaler로 정규화
             ↓
           DataLoader 생성 (미니배치 학습)
             ↓
@@ -317,7 +344,8 @@ class MLP_Module:
                                     random_state=random_state,
                                     stratify=stratify,
                                     log_interval=log_interval,
-                                    feature_mode=feature_mode)
+                                    feature_mode=feature_mode,
+                                    scaler_type=scaler_type)
         finally:
             sys.stdout = _orig_out
             _log_f.close()
@@ -333,7 +361,8 @@ class MLP_Module:
                     random_state: int = None,
                     stratify: bool = None,
                     log_interval: int = None,
-                    feature_mode: str = None) -> bool:
+                    feature_mode: str = None,
+                    scaler_type: str = None) -> bool:
         # 파라미터 기본값 설정
         _epochs       = epochs        if epochs        is not None else EPOCHS
         _lr           = learning_rate if learning_rate is not None else LEARNING_RATE
@@ -346,6 +375,7 @@ class MLP_Module:
         _stratify     = stratify      if stratify      is not None else True
         _log_interval = log_interval  if log_interval  is not None else 10
         _feat_mode    = feature_mode  if feature_mode  is not None else 'esp32'
+        _scaler_type  = scaler_type   if scaler_type   is not None else 'standard'
 
         # ① CSV 로드
         X_raw, y = self._load_csv(csv_path)
@@ -358,17 +388,31 @@ class MLP_Module:
         n_human = int(np.sum(y == 1))
         print(f"[MLP] 로드 완료 | 전체: {n_samples}개  (배경: {n_bg}, 사람: {n_human})")
 
-        # ② 특징 추출 (ESP32 선택 특징 or PC 재계산 특징)
+        # ② 특징 추출 (모드에 따라 분기)
+        _mlp_dir = os.path.dirname(os.path.abspath(__file__))
+        if _mlp_dir not in sys.path:
+            sys.path.insert(0, _mlp_dir)
+
         if _feat_mode == 'pc':
-            import sys as _sys
-            _mlp_dir = os.path.dirname(os.path.abspath(__file__))
-            if _mlp_dir not in _sys.path:
-                _sys.path.insert(0, _mlp_dir)
-            from pc_feature_extractor import extract_pc_features_batch, PC_FEATURE_NAMES
-            X = extract_pc_features_batch(X_raw)   # (N, 25)
+            from pc_feature_extractor import extract_pc_features_from_adc_batch, PC_FEATURE_NAMES
+            X = extract_pc_features_from_adc_batch(X_raw)   # ADC → numpy FFT → (N, 25)
             _feat_names_display = PC_FEATURE_NAMES
-            print(f"[MLP] 특징 모드: PC 재계산 ({len(PC_FEATURE_NAMES)}개)")
-        else:
+            print(f"[MLP] 특징 모드: PC-ADC재계산 ({len(PC_FEATURE_NAMES)}개)")
+        elif _feat_mode == 'esp32_fft':
+            from pc_feature_extractor import FFT_START_COL
+            fft_low_cols = list(range(FFT_START_COL + 1, FFT_START_COL + 16))  # fft_1 ~ fft_15
+            if X_raw.shape[1] <= max(fft_low_cols):
+                print("[MLP] ❌ esp32_fft 모드: CSV에 FFT 컬럼 없음 (save_sample 시 A_fft_mag 저장 필요)")
+                return False
+            X_base    = X_raw[:, self.feature_indices]        # (N, 21)
+            X_fft_low = X_raw[:, fft_low_cols]               # (N, 15)
+            X = np.concatenate([X_base, X_fft_low], axis=1)  # (N, 36)
+            _feat_names_display = (
+                [svm.enum_csv_col(i).name for i in self.feature_indices]
+                + [f'fft_{i}' for i in range(1, 16)]
+            )
+            print(f"[MLP] 특징 모드: ESP32+저주파FFT ({X.shape[1]}개)")
+        else:  # 'esp32'
             X = X_raw[:, self.feature_indices]
             _feat_names_display = [svm.enum_csv_col(i).name for i in self.feature_indices]
             print(f"[MLP] 특징 모드: ESP32 ({len(self.feature_indices)}개)")
@@ -387,7 +431,12 @@ class MLP_Module:
         # ④ 정규화
         #    fit_transform : 훈련 데이터 기준으로 평균/분산 계산 + 변환
         #    transform     : 검증 데이터는 훈련 기준으로만 변환 (정보 누수 방지)
-        self.scaler = StandardScaler()
+        if _scaler_type == 'robust':
+            self.scaler = RobustScaler()   # 중앙값/IQR 기반 — 이상치 진동한 환경에 강건
+        else:
+            self.scaler = StandardScaler() # z-score 기반 — 기본값
+        _scaler_tag = 'robust' if _scaler_type == 'robust' else 'std'
+        print(f"[MLP] 스케일러: {'RobustScaler (중앙값/IQR)' if _scaler_type == 'robust' else 'StandardScaler (z-score)'}")
         X_train = self.scaler.fit_transform(X_train).astype(np.float32)
         X_val   = self.scaler.transform(X_val).astype(np.float32)
 
@@ -438,7 +487,7 @@ class MLP_Module:
         best_val_acc   = 0.0
         best_state     = None
         no_improve_cnt = 0
-        history = {'epochs': [], 'loss': [], 'train_acc': [], 'val_acc': []}
+        history = {'epochs': [], 'loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
 
         for epoch in range(1, _epochs + 1):
 
@@ -457,18 +506,20 @@ class MLP_Module:
                 total_loss += loss.item()
 
             avg_loss  = total_loss / len(train_loader)
+            val_loss  = self._evaluate_loss(val_loader, criterion, _device)
             train_acc = self._evaluate(train_loader, _device)
             val_acc   = self._evaluate(val_loader, _device)
             scheduler.step(avg_loss)
 
             history['epochs'].append(epoch)
             history['loss'].append(round(avg_loss, 6))
+            history['val_loss'].append(round(val_loss, 6))
             history['train_acc'].append(round(train_acc, 6))
             history['val_acc'].append(round(val_acc, 6))
 
             # GUI 실시간 진행 콜백
             if progress_callback is not None:
-                progress_callback(epoch, _epochs, avg_loss, train_acc, val_acc)
+                progress_callback(epoch, _epochs, avg_loss, val_loss, train_acc, val_acc)
 
             # Best checkpoint 저장
             if val_acc > best_val_acc:
@@ -492,6 +543,27 @@ class MLP_Module:
         if best_state is not None:
             self.model.load_state_dict(best_state)
         print(f"[MLP] ✅ 학습 완료 | [{layers_str}] | 최고 검증 정확도: {best_val_acc:.1%}  (베스트 체크포인트 복원됨)")
+
+        # 추가 비교 지표 계산 (best 체크포인트 복원 후 val 데이터 기준)
+        from sklearn.metrics import precision_recall_fscore_support as _prf, confusion_matrix as _sk_cm
+        self.model.eval()
+        with torch.no_grad():
+            _val_preds = self.model(torch.tensor(X_val).to(_device)).argmax(dim=1).cpu().numpy()
+        _, _rec, _f1, _ = _prf(y_val, _val_preds, labels=[0, 1], zero_division=0)
+        _cm = _sk_cm(y_val, _val_preds)
+        _TN, _FP = int(_cm[0][0]), int(_cm[0][1])
+        _FN, _TP = int(_cm[1][0]), int(_cm[1][1])
+        _bg_fpr  = _FP / (_TN + _FP) if (_TN + _FP) > 0 else 0.0
+        _bg_tnr  = _TN / (_TN + _FP) if (_TN + _FP) > 0 else 0.0
+        _human_fnr = _FN / (_FN + _TP) if (_FN + _TP) > 0 else 0.0
+        _best_idx = history['val_acc'].index(max(history['val_acc']))
+        history['best_epoch']   = history['epochs'][_best_idx]
+        history['min_val_loss'] = round(min(history['val_loss']), 6) if history.get('val_loss') else None
+        history['human_recall'] = round(float(_rec[1]), 4)   # TPR: 사람 탐지율
+        history['human_fnr']    = round(float(_human_fnr), 4)  # FNR: 사람 오탐율(눈침)
+        history['bg_tnr']       = round(float(_bg_tnr), 4)     # TNR: 배경 정확 탐지율
+        history['bg_fpr']       = round(float(_bg_fpr), 4)     # FPR: 배경 오탐율(오경보)
+        history['f1_human']     = round(float(_f1[1]), 4)
 
         # ⑧ Permutation Importance 출력 + 저장
         _importance  = self._permutation_importance(X_val, y_val, _feat_names_display, device=_device)
@@ -591,7 +663,7 @@ class MLP_Module:
         print(f"[MLP]  에폭: {EPOCHS}  배치: {effective_batch}  LR: {LEARNING_RATE:.0e}  Dropout: {DROPOUT_RATE}")
         print(f"[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         best_val_acc = 0.0
-        history = {'epochs': [], 'loss': [], 'train_acc': [], 'val_acc': []}
+        history = {'epochs': [], 'loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
 
         for epoch in range(1, EPOCHS + 1):
             self.model.train()
@@ -623,6 +695,28 @@ class MLP_Module:
         print(f"\n[MLP] ── 최종 검증 결과 ─────────────────────────────")
         self._evaluate_detail(X_val, y_val)
         print(f"[MLP] ✅ 학습 완료 | [{layers_str}] | 최고 검증 정확도: {best_val_acc:.1%}")
+
+        # 추가 비교 지표 계산
+        from sklearn.metrics import precision_recall_fscore_support as _prf, confusion_matrix as _sk_cm
+        _te_device = next(self.model.parameters()).device
+        self.model.eval()
+        with torch.no_grad():
+            _val_preds = self.model(torch.tensor(X_val).to(_te_device)).argmax(dim=1).cpu().numpy()
+        _, _rec, _f1, _ = _prf(y_val, _val_preds, labels=[0, 1], zero_division=0)
+        _cm = _sk_cm(y_val, _val_preds)
+        _TN, _FP = int(_cm[0][0]), int(_cm[0][1])
+        _FN, _TP = int(_cm[1][0]), int(_cm[1][1])
+        _bg_fpr    = _FP / (_TN + _FP) if (_TN + _FP) > 0 else 0.0
+        _bg_tnr    = _TN / (_TN + _FP) if (_TN + _FP) > 0 else 0.0
+        _human_fnr = _FN / (_FN + _TP) if (_FN + _TP) > 0 else 0.0
+        _best_idx = history['val_acc'].index(max(history['val_acc']))
+        history['best_epoch']   = history['epochs'][_best_idx]
+        history['min_val_loss'] = round(min(history['val_loss']), 6) if history.get('val_loss') else None
+        history['human_recall'] = round(float(_rec[1]), 4)     # TPR: 사람 탐지율
+        history['human_fnr']    = round(float(_human_fnr), 4)  # FNR: 사람 오탐(눈침)
+        history['bg_tnr']       = round(float(_bg_tnr), 4)     # TNR: 배경 정확 탐지율
+        history['bg_fpr']       = round(float(_bg_fpr), 4)     # FPR: 배경 오탐(오경보)
+        history['f1_human']     = round(float(_f1[1]), 4)
 
         # ⑨ 모델 저장
         self._save_model()
@@ -735,26 +829,67 @@ class MLP_Module:
     # ─────────────────────────────────────────────────────────
     def _predict(self) -> None:
         """
-        self._svm_ref에 추출된 특징으로 재실 여부를 예측합니다.
+        self._feat_mode 에 따라 특징 벡터를 구성하고 재실 여부를 예측합니다.
         결과를 self.i_label, self.f_confidence에 저장합니다.
         """
         svm_ref = self._svm_ref
-
-        # 전체 18개 컴럼 벡터 조립 (UART FftFeaturesData 기준)
         if svm_ref.ft is None:
             return
-        A_full = svm.feature_vector_from_uart(svm_ref.ft).astype(np.float32)
 
-        # 선택된 특징만 추출 → 정규화
-        X_feat   = A_full[self.feature_indices].reshape(1, -1).astype(np.float32)
+        mode = self._feat_mode
+
+        if mode == 'esp32_fft':
+            # 21개 UART 특징 + 저주파 FFT magnitude 빈 1~15 (15개) = 36개
+            base = svm.feature_vector_from_uart(svm_ref.ft).astype(np.float32)
+            if len(self._A_fft_mags_cache) >= 16:
+                fft_low = np.array(self._A_fft_mags_cache[1:16], dtype=np.float32)
+            else:
+                fft_low = np.zeros(15, dtype=np.float32)
+            X_feat = np.concatenate([base, fft_low]).reshape(1, -1)
+        elif mode == 'pc':
+            # ADC 샘플 → numpy FFT → 25개 PC 특징
+            if len(self._A_adc_cache) < 16:
+                return  # ADC 데이터 없으면 스킵
+            _mlp_dir = os.path.dirname(os.path.abspath(__file__))
+            if _mlp_dir not in sys.path:
+                sys.path.insert(0, _mlp_dir)
+            from pc_feature_extractor import compute_pc_features_realtime
+            X_feat = compute_pc_features_realtime(self._A_adc_cache).reshape(1, -1).astype(np.float32)
+        else:  # 'esp32'
+            A_full = svm.feature_vector_from_uart(svm_ref.ft).astype(np.float32)
+            X_feat = A_full[self.feature_indices].reshape(1, -1)
+
+        # 스케일러 특징 수 불일치 시 예측 스킵 (호환 불가 모델 로드 방지)
+        if hasattr(self.scaler, 'n_features_in_') and self.scaler.n_features_in_ != X_feat.shape[1]:
+            if not getattr(self, '_b_feat_mismatch_warned', False):
+                self._b_feat_mismatch_warned = True  # QMessageBox 블로킹 전에 먼저 설정 (재진입 방지)
+                self.b_is_trained = False            # 재진입 시 mlp() 호출 차단
+                # logger.warning(
+                #     "스케일러 특징 수 불일치: 로드된 모델은 %d개를 기대하지만 현재 입력은 %d개입니다.\n"
+                #     "호환되는 모델(21-특징)로 재학습하거나 올바른 .pt 파일을 선택하세요.",
+                #     self.scaler.n_features_in_, X_feat.shape[1]
+                # )
+
+                logger.warning(
+                    "MLP 모델 자동 로드 실패 — 특징 수 불일치\n"
+                    "모델이 기대하는 특징 수: %d개  /  현재 설정: %d개\n"
+                    "\n호환되는 모델(특징 : %d)을 선택하거나 재학습하세요.",
+                    self.scaler.n_features_in_, X_feat.shape[1], X_feat.shape[1]
+                )
+
+            else:
+                self.b_is_trained = False
+            return
+        self._b_feat_mismatch_warned = False  # 정상 상태 시 플래그 초기화
         X_scaled = self.scaler.transform(X_feat)
 
         # 추론 모드 (eval): Dropout 비활성화, BatchNorm 고정 통계 사용
         self.model.eval()
+        _device = next(self.model.parameters()).device
         with torch.no_grad():  # 기울기 계산 비활성 → 메모리 절약, 속도 향상
-            logits    = self.model(torch.tensor(X_scaled))
+            logits    = self.model(torch.tensor(X_scaled).to(_device))
             # softmax: logit → 확률 (합계 = 1.0)
-            probs     = torch.softmax(logits, dim=1).numpy()[0]
+            probs     = torch.softmax(logits, dim=1).cpu().numpy()[0]
             pred_idx  = int(np.argmax(probs))  # 더 높은 확률의 클래스 선택
 
         self.A_probability = probs.tolist()           # [배경 확률, 사람 확률]
@@ -852,12 +987,38 @@ class MLP_Module:
                 drops.append(baseline - float((preds == y_val).mean()))
             scores.append(float(np.mean(drops)))
 
+        _FEAT_KO = {
+            'SPECTRAL_ROLLOFF':      '스펙트럼 롤오프',
+            'SPECTRAL_BANDWIDTH':    '스펙트럼 대역폭',
+            'PEAK_COUNT':            '피크 빈 개수',
+            'MID_RATIO':             '중주파 비율 (5~10Hz)',
+            'LOW_TO_HIGH_RATIO':     '저/고주파 에너지 비율',
+            'SECOND_PEAK_FREQ':      '2번째 피크 주파수',
+            'KURTOSIS':              '에너지 분포 첨도',
+            'CENTROID':              '스펙트럼 무게중심',
+            'PEAK_FREQ':             '1위 피크 주파수',
+            'LOW_RATIO':             '저주파 비율 (0~5Hz)',
+            'RMS':                   'RMS 에너지',
+            'AVG_ENERGY':            '평균 에너지',
+            'PEAK_ENERGY':           '피크 에너지',
+            'ENERGY_VARIANCE':       '에너지 분산',
+            'PEAK_TO_AVG_E':         '피크/평균 에너지 비',
+            'HIGH_RATIO':            '고주파 비율 (10Hz↑)',
+            'PEAK1_TO_PEAK2_RATIO':  '1·2위 피크 비율',
+            'SKEWNESS':              '스펙트럼 비대칭도',
+            'DC_RATIO':              'DC 성분 비율',
+            'DELTA_PEAK_FREQ':       '피크 주파수 변화량',
+            'SPECTRAL_FLATNESS':     '스펙트럼 평탄도',
+        }
+
         ranked = sorted(zip(feature_names, scores), key=lambda x: -x[1])
         print(f"[MLP] ── Permutation Importance (베이스라인 정확도: {baseline:.1%}) ─")
         for rank, (name, drop) in enumerate(ranked, 1):
-            bar = '█' * max(0, round(drop * 200))   # 최대 20칸 바
+            bar  = '█' * max(0, round(drop * 200))
             sign = '+' if drop >= 0 else ''
-            print(f"  {rank:2d}. {name:<28s}  Δacc={sign}{drop:+.4f}  {bar}")
+            ko   = _FEAT_KO.get(name.upper(), '')
+            ko_str = f'  ({ko})' if ko else ''
+            print(f"  {rank:2d}. {name:<28s}  Δacc={sign}{drop:+.4f}  {bar}{ko_str}")
         print(f"[MLP] ─────────────────────────────────────────────")
         return {
             'baseline_acc': round(baseline, 6),
@@ -880,6 +1041,20 @@ class MLP_Module:
                 total   += len(y_batch)
         return correct / total if total > 0 else 0.0
 
+    def _evaluate_loss(self, loader: DataLoader, criterion, device=None) -> float:
+        """DataLoader의 평균 loss를 계산해 반환"""
+        _dev = device if device is not None else torch.device('cpu')
+        self.model.eval()
+        total_loss, n_batches = 0.0, 0
+        with torch.no_grad():
+            for X_batch, y_batch in loader:
+                X_batch = X_batch.to(_dev)
+                y_batch = y_batch.to(_dev)
+                logits = self.model(X_batch)
+                total_loss += criterion(logits, y_batch).item()
+                n_batches  += 1
+        return total_loss / n_batches if n_batches > 0 else 0.0
+
     def _save_model(self, history: dict = None, importance: dict = None, feature_mode: str = 'esp32') -> None:
         """모델 가중치와 스케일러를 저장.
         - 고정 경로(mlp_weights.pt): 추론 시 자동 로드용
@@ -896,11 +1071,14 @@ class MLP_Module:
             pickle.dump(self.scaler, f)
 
         # ② 버전 파일명 생성 (시각화 파일명과 동일한 패턴)
-        layers_str = '-'.join(str(h) for h in HIDDEN_LAYERS)
-        timestamp  = datetime.datetime.now().strftime('%m%d_%H%M')
-        lr_str     = f'{LEARNING_RATE:.0e}'
-        mode_tag   = '_pc' if feature_mode == 'pc' else ''
-        stem       = f'mlp_L{layers_str}_ep{EPOCHS}_lr{lr_str}{mode_tag}_{timestamp}'
+        layers_str   = '-'.join(str(h) for h in HIDDEN_LAYERS)
+        timestamp    = datetime.datetime.now().strftime('%m%d_%H%M')
+        lr_str       = f'{LEARNING_RATE:.0e}'
+        do_str       = str(DROPOUT_RATE).replace('0.', 'd')   # 0.4 → d4
+        mode_tag     = '_pc' if feature_mode == 'pc' else ''
+        scaler_tag   = '_rb' if isinstance(self.scaler, RobustScaler) else ''
+        n_feat       = self.input_size  # 실제 입력 특징 수 (21 또는 25 등)
+        stem         = f'mlp_L{layers_str}_ep{EPOCHS}_lr{lr_str}_{do_str}_b{BATCH_SIZE}_f{n_feat}{mode_tag}{scaler_tag}_{timestamp}'
 
         model_dir  = os.path.dirname(self.MODEL_PATH)
         ver_model  = os.path.join(model_dir, stem + '.pt')
@@ -933,9 +1111,11 @@ class MLP_Module:
         import datetime
         log_dir    = os.path.join(self._AI_DIR, 'logs')
         os.makedirs(log_dir, exist_ok=True)
-        layers_str = '-'.join(str(h) for h in HIDDEN_LAYERS)
-        ts         = datetime.datetime.now().strftime('%m%d_%H%M%S')
-        return os.path.join(log_dir, f'{mode}_L{layers_str}_ep{EPOCHS}_{ts}.log')
+        layers_str  = '-'.join(str(h) for h in HIDDEN_LAYERS)
+        do_str      = str(DROPOUT_RATE).replace('0.', 'd')
+        scaler_tag  = '_rb' if isinstance(self.scaler, RobustScaler) else ''
+        ts          = datetime.datetime.now().strftime('%m%d_%H%M%S')
+        return os.path.join(log_dir, f'{mode}_L{layers_str}_ep{EPOCHS}_{do_str}_b{BATCH_SIZE}{scaler_tag}_{ts}.log')
 
     def _save_history(self, history: dict) -> None:
         """에폭별 학습 이력을 JSON으로 저장하고, 이전 결과와 비교 출력"""
@@ -958,15 +1138,61 @@ class MLP_Module:
 
         # 이전 결과와 비교 출력
         if prev and prev.get('val_acc'):
+            def _chg(curr_v, prev_v, higher_is_better=True):
+                d = curr_v - prev_v
+                if d == 0:   arrow = '→ 유지'
+                elif (d > 0) == higher_is_better: arrow = '↑ 개선'
+                else:        arrow = '↓ 하락'
+                sign = '+' if d >= 0 else ''
+                return d, sign, arrow
+
             prev_best = max(prev['val_acc']) * 100
             curr_best = max(history['val_acc']) * 100
-            diff      = curr_best - prev_best
-            sign      = '+' if diff >= 0 else ''
             print()
-            print("  ── 이전 학습과 비교 ──────────────────────────────────")
-            print(f"  이전 최고 검증 정확도: {prev_best:.1f}%")
-            print(f"  현재 최고 검증 정확도: {curr_best:.1f}%")
-            print(f"  변화: {sign}{diff:.1f}%p  {'↑ 개선' if diff > 0 else ('→ 유지' if diff == 0 else '↓ 하락')}")
+            print("  ── 이전 학습과 비교 ──────────────────────────────────────────────────")
+            print(f"  {'지표':<26}  {'이전':>10}  {'현재':>10}  {'변화'}")
+            print(f"  {'─' * 68}")
+
+            d, s, a = _chg(curr_best, prev_best)
+            print(f"  {'최고 검증 정확도':<26}  {prev_best:>9.1f}%  {curr_best:>9.1f}%  {s}{d:.1f}%p  {a}")
+
+            if history.get('min_val_loss') is not None and prev.get('min_val_loss') is not None:
+                d, s, a = _chg(history['min_val_loss'], prev['min_val_loss'], higher_is_better=False)
+                print(f"  {'최소 검증 손실':<26}  {prev['min_val_loss']:>10.4f}  {history['min_val_loss']:>10.4f}  {s}{abs(d):.4f}  {a}")
+
+            if 'human_recall' in history and 'human_recall' in prev:
+                p_hr = prev['human_recall'] * 100
+                c_hr = history['human_recall'] * 100
+                d, s, a = _chg(c_hr, p_hr)
+                print(f"  {'사람 Recall (탐지율) TPR':<26}  {p_hr:>9.1f}%  {c_hr:>9.1f}%  {s}{d:.1f}%p  {a}")
+
+            if 'human_fnr' in history and 'human_fnr' in prev:
+                p_fnr = prev['human_fnr'] * 100
+                c_fnr = history['human_fnr'] * 100
+                d, s, a = _chg(c_fnr, p_fnr, higher_is_better=False)
+                print(f"  {'사람 오탐률 (눈침) FNR':<26}  {p_fnr:>9.1f}%  {c_fnr:>9.1f}%  {s}{abs(d):.1f}%p  {a}")
+
+            if 'bg_tnr' in history and 'bg_tnr' in prev:
+                p_tnr = prev['bg_tnr'] * 100
+                c_tnr = history['bg_tnr'] * 100
+                d, s, a = _chg(c_tnr, p_tnr)
+                print(f"  {'배경 정확 탐지율 TNR':<26}  {p_tnr:>9.1f}%  {c_tnr:>9.1f}%  {s}{d:.1f}%p  {a}")
+
+            if 'bg_fpr' in history and 'bg_fpr' in prev:
+                p_fpr = prev['bg_fpr'] * 100
+                c_fpr = history['bg_fpr'] * 100
+                d, s, a = _chg(c_fpr, p_fpr, higher_is_better=False)
+                print(f"  {'배경 오탐률 (오경보) FPR':<26}  {p_fpr:>9.1f}%  {c_fpr:>9.1f}%  {s}{abs(d):.1f}%p  {a}")
+
+            if 'f1_human' in history and 'f1_human' in prev:
+                d, s, a = _chg(history['f1_human'], prev['f1_human'])
+                print(f"  {'사람 F1 Score':<26}  {prev['f1_human']:>10.4f}  {history['f1_human']:>10.4f}  {s}{abs(d):.4f}  {a}")
+
+            if 'best_epoch' in history and 'best_epoch' in prev:
+                d_ep = history['best_epoch'] - prev['best_epoch']
+                s_ep = '+' if d_ep >= 0 else ''
+                print(f"  {'베스트 에폭':<26}  {prev['best_epoch']:>10d}  {history['best_epoch']:>10d}  {s_ep}{d_ep:d}")
+
             print()
 
     @staticmethod
@@ -1043,9 +1269,11 @@ class MLP_Module:
         lr_str     = f'{LEARNING_RATE:.0e}'
         pattern    = os.path.join(model_dir, f'mlp_L{layers_str}_ep{EPOCHS}_lr{lr_str}_*.pt')
 
-        # scaler가 없는 .pt (버전 모델만) 필터링 — *_scaler.pkl 제외
+        # scaler가 없는 .pt (버전 모델만) 필터링 — *_scaler.pkl 및 _pc_ 모델 제외
+        # (_pc_ 모델은 PC 계산 25-특징 파이프라인 전용, UART 21-특징과 호환 불가)
         candidates = sorted(
-            [p for p in glob.glob(pattern) if not p.endswith('_scaler.pkl')],
+            [p for p in glob.glob(pattern)
+             if not p.endswith('_scaler.pkl') and '_pc_' not in os.path.basename(p)],
             reverse=True  # 파일명 내림차순 → 최신 타임스탬프 우선
         )
 
@@ -1054,15 +1282,28 @@ class MLP_Module:
             ver_scaler = ver_model.replace('.pt', '_scaler.pkl')
             if os.path.exists(ver_scaler):
                 try:
-                    state_dict = torch.load(ver_model, map_location='cpu', weights_only=True)
-                    self._rebuild_model_from_state_dict(state_dict)
-                    self.model.load_state_dict(state_dict)
                     with open(ver_scaler, 'rb') as f:
-                        self.scaler = pickle.load(f)
-                    self.model.eval()
-                    self.b_is_trained = True
-                    print(f"[MLP] 버전 모델 로드 → {os.path.basename(ver_model)}")
-                    return
+                        _scaler_candidate = pickle.load(f)
+                    # 스케일러 특징 수 검증 (21개 UART 특징과 일치해야 함)
+                    _expected = len(self.feature_indices)
+                    if hasattr(_scaler_candidate, 'n_features_in_') and _scaler_candidate.n_features_in_ != _expected:
+                        logger.warning(
+                            "MLP 모델 자동 로드 실패 — 특징 수 불일치\n"
+                            "파일: %s\n"
+                            "모델이 기대하는 특징 수: %d개  /  현재 설정: %d개\n"
+                            "\n호환되는 모델(21-특징)을 선택하거나 재학습하세요.",
+                            os.path.basename(ver_model),
+                            _scaler_candidate.n_features_in_, _expected
+                        )
+                    else:
+                        state_dict = torch.load(ver_model, map_location='cpu', weights_only=True)
+                        self._rebuild_model_from_state_dict(state_dict)
+                        self.model.load_state_dict(state_dict)
+                        self.scaler = _scaler_candidate
+                        self.model.eval()
+                        self.b_is_trained = True
+                        print(f"[MLP] 버전 모델 로드 → {os.path.basename(ver_model)}")
+                        return
                 except Exception as e:
                     print(f"[MLP] 버전 모델 로드 실패, 고정 경로로 시도: {e}")
 
@@ -1070,11 +1311,22 @@ class MLP_Module:
         if not (os.path.exists(self.MODEL_PATH) and os.path.exists(self.SCALER_PATH)):
             return
         try:
+            with open(self.SCALER_PATH, 'rb') as f:
+                _scaler_fb = pickle.load(f)
+            _expected = len(self.feature_indices)
+            if hasattr(_scaler_fb, 'n_features_in_') and _scaler_fb.n_features_in_ != _expected:
+                logger.warning(
+                    "MLP 고정 모델 로드 실패 — 특징 수 불일치\n"
+                    "파일: mlp_weights.pt / mlp_scaler.pkl\n"
+                    "모델이 기대하는 특징 수: %d개  /  현재 설정: %d개\n"
+                    "\n호환되는 모델(21-특징)을 선택하거나 재학습하세요.",
+                    _scaler_fb.n_features_in_, _expected
+                )
+                return
             state_dict = torch.load(self.MODEL_PATH, map_location='cpu', weights_only=True)
             self._rebuild_model_from_state_dict(state_dict)
             self.model.load_state_dict(state_dict)
-            with open(self.SCALER_PATH, 'rb') as f:
-                self.scaler = pickle.load(f)
+            self.scaler = _scaler_fb
             self.model.eval()
             self.b_is_trained = True
             print(f"[MLP] 고정 모델 로드 → {self.MODEL_PATH}")
