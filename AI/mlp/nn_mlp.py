@@ -31,6 +31,7 @@ import sys
 import csv
 import json
 import logging
+import time as _time
 
 # nn_mlp 전용 로거 — debugger_start.py 에서 핸들러를 추가해 GUI 경고창 연동
 logger = logging.getLogger('nn_mlp')
@@ -289,21 +290,38 @@ class MLP_Module:
     # 학습
     # ─────────────────────────────────────────────────────────
     def _compute_stem(self, hidden_layers, epochs, learning_rate,
-                       dropout_rate, batch_size, feature_mode, scaler_type) -> str:
-        """모델/로그 파일명 공통 stem 생성 — 학습 시작 시점에 한 번만 호출"""
+                       dropout_rate, batch_size, feature_mode, scaler_type,
+                       lr_scheduler_patience=None, lr_scheduler_factor=None) -> str:
+        """모델/로그 파일명 공통 stem 생성 — GUI 설정 순서(위→아래) 반영
+        순서: Layer → Scaler → Batch → Dropout → Epoch → LR → LR_factor → LR_patience → FeatureMode → n_feat → timestamp
+        """
         import datetime, math as _m
+        # Row2: Layer
         layers_str = '-'.join(str(h) for h in hidden_layers)
-        do_str     = str(dropout_rate).replace('0.', 'd')
-        _exp       = int(_m.floor(_m.log10(learning_rate)))
-        _man       = round(learning_rate / (10 ** _exp), 1)
-        _man_s     = str(int(_man)) if _man == int(_man) else str(_man)
-        lr_str     = f'{_man_s}e{_exp}'
-        mode_tag   = '_pc' if feature_mode == 'pc' else ''
+        # Row3: Scaler
         scaler_tag = '_rb' if scaler_type == 'robust' else ''
-        n_feat     = self.input_size
-        ts         = datetime.datetime.now().strftime('%m%d_%H%M%S')
-        return (f'mlp_L{layers_str}_ep{epochs}_lr{lr_str}'
-                f'_{do_str}_b{batch_size}_f{n_feat}{mode_tag}{scaler_tag}_{ts}')
+        # Row4: Batch
+        # Row5: Dropout  (0.3 → 'd3')
+        do_str     = str(dropout_rate).replace('0.', 'd')
+        # Row6: Epochs
+        # Row7: LR  (e.g. 1e-3, 5e-4)
+        _exp   = int(_m.floor(_m.log10(learning_rate)))
+        _man   = round(learning_rate / (10 ** _exp), 1)
+        _man_s = str(int(_man)) if _man == int(_man) else str(_man)
+        lr_str = f'{_man_s}e{_exp}'
+        # Row8: LR factor  (0.5 → 'lrf5', 0.1 → 'lrf1')
+        _lrf     = lr_scheduler_factor   if lr_scheduler_factor   is not None else LR_SCHEDULER_FACTOR
+        _lrf_tag = str(_lrf).replace('0.', '').replace('.', '')
+        # Row9: LR patience  (10 → 'lrp10')
+        _lrp     = lr_scheduler_patience if lr_scheduler_patience is not None else LR_SCHEDULER_PATIENCE
+        # Row15: Feature mode
+        mode_tag = '_pc' if feature_mode == 'pc' else ''
+        n_feat   = self.input_size
+        ts       = datetime.datetime.now().strftime('%m%d_%H%M%S')
+        return (f'mlp_L{layers_str}{scaler_tag}'
+                f'_b{batch_size}_{do_str}_ep{epochs}_lr{lr_str}'
+                f'_lrp{_lrp}_lrf{_lrf_tag}'
+                f'{mode_tag}_f{n_feat}_{ts}')
 
     def train(self, csv_path: str = "svm_data.csv",
               progress_callback=None, log_callback=None,
@@ -359,7 +377,8 @@ class MLP_Module:
 
         # stem 확정 → 로그 파일명 & 모델 파일명 모두 이 stem 사용
         stem       = self._compute_stem(_hidden, _epochs, _lr, _dropout, _batch,
-                                        _feat_mode, _scaler_tp)
+                                        _feat_mode, _scaler_tp,
+                                        lr_scheduler_patience, lr_scheduler_factor)
         log_dir    = os.path.join(self._AI_DIR, 'logs')
         os.makedirs(log_dir, exist_ok=True)
         log_path   = os.path.join(log_dir, stem + '.log')
@@ -519,11 +538,19 @@ class MLP_Module:
         )
         # ⑦ 에폭 반복 학습
         layers_str = ' → '.join(str(h) for h in _hidden)
-        _es_str = f"  Early Stop: patience={_patience}" if _patience > 0 else "  Early Stop: 비활성화"
+        _es_str    = f"patience={_patience}" if _patience > 0 else "비활성화"
+        _st_str2   = '유지' if _stratify else '미사용'
+        _rs_str2   = str(_random_state) if _random_state >= 0 else '랜덤'
+        _sc_str    = 'RobustScaler' if _scaler_type == 'robust' else 'StandardScaler'
+        _fm_str    = {'pc': 'PC-ADC재계산', 'esp32_fft': 'ESP32+저주파FFT'}.get(_feat_mode, 'ESP32')
         print(f"[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print(f"[MLP]  디바이스: {_device}" + (f" ({torch.cuda.get_device_name(0)})" if _device.type == 'cuda' else ""))
         print(f"[MLP]  구조: {_n_features} → {layers_str} → 2")
-        print(f"[MLP]  에폭: {_epochs}  배치: {effective_batch}  LR: {_lr:.0e}  Dropout: {_dropout}{_es_str}")
+        print(f"[MLP]  에폭: {_epochs}  배치: {effective_batch}  LR: {_lr:.2e}  Dropout: {_dropout}")
+        print(f"[MLP]  Early Stop: {_es_str}")
+        print(f"[MLP]  LR 스케줄러: patience={_lr_patience}  factor={_lr_factor}  min_lr=1e-6")
+        print(f"[MLP]  검증 비율: {_val_ratio:.0%}  분리 비율고정: {_st_str2}  분리 시드: {_rs_str2}")
+        print(f"[MLP]  스케일러: {_sc_str}  특징 모드: {_fm_str}")
         # 사용 특징 출력
         print(f"[MLP]  사용 특징 ({len(_feat_names_display)}개): {', '.join(_feat_names_display)}")
         print(f"[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -531,8 +558,10 @@ class MLP_Module:
         best_state     = None
         no_improve_cnt = 0
         history = {'epochs': [], 'loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
+        _train_start = _time.perf_counter()
 
         for epoch in range(1, _epochs + 1):
+            _epoch_start = _time.perf_counter()
 
             # ── 학습 단계 ─────────────────────────────────
             self.model.train()  # train 모드: Dropout 활성화
