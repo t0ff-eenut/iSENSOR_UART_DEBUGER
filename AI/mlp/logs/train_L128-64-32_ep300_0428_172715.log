@@ -1,3 +1,0 @@
-data_parser.py | settings_parser() | SettingData_handle.b_occu_status: True
-data_parser.py | settings_parser() | SettingData_handle.b_pir_status: True
-[MLP] ❌ 데이터 부족 또는 파일 없음 — 학습 불가

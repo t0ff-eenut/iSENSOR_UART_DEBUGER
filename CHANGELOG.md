@@ -2,6 +2,97 @@
 
 ---
 
+## v1.2.0 — MLP 학습 로그 개선 및 파일 구조 리팩토링
+
+**날짜:** 2026-05-07
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | 에폭 로그 출력에 **에폭별 소요 시간** 표시 (`{N}s` 컬럼 추가) |
+| `AI/mlp/nn_mlp.py` | 학습 완료 시 **전체 학습 소요 시간** 출력 (`⏱ N분 N초`) |
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | `_Tee.write()` — `_f.flush()` 즉시 호출로 **로그 파일 실시간 반영** (학습 중에도 파일 확인 가능) |
+| `AI/mlp/nn_mlp.py` | `_compute_stem()` 헬퍼 메서드 신규 추가 — 모델/로그 파일명 stem을 한 곳에서 생성 |
+| `AI/mlp/nn_mlp.py` | `train()` — 파라미터 확정 직후 `_compute_stem()` 호출, 로그 파일을 **stem 이름으로 바로 생성** (rename 로직 제거) |
+| `AI/mlp/nn_mlp.py` | `_train_impl()` — `model_stem` 파라미터 추가, `_save_model(stem=...)` 으로 전달 |
+| `AI/mlp/nn_mlp.py` | `_save_model()` — `stem` 파라미터 추가, 내부 stem 재계산 로직 제거 (stem은 `train()` 시작 시 1회만 생성) |
+| `AI/mlp/nn_mlp.py` | `_make_log_path()` 메서드 제거 (불완전한 임시명 방식 폐기) |
+| `AI/mlp/nn_mlp.py` | `self._last_model_stem` 및 `finally` 블록 rename 코드 전체 제거 |
+| `AI/mlp/nn_mlp.py` | `train_eval()` — 동일한 `_compute_stem()` 방식으로 통일 |
+
+---
+
+## v1.1.0 — MLP 학습 파라미터 GUI 확장 및 파일 구조 개선
+
+**날짜:** 2026-05-07
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `debugger_start.py` | MLP 학습 패널에 **LR Scheduler Patience** SpinBox 추가 (row 14, 범위 1~200, 기본값 10) |
+| `debugger_start.py` | MLP 학습 패널에 **LR Scheduler Factor** ComboBox 추가 (row 15, 선택지 0.1/0.2/0.3/0.5/0.7, 기본값 0.5) |
+| `debugger_start.py` | MLP LR 입력 방식을 고정 목록 → **가수부(1.0~9.9) + 지수부(e-1~e-7) 직접 입력** 방식으로 변경 |
+| `AI/mlp/nn_mlp.py` | `train()` / `_train_impl()` 에 `lr_scheduler_patience`, `lr_scheduler_factor` 파라미터 추가 |
+| `AI/mlp/nn_mlp.py` | `ReduceLROnPlateau` 호출부를 전역 상수 대신 파라미터 값 사용 |
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | 로그 파일명을 임시 timestamp 명 → **모델 파일 stem과 완전히 동일한 이름**으로 rename (`_last_model_stem` 활용) |
+| `AI/mlp/nn_mlp.py` | 버전 모델/스케일러/히스토리/중요도 파일을 `models/` 직접 저장 → **`models/{stem}/` 서브폴더** 구조로 변경 |
+| `debugger_start.py` | `_refresh_mlp_model_list()` — 서브폴더 기반 목록 나열로 변경 |
+| `debugger_start.py` | `event_mlp_load_model()` — `models/{stem}/{stem}.pt` 경로로 로드 (flat 구조 하위 호환 유지) |
+| `debugger_start.py` | `_save_settings()` / `_load_settings()` 에 `lr_patience`, `lr_factor`, `lr_mantissa`, `lr_exp` 항목 추가 |
+| `AI/mlp/nn_mlp.py` | `_try_load_model()` — 서브폴더 패턴 + flat 패턴 병행 탐색 (하위 호환) |
+
+---
+
+## v1.0.0 — Dead Code 전면 제거 (코드 정리)
+
+**날짜:** 2026-05-07
+
+### 수정
+
+| 파일 | 변경 내용 |
+|---|---|
+| `debugger_start.py` | 주석 처리된 죽은 코드(dead code) 전면 제거 — 약 3942줄 → 3711줄 (약 231줄 감소) |
+| `debugger_start.py` | `value_init()` 내 미사용 주석 변수 5줄 제거 (`svm_handle.str_svm_csv_path`, `_SVM_HISTORY_MAXLEN` 등) |
+| `debugger_start.py` | SVM 그래프 설정 주석 3줄 제거 (`graph_x_range_setting`, `graph_y_range_setting`, `graph_legend_setting`) |
+| `debugger_start.py` | ESP32 리셋 버튼 주석 블록 제거 |
+| `debugger_start.py` | NVS 설정 읽기/저장 버튼 주석 블록 2세트 + 구분선 제거 |
+| `debugger_start.py` | SVM scatter/history/waveform 탭 주석 블록 3개 제거 |
+| `debugger_start.py` | SVM CSV 삭제 후 초기화 주석 블록 제거 (scatter/history/waveform 초기화 + TP2 명령) |
+| `debugger_start.py` | `update_svm_waveform_overlay()` 전체 주석 메서드 제거 |
+| `debugger_start.py` | `_update_svm_history_display()` 전체 주석 메서드 제거 |
+| `debugger_start.py` | `send_save_nvs_command()`, `send_reset_command()`, `apply_plot_range()`, `reset_plot_range()` 주석 메서드 제거 |
+| `debugger_start.py` | `update_svm_scatter()` 전체 주석 메서드 제거 |
+| `debugger_start.py` | `log_TextEdit_print_sensor_data()` 전체 주석 메서드 제거 (55줄) |
+| `debugger_start.py` | `event_update_ui()` 하단 구버전 로그 주석 블록 제거 |
+| `debugger_start.py` | `update_svm_label_count()` 내 주석 3줄 제거 |
+| `debugger_start.py` | `create_mlp_train_curve_tab()` 하단 FFT 관련 잔여 주석 블록 제거 (`_compute_fft`, `_update_fft_plot`) |
+| `debugger_start.py` | `buffer_setting()` 내 ESP32 FFT 비활성화 주석 블록 제거 |
+| `debugger_start.py` | `update_fft_graph()` 내 raw magnitudes 주석 블록 제거 |
+| `debugger_start.py` | `update_svm_graph()` 내 Phase 1+2+3+A 주석 블록 제거 |
+| `debugger_start.py` | `_get_last_fft_raw()` 전체 주석 메서드 제거 |
+| `debugger_start.py` | `event_svm_save_background()` 내 구버전 주석 3줄 제거 |
+| `debugger_start.py` | `event_svm_save_occupancy()` 내 구버전 구현 주석 블록 12줄 제거 |
+| `debugger_start.py` | `UartWorker.run()` 내 Windows 폴링 방식 주석 블록 13줄 제거 |
+| `debugger_start.py` | `create_fft_plot_tab()` 내 피크 TextItem 주석 블록 2곳 제거 |
+| `debugger_start.py` | `create_svm_plot_tab()` 하단 피크 라벨 딕셔너리 주석 블록 2곳 제거 |
+| `debugger_start.py` | `connection_GroupBox.setFlat(True)` 단일 주석 줄 제거 |
+| `debugger_start.py` | `tp_setting_PushButton.setStyleSheet` 구버전 단일 주석 줄 제거 |
+| `debugger_start.py` | FFT 관련 변수 초기화 주석 3줄 제거 (`f_sampling_rate`, `uart_thread` 등) |
+
+---
+
 ## v0.9.9 — 학습 비교 지표 확장 및 GUI 설정 유지
 
 **날짜:** 2026-05-07

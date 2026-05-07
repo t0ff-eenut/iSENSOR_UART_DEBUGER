@@ -63,6 +63,7 @@ class _Tee:
     def write(self, s):
         self._orig.write(s)
         self._f.write(s)
+        self._f.flush()          # 실시간 파일 반영
         if self._log_cb:
             self._buf += s
             while '\n' in self._buf:
@@ -287,6 +288,23 @@ class MLP_Module:
     # ─────────────────────────────────────────────────────────
     # 학습
     # ─────────────────────────────────────────────────────────
+    def _compute_stem(self, hidden_layers, epochs, learning_rate,
+                       dropout_rate, batch_size, feature_mode, scaler_type) -> str:
+        """모델/로그 파일명 공통 stem 생성 — 학습 시작 시점에 한 번만 호출"""
+        import datetime, math as _m
+        layers_str = '-'.join(str(h) for h in hidden_layers)
+        do_str     = str(dropout_rate).replace('0.', 'd')
+        _exp       = int(_m.floor(_m.log10(learning_rate)))
+        _man       = round(learning_rate / (10 ** _exp), 1)
+        _man_s     = str(int(_man)) if _man == int(_man) else str(_man)
+        lr_str     = f'{_man_s}e{_exp}'
+        mode_tag   = '_pc' if feature_mode == 'pc' else ''
+        scaler_tag = '_rb' if scaler_type == 'robust' else ''
+        n_feat     = self.input_size
+        ts         = datetime.datetime.now().strftime('%m%d_%H%M%S')
+        return (f'mlp_L{layers_str}_ep{epochs}_lr{lr_str}'
+                f'_{do_str}_b{batch_size}_f{n_feat}{mode_tag}{scaler_tag}_{ts}')
+
     def train(self, csv_path: str = "svm_data.csv",
               progress_callback=None, log_callback=None,
               epochs: int = None, learning_rate: float = None,
@@ -299,7 +317,9 @@ class MLP_Module:
               stratify: bool = None,
               log_interval: int = None,
               feature_mode: str = None,
-              scaler_type: str = None) -> bool:
+              scaler_type: str = None,
+              lr_scheduler_patience: int = None,
+              lr_scheduler_factor: float = None) -> bool:
         """
         CSV 파일을 로드해 MLP를 학습합니다.
 
@@ -328,24 +348,42 @@ class MLP_Module:
         Returns:
             True: 학습 성공 / False: 데이터 부족 또는 파일 없음
         """
-        log_path    = self._make_log_path('train')
-        _log_f      = open(log_path, 'w', encoding='utf-8')
-        _orig_out   = sys.stdout
-        sys.stdout  = _Tee(_orig_out, _log_f, log_cb=log_callback)
+        # 파라미터 기본값 확정 (stem 생성에 동일하게 사용)
+        _epochs    = epochs        if epochs        is not None else EPOCHS
+        _lr        = learning_rate if learning_rate is not None else LEARNING_RATE
+        _hidden    = hidden_layers if hidden_layers is not None else HIDDEN_LAYERS
+        _dropout   = dropout_rate  if dropout_rate  is not None else DROPOUT_RATE
+        _batch     = batch_size    if batch_size    is not None else BATCH_SIZE
+        _feat_mode = feature_mode  if feature_mode  is not None else 'esp32'
+        _scaler_tp = scaler_type   if scaler_type   is not None else 'standard'
+
+        # stem 확정 → 로그 파일명 & 모델 파일명 모두 이 stem 사용
+        stem       = self._compute_stem(_hidden, _epochs, _lr, _dropout, _batch,
+                                        _feat_mode, _scaler_tp)
+        log_dir    = os.path.join(self._AI_DIR, 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        log_path   = os.path.join(log_dir, stem + '.log')
+
+        _log_f     = open(log_path, 'w', encoding='utf-8')
+        _orig_out  = sys.stdout
+        sys.stdout = _Tee(_orig_out, _log_f, log_cb=log_callback)
         try:
             return self._train_impl(csv_path, progress_callback,
-                                    epochs=epochs,
-                                    learning_rate=learning_rate,
+                                    epochs=_epochs,
+                                    learning_rate=_lr,
                                     early_stop_patience=early_stop_patience,
-                                    hidden_layers=hidden_layers,
-                                    dropout_rate=dropout_rate,
-                                    batch_size=batch_size,
+                                    hidden_layers=_hidden,
+                                    dropout_rate=_dropout,
+                                    batch_size=_batch,
                                     val_ratio=val_ratio,
                                     random_state=random_state,
                                     stratify=stratify,
                                     log_interval=log_interval,
-                                    feature_mode=feature_mode,
-                                    scaler_type=scaler_type)
+                                    feature_mode=_feat_mode,
+                                    scaler_type=_scaler_tp,
+                                    lr_scheduler_patience=lr_scheduler_patience,
+                                    lr_scheduler_factor=lr_scheduler_factor,
+                                    model_stem=stem)
         finally:
             sys.stdout = _orig_out
             _log_f.close()
@@ -362,8 +400,11 @@ class MLP_Module:
                     stratify: bool = None,
                     log_interval: int = None,
                     feature_mode: str = None,
-                    scaler_type: str = None) -> bool:
-        # 파라미터 기본값 설정
+                    scaler_type: str = None,
+                    lr_scheduler_patience: int = None,
+                    lr_scheduler_factor: float = None,
+                    model_stem: str = None) -> bool:
+        # 파라미터 기본값 설정 (train()에서 이미 확정되어 넘어오지만 단돈 방어)
         _epochs       = epochs        if epochs        is not None else EPOCHS
         _lr           = learning_rate if learning_rate is not None else LEARNING_RATE
         _patience     = early_stop_patience if early_stop_patience is not None else 20
@@ -376,6 +417,8 @@ class MLP_Module:
         _log_interval = log_interval  if log_interval  is not None else 10
         _feat_mode    = feature_mode  if feature_mode  is not None else 'esp32'
         _scaler_type  = scaler_type   if scaler_type   is not None else 'standard'
+        _lr_patience  = lr_scheduler_patience if lr_scheduler_patience is not None else LR_SCHEDULER_PATIENCE
+        _lr_factor    = lr_scheduler_factor   if lr_scheduler_factor   is not None else LR_SCHEDULER_FACTOR
 
         # ① CSV 로드
         X_raw, y = self._load_csv(csv_path)
@@ -471,8 +514,8 @@ class MLP_Module:
         #   파라미터마다 학습률을 자동으로 조절 → 빠르고 안정적
         optimizer = optim.Adam(self.model.parameters(), lr=_lr)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='min', patience=LR_SCHEDULER_PATIENCE,
-            factor=LR_SCHEDULER_FACTOR, min_lr=1e-6
+            optimizer, mode='min', patience=_lr_patience,
+            factor=_lr_factor, min_lr=1e-6
         )
         # ⑦ 에폭 반복 학습
         layers_str = ' → '.join(str(h) for h in _hidden)
@@ -531,8 +574,9 @@ class MLP_Module:
 
             if epoch % _log_interval == 0:
                 current_lr = optimizer.param_groups[0]['lr']
+                _epoch_sec = _time.perf_counter() - _epoch_start
                 star = " ★" if no_improve_cnt == 0 else ""
-                print(f"  에폭 {epoch:3d}/{_epochs} | 손실: {avg_loss:.4f} | 학습: {train_acc:.1%} | 검증: {val_acc:.1%} | lr: {current_lr:.2e}{star}")
+                print(f"  에폭 {epoch:3d}/{_epochs} | 손실: {avg_loss:.4f} | 학습: {train_acc:.1%} | 검증: {val_acc:.1%} | lr: {current_lr:.2e} | {_epoch_sec:.1f}s{star}")
 
             # Early stopping
             if _patience > 0 and no_improve_cnt >= _patience:
@@ -542,7 +586,10 @@ class MLP_Module:
         # Best checkpoint 복원 후 저장
         if best_state is not None:
             self.model.load_state_dict(best_state)
+        _total_sec  = _time.perf_counter() - _train_start
+        _total_m, _total_s = divmod(int(_total_sec), 60)
         print(f"[MLP] ✅ 학습 완료 | [{layers_str}] | 최고 검증 정확도: {best_val_acc:.1%}  (베스트 체크포인트 복원됨)")
+        print(f"[MLP] ⏱  전체 학습 시간: {_total_m}분 {_total_s}초 ({_total_sec:.1f}s)")
 
         # 추가 비교 지표 계산 (best 체크포인트 복원 후 val 데이터 기준)
         from sklearn.metrics import precision_recall_fscore_support as _prf, confusion_matrix as _sk_cm
@@ -569,7 +616,10 @@ class MLP_Module:
         _importance  = self._permutation_importance(X_val, y_val, _feat_names_display, device=_device)
 
         # ⑨ 모델 저장 후 완료 플래그 설정
-        self._save_model(history=history, importance=_importance, feature_mode=_feat_mode)
+        self._save_model(history=history, importance=_importance, feature_mode=_feat_mode,
+                         hidden_layers=_hidden, epochs=_epochs,
+                         learning_rate=_lr, dropout_rate=_dropout, batch_size=effective_batch,
+                         stem=model_stem)
         self._save_history(history)
         self.b_is_trained = True
         return True
@@ -597,10 +647,15 @@ class MLP_Module:
         Returns:
             True: 성공 / False: 실패
         """
-        log_path    = self._make_log_path('train_eval')
-        _log_f      = open(log_path, 'w', encoding='utf-8')
-        _orig_out   = sys.stdout
-        sys.stdout  = _Tee(_orig_out, _log_f)
+        stem     = self._compute_stem(HIDDEN_LAYERS, EPOCHS, LEARNING_RATE,
+                                      DROPOUT_RATE, BATCH_SIZE, 'esp32', 'standard')
+        log_dir  = os.path.join(self._AI_DIR, 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, stem + '.log')
+
+        _log_f     = open(log_path, 'w', encoding='utf-8')
+        _orig_out  = sys.stdout
+        sys.stdout = _Tee(_orig_out, _log_f)
         try:
             return self._train_eval_impl(train_csv, val_csv)
         finally:
@@ -1055,14 +1110,16 @@ class MLP_Module:
                 n_batches  += 1
         return total_loss / n_batches if n_batches > 0 else 0.0
 
-    def _save_model(self, history: dict = None, importance: dict = None, feature_mode: str = 'esp32') -> None:
+    def _save_model(self, history: dict = None, importance: dict = None, feature_mode: str = 'esp32',
+                     hidden_layers: list = None, epochs: int = None,
+                     learning_rate: float = None, dropout_rate: float = None,
+                     batch_size: int = None, stem: str = None) -> None:
         """모델 가중치와 스케일러를 저장.
         - 고정 경로(mlp_weights.pt): 추론 시 자동 로드용
-        - 버전 경로(mlp_L{layers}_ep{ep}_lr{lr}_{timestamp}.pt): 결과물 보관용
+        - 버전 경로 models/{stem}/{stem}.pt: 결과물 보관용 (stem은 train()에서 생성해 전달)
         - history가 전달되면 동일한 파일명으로 _history.json 저장
         - importance가 전달되면 동일한 파일명으로 _importance.json 저장
         """
-        import datetime
         os.makedirs(os.path.dirname(self.MODEL_PATH), exist_ok=True)
 
         # ① 고정 경로 저장 (추론·로드용)
@@ -1070,19 +1127,23 @@ class MLP_Module:
         with open(self.SCALER_PATH, 'wb') as f:
             pickle.dump(self.scaler, f)
 
-        # ② 버전 파일명 생성 (시각화 파일명과 동일한 패턴)
-        layers_str   = '-'.join(str(h) for h in HIDDEN_LAYERS)
-        timestamp    = datetime.datetime.now().strftime('%m%d_%H%M')
-        lr_str       = f'{LEARNING_RATE:.0e}'
-        do_str       = str(DROPOUT_RATE).replace('0.', 'd')   # 0.4 → d4
-        mode_tag     = '_pc' if feature_mode == 'pc' else ''
-        scaler_tag   = '_rb' if isinstance(self.scaler, RobustScaler) else ''
-        n_feat       = self.input_size  # 실제 입력 특징 수 (21 또는 25 등)
-        stem         = f'mlp_L{layers_str}_ep{EPOCHS}_lr{lr_str}_{do_str}_b{BATCH_SIZE}_f{n_feat}{mode_tag}{scaler_tag}_{timestamp}'
+        # ② stem — train()에서 전달받은 값 그대로 사용 (없으면 폴백 생성)
+        if stem is None:
+            stem = self._compute_stem(
+                hidden_layers if hidden_layers is not None else HIDDEN_LAYERS,
+                epochs        if epochs        is not None else EPOCHS,
+                learning_rate if learning_rate is not None else LEARNING_RATE,
+                dropout_rate  if dropout_rate  is not None else DROPOUT_RATE,
+                batch_size    if batch_size    is not None else BATCH_SIZE,
+                feature_mode, 'robust' if isinstance(self.scaler, RobustScaler) else 'standard'
+            )
 
         model_dir  = os.path.dirname(self.MODEL_PATH)
-        ver_model  = os.path.join(model_dir, stem + '.pt')
-        ver_scaler = os.path.join(model_dir, stem + '_scaler.pkl')
+        # 버전 파일 전용 서브폴더 생성: models/{stem}/
+        ver_dir    = os.path.join(model_dir, stem)
+        os.makedirs(ver_dir, exist_ok=True)
+        ver_model  = os.path.join(ver_dir, stem + '.pt')
+        ver_scaler = os.path.join(ver_dir, stem + '_scaler.pkl')
 
         torch.save(self.model.state_dict(), ver_model)
         with open(ver_scaler, 'wb') as f:
@@ -1090,32 +1151,19 @@ class MLP_Module:
 
         # ③ 학습 이력 JSON 저장 (모델 선택 시 그래프 재현용)
         if history:
-            ver_history = os.path.join(model_dir, stem + '_history.json')
+            ver_history = os.path.join(ver_dir, stem + '_history.json')
             with open(ver_history, 'w', encoding='utf-8') as f:
                 json.dump(history, f)
 
         # ④ Permutation Importance JSON 저장
         if importance:
-            ver_importance = os.path.join(model_dir, stem + '_importance.json')
+            ver_importance = os.path.join(ver_dir, stem + '_importance.json')
             with open(ver_importance, 'w', encoding='utf-8') as f:
                 json.dump(importance, f, ensure_ascii=False)
             print(f"[MLP] 특징 중요도 저장 → {ver_importance}")
 
         print(f"[MLP] 저장 완료 → {self.MODEL_PATH}  (추론용)")
-        print(f"[MLP] 버전 보관 → {ver_model}")
-
-    def _make_log_path(self, mode: str = 'train') -> str:
-        """학습 로그 파일 경로 생성 (AI/logs/ 폴더).
-        파일명: train_{layers}_{timestamp}.log
-        """
-        import datetime
-        log_dir    = os.path.join(self._AI_DIR, 'logs')
-        os.makedirs(log_dir, exist_ok=True)
-        layers_str  = '-'.join(str(h) for h in HIDDEN_LAYERS)
-        do_str      = str(DROPOUT_RATE).replace('0.', 'd')
-        scaler_tag  = '_rb' if isinstance(self.scaler, RobustScaler) else ''
-        ts          = datetime.datetime.now().strftime('%m%d_%H%M%S')
-        return os.path.join(log_dir, f'{mode}_L{layers_str}_ep{EPOCHS}_{do_str}_b{BATCH_SIZE}{scaler_tag}_{ts}.log')
+        print(f"[MLP] 버전 보관 → {ver_dir}/")
 
     def _save_history(self, history: dict) -> None:
         """에폭별 학습 이력을 JSON으로 저장하고, 이전 결과와 비교 출력"""
@@ -1266,15 +1314,22 @@ class MLP_Module:
 
         model_dir  = os.path.dirname(self.MODEL_PATH)
         layers_str = '-'.join(str(h) for h in HIDDEN_LAYERS)
-        lr_str     = f'{LEARNING_RATE:.0e}'
-        pattern    = os.path.join(model_dir, f'mlp_L{layers_str}_ep{EPOCHS}_lr{lr_str}_*.pt')
+        import math as _m
+        _auto_exp  = int(_m.floor(_m.log10(LEARNING_RATE)))
+        _auto_man  = round(LEARNING_RATE / (10 ** _auto_exp), 1)
+        _auto_mans = str(int(_auto_man)) if _auto_man == int(_auto_man) else str(_auto_man)
+        lr_str     = f'{_auto_mans}e{_auto_exp}'
+        # 새 서브폴더 구조: models/{stem}/{stem}.pt
+        subdir_pattern = os.path.join(model_dir,
+                                      f'mlp_L{layers_str}_ep{EPOCHS}_lr{lr_str}_*',
+                                      f'mlp_L{layers_str}_ep{EPOCHS}_lr{lr_str}_*.pt')
+        # 이전 플랫 구조 (하위 호환): models/{stem}.pt
+        flat_pattern = os.path.join(model_dir, f'mlp_L{layers_str}_ep{EPOCHS}_lr{lr_str}_*.pt')
 
-        # scaler가 없는 .pt (버전 모델만) 필터링 — *_scaler.pkl 및 _pc_ 모델 제외
-        # (_pc_ 모델은 PC 계산 25-특징 파이프라인 전용, UART 21-특징과 호환 불가)
         candidates = sorted(
-            [p for p in glob.glob(pattern)
+            [p for p in glob.glob(subdir_pattern) + glob.glob(flat_pattern)
              if not p.endswith('_scaler.pkl') and '_pc_' not in os.path.basename(p)],
-            reverse=True  # 파일명 내림차순 → 최신 타임스탬프 우선
+            reverse=True
         )
 
         if candidates:
