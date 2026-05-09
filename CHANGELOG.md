@@ -2,6 +2,32 @@
 
 ---
 
+## v1.3.0 — MLP UI 편의 기능 개선
+
+**날짜:** 2026-05-09
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `debugger_start.py` | MLP Layer 콤보박스에 **`256-128-64-32`** (4층 구조) 항목 추가 — 목록 맨 위에 배치 |
+| `debugger_start.py` | MLP 학습 곡선 탭에 **자동 스케일 토글 버튼** 추가 (`🔒 자동 스케일: ON` / `🔓 자동 스케일: OFF`) |
+| `debugger_start.py` | `_on_mlp_curve_user_zoomed()` — 사용자가 스크롤/드래그 시 자동 스케일 자동 OFF 전환 |
+| `debugger_start.py` | `_on_mlp_autoscale_toggled()` — 버튼 클릭으로 자동 스케일 수동 ON/OFF 전환 |
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `debugger_start.py` | Dropout 입력을 **ComboBox** (0.0~0.5 고정 목록) → **`QDoubleSpinBox`** (0.00~1.00, 0.05 단위, 직접 입력 가능)으로 교체 |
+| `debugger_start.py` | `create_mlp_train_curve_tab()` — PlotWidget을 `self._mlp_curve_pw`로 저장, 탭 콘텐츠를 컨테이너 위젯(`QVBoxLayout`)으로 감싸 버튼+그래프 구조로 변경 |
+| `debugger_start.py` | `_on_mlp_epoch_progress()` — 자동 스케일 ON 상태일 때만 `enableAutoRange()` 호출 |
+| `debugger_start.py` | `event_mlp_load_model()` — 모델 로드 시 자동 스케일 ON으로 초기화하여 전체 학습 곡선 표시 |
+| `debugger_start.py` | `_save_settings()` — `dropout` 저장 방식을 `currentText()` → `str(value())` 로 변경 |
+| `debugger_start.py` | `_load_settings()` — `dropout` 복원 방식을 `_set_combo_text()` → `_set_double_spin()` 으로 변경 |
+
+---
+
 ## v1.2.0 — MLP 학습 로그 개선 및 파일 구조 리팩토링
 
 **날짜:** 2026-05-07

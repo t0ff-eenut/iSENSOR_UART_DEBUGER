@@ -1299,7 +1299,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_layers_Label, 2, 0)
 
         self.mlp_layers_ComboBox = QComboBox()
-        for _l in ["128-64-32", "64-32", "256-128-64", "128-64", "64"]:
+        for _l in ["256-128-64-32", "128-64-32", "64-32", "256-128-64", "128-64", "64"]:
             self.mlp_layers_ComboBox.addItem(_l)
         _default_layers = '-'.join(str(h) for h in _nn_mlp_ref.HIDDEN_LAYERS)
         idx = self.mlp_layers_ComboBox.findText(_default_layers)
@@ -1311,11 +1311,12 @@ class MainWindow(QMainWindow):
         self.mlp_dropout_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_train_GridLayout.addWidget(self.mlp_dropout_Label, 5, 0)
 
-        self.mlp_dropout_ComboBox = QComboBox()
-        for _d in ["0.0", "0.1", "0.2", "0.3", "0.4", "0.5"]:
-            self.mlp_dropout_ComboBox.addItem(_d)
-        self.mlp_dropout_ComboBox.setCurrentText(str(_nn_mlp_ref.DROPOUT_RATE))
-        self.mlp_train_GridLayout.addWidget(self.mlp_dropout_ComboBox, 5, 1)
+        self.mlp_dropout_SpinBox = QDoubleSpinBox()
+        self.mlp_dropout_SpinBox.setRange(0.0, 1.0)
+        self.mlp_dropout_SpinBox.setSingleStep(0.05)
+        self.mlp_dropout_SpinBox.setDecimals(2)
+        self.mlp_dropout_SpinBox.setValue(_nn_mlp_ref.DROPOUT_RATE)
+        self.mlp_train_GridLayout.addWidget(self.mlp_dropout_SpinBox, 5, 1)
 
         # Batch size
         self.mlp_batch_Label = QLabel("Batch")
@@ -2219,7 +2220,7 @@ class MainWindow(QMainWindow):
             learning_rate         = self.mlp_lr_mantissa_DoubleSpinBox.value() * (10 ** self.mlp_lr_exp_SpinBox.value()),
             early_stop_patience   = self.mlp_es_SpinBox.value(),
             hidden_layers         = _hidden,
-            dropout_rate          = float(self.mlp_dropout_ComboBox.currentText()),
+            dropout_rate          = self.mlp_dropout_SpinBox.value(),
             batch_size            = self.mlp_batch_SpinBox.value(),
             val_ratio             = float(self.mlp_val_ratio_ComboBox.currentText()),
             random_state          = self.mlp_seed_SpinBox.value(),
@@ -2257,6 +2258,9 @@ class MainWindow(QMainWindow):
         self._mlp_curve_val_loss.setData(self._mlp_train_epochs, self._mlp_train_val_loss)
         self._mlp_curve_train_acc.setData(self._mlp_train_epochs, self._mlp_train_train_acc)
         self._mlp_curve_val_acc.setData(self._mlp_train_epochs, self._mlp_train_val_acc)
+
+        if getattr(self, '_mlp_curve_auto_scale', True):
+            self._mlp_curve_pw.enableAutoRange()
 
     def _on_mlp_train_finished(self, b_train_done: bool):
         """MLP 학습 완료 후 UI 업데이트 (메인 스레드)"""
@@ -2394,6 +2398,14 @@ class MainWindow(QMainWindow):
             self._mlp_curve_val_loss.setData(epochs, val_loss_data)
             self._mlp_curve_train_acc.setData(epochs, train_data)
             self._mlp_curve_val_acc.setData(epochs, val_data)
+
+            # 자동 스케일 ON으로 초기화하여 전체 곡선 보이게
+            self._mlp_curve_auto_scale = True
+            self._mlp_autoscale_Btn.blockSignals(True)
+            self._mlp_autoscale_Btn.setChecked(False)
+            self._mlp_autoscale_Btn.setText("🔒 자동 스케일: ON")
+            self._mlp_autoscale_Btn.blockSignals(False)
+            self._mlp_curve_pw.enableAutoRange()
 
             # 학습 곡선 탭으로 전환
             for i in range(self.mlp_plot_TabWidget.count()):
@@ -2873,6 +2885,27 @@ class MainWindow(QMainWindow):
 
     def create_mlp_train_curve_tab(self):
         """MLP 학습 곡선 탭 — 에폭별 Loss / Train Acc / Val Acc 실시간 표시"""
+        # 자동 스케일 상태 플래그
+        self._mlp_curve_auto_scale: bool = True
+
+        # 탭 컨테이너 (버튼 + 그래프)
+        _tab_widget = QWidget()
+        _tab_vbox   = QVBoxLayout(_tab_widget)
+        _tab_vbox.setContentsMargins(0, 0, 0, 0)
+        _tab_vbox.setSpacing(2)
+
+        # 자동 스케일 토글 버튼
+        self._mlp_autoscale_Btn = QPushButton("🔒 자동 스케일: ON")
+        self._mlp_autoscale_Btn.setCheckable(True)
+        self._mlp_autoscale_Btn.setChecked(False)   # False = 잠금 해제 = 자동 스케일 ON
+        self._mlp_autoscale_Btn.setFixedHeight(24)
+        self._mlp_autoscale_Btn.setToolTip(
+            "ON: 학습 중 그래프 범위 자동 조절\n"
+            "OFF: 수동 줌/팬 고정 (스크롤 후 자동으로 전환됨)"
+        )
+        self._mlp_autoscale_Btn.toggled.connect(self._on_mlp_autoscale_toggled)
+        _tab_vbox.addWidget(self._mlp_autoscale_Btn)
+
         pw = pyqtgraph.PlotWidget()
         pw.setTitle("MLP 학습 곡선", color='w', size='12pt')
         pw.setLabel('bottom', 'Epoch', **{'font-size': '11pt'})
@@ -2881,11 +2914,19 @@ class MainWindow(QMainWindow):
         pw.showGrid(x=True, y=True, alpha=0.3)
         pw.addLegend(offset=(10, 10))
         pw.setMenuEnabled(False)
+        self._mlp_curve_pw = pw   # autoRange 호출용 참조 보관
+
+        # 사용자가 직접 줌/팬 하면 자동 스케일 OFF
+        pw.getPlotItem().getViewBox().sigRangeChangedManually.connect(
+            self._on_mlp_curve_user_zoomed
+        )
 
         self._mlp_curve_loss      = pw.plot([], [], pen=pyqtgraph.mkPen('y',       width=1), name='Train Loss')
         self._mlp_curve_val_loss   = pw.plot([], [], pen=pyqtgraph.mkPen('#ff9900', width=1), name='Val Loss')
         self._mlp_curve_train_acc  = pw.plot([], [], pen=pyqtgraph.mkPen('#44ee80', width=2), name='Train Acc')
         self._mlp_curve_val_acc    = pw.plot([], [], pen=pyqtgraph.mkPen('#ee4444', width=2), name='Val Acc')
+
+        _tab_vbox.addWidget(pw, stretch=1)
 
         # 학습 곡선 데이터 버퍼
         self._mlp_train_epochs    = []
@@ -2894,7 +2935,26 @@ class MainWindow(QMainWindow):
         self._mlp_train_train_acc = []
         self._mlp_train_val_acc   = []
 
-        self.mlp_plot_TabWidget.addTab(pw, "MLP 학습 곡선")
+        self.mlp_plot_TabWidget.addTab(_tab_widget, "MLP 학습 곡선")
+
+    def _on_mlp_curve_user_zoomed(self, *_):
+        """사용자가 직접 줌/팬 → 자동 스케일 OFF로 전환"""
+        if self._mlp_curve_auto_scale:
+            self._mlp_curve_auto_scale = False
+            self._mlp_autoscale_Btn.blockSignals(True)
+            self._mlp_autoscale_Btn.setChecked(True)
+            self._mlp_autoscale_Btn.setText("🔓 자동 스케일: OFF")
+            self._mlp_autoscale_Btn.blockSignals(False)
+
+    def _on_mlp_autoscale_toggled(self, checked: bool):
+        """버튼 클릭으로 자동 스케일 ON/OFF 전환"""
+        # checked=True → OFF(잠금), checked=False → ON(자동)
+        self._mlp_curve_auto_scale = not checked
+        if self._mlp_curve_auto_scale:
+            self._mlp_autoscale_Btn.setText("🔒 자동 스케일: ON")
+            self._mlp_curve_pw.enableAutoRange()
+        else:
+            self._mlp_autoscale_Btn.setText("🔓 자동 스케일: OFF")
 
     def get_TabWidget(self, input_plot_name:str) -> Optional[QWidget]:
         # 나중에 tabData로 찾기
@@ -3548,7 +3608,7 @@ class MainWindow(QMainWindow):
                 'lr_exp':       self.mlp_lr_exp_SpinBox.value(),
                 'es':           self.mlp_es_SpinBox.value(),
                 'layers':       self.mlp_layers_ComboBox.currentText(),
-                'dropout':      self.mlp_dropout_ComboBox.currentText(),
+                'dropout':      str(self.mlp_dropout_SpinBox.value()),
                 'batch':        self.mlp_batch_SpinBox.value(),
                 'val_ratio':    self.mlp_val_ratio_ComboBox.currentText(),
                 'seed':         self.mlp_seed_SpinBox.value(),
@@ -3623,7 +3683,7 @@ class MainWindow(QMainWindow):
         _set_spin(self.mlp_lr_exp_SpinBox,                   'lr_exp')
         _set_spin(self.mlp_es_SpinBox,               'es')
         _set_combo_text(self.mlp_layers_ComboBox,    'layers')
-        _set_combo_text(self.mlp_dropout_ComboBox,   'dropout')
+        _set_double_spin(self.mlp_dropout_SpinBox,   'dropout')
         _set_spin(self.mlp_batch_SpinBox,            'batch')
         _set_combo_text(self.mlp_val_ratio_ComboBox, 'val_ratio')
         _set_spin(self.mlp_seed_SpinBox,             'seed')
