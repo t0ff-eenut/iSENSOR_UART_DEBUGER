@@ -276,9 +276,16 @@ class MlpTrainWorker(PyQt6.QtCore.QThread):
         self._scaler_type             = scaler_type
         self._lr_scheduler_patience   = lr_scheduler_patience
         self._lr_scheduler_factor     = lr_scheduler_factor
+        self._stop_requested          = False
+
+    def stop(self):
+        """학습 중단 요청 — 다음 에폭 콜백에서 False 반환하여 루프 탈출"""
+        self._stop_requested = True
 
     def run(self):
         def _cb(epoch, total, loss, val_loss, train_acc, val_acc):
+            if self._stop_requested:
+                return False   # nn_mlp.py 학습 루프에 중단 신호
             self.epoch_progress.emit(epoch, total, float(loss),
                                      float(val_loss), float(train_acc), float(val_acc))
 
@@ -1242,7 +1249,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_epochs_Label, 6, 0)
 
         self.mlp_epochs_SpinBox = QSpinBox()
-        self.mlp_epochs_SpinBox.setRange(10, 2000)
+        self.mlp_epochs_SpinBox.setRange(10, 100000)
         self.mlp_epochs_SpinBox.setSingleStep(50)
         self.mlp_epochs_SpinBox.setValue(_nn_mlp_ref.EPOCHS)
         self.mlp_train_GridLayout.addWidget(self.mlp_epochs_SpinBox, 6, 1)
@@ -1441,18 +1448,26 @@ class MainWindow(QMainWindow):
         )
         self.mlp_train_GridLayout.addWidget(self.mlp_lr_factor_Label, 8, 0)
 
-        self.mlp_lr_factor_ComboBox = QComboBox()
-        for _f in ["0.1", "0.2", "0.3", "0.5", "0.7"]:
-            self.mlp_lr_factor_ComboBox.addItem(_f)
-        self.mlp_lr_factor_ComboBox.setCurrentText("0.5")
-        self.mlp_lr_factor_ComboBox.setToolTip("0.5 = LR 절반 감소 (권장) / 0.1 = 90% 감소 (공격적)")
-        self.mlp_train_GridLayout.addWidget(self.mlp_lr_factor_ComboBox, 8, 1)
+        self.mlp_lr_factor_DoubleSpinBox = QDoubleSpinBox()
+        self.mlp_lr_factor_DoubleSpinBox.setRange(0.01, 0.99)
+        self.mlp_lr_factor_DoubleSpinBox.setSingleStep(0.05)
+        self.mlp_lr_factor_DoubleSpinBox.setDecimals(2)
+        self.mlp_lr_factor_DoubleSpinBox.setValue(0.5)
+        self.mlp_lr_factor_DoubleSpinBox.setToolTip("0.5 = LR 절반 감소 (권장) / 0.1 = 90% 감소 (공격적)")
+        self.mlp_train_GridLayout.addWidget(self.mlp_lr_factor_DoubleSpinBox, 8, 1)
 
         # 학습 버튼
         self.mlp_train_PushButton = QPushButton("🧠 MLP 학습")
         self.mlp_train_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.mlp_train_PushButton.clicked.connect(self.event_mlp_train)
-        self.mlp_train_GridLayout.addWidget(self.mlp_train_PushButton, 16, 0, 1, 2)
+        self.mlp_train_GridLayout.addWidget(self.mlp_train_PushButton, 16, 0, 1, 1)
+
+        # 학습 중단 버튼
+        self.mlp_stop_PushButton = QPushButton("⏹ 중단")
+        self.mlp_stop_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.mlp_stop_PushButton.setEnabled(False)
+        self.mlp_stop_PushButton.clicked.connect(self.event_mlp_stop)
+        self.mlp_train_GridLayout.addWidget(self.mlp_stop_PushButton, 16, 1, 1, 1)
 
         # 에폭 진행률 바
         self.mlp_progress_ProgressBar = QProgressBar()
@@ -2187,6 +2202,7 @@ class MainWindow(QMainWindow):
     def event_mlp_train(self):
         """현재 수집 세션 CSV로 MLP 학습 (백그라운드 스레드)"""
         self.mlp_train_PushButton.setEnabled(False)
+        self.mlp_stop_PushButton.setEnabled(True)
         self.mlp_status_Label.setText("학습 중...")
         self.mlp_progress_ProgressBar.setValue(0)
         self.mlp_progress_ProgressBar.setFormat("에폭 0 / ?")
@@ -2229,12 +2245,19 @@ class MainWindow(QMainWindow):
             feature_mode          = _feat_mode,
             scaler_type           = _scaler_type,
             lr_scheduler_patience = self.mlp_lr_patience_SpinBox.value(),
-            lr_scheduler_factor   = float(self.mlp_lr_factor_ComboBox.currentText()),
+            lr_scheduler_factor   = self.mlp_lr_factor_DoubleSpinBox.value(),
         )
         self._mlp_train_worker.epoch_progress.connect(self._on_mlp_epoch_progress)
         self._mlp_train_worker.log_message.connect(self.log_TextEdit.append)
         self._mlp_train_worker.finished.connect(self._on_mlp_train_finished)
         self._mlp_train_worker.start()
+
+    def event_mlp_stop(self):
+        """학습 중단 버튼 클릭 — 워커에 중단 플래그 설정"""
+        if hasattr(self, '_mlp_train_worker') and self._mlp_train_worker.isRunning():
+            self._mlp_train_worker.stop()
+            self.mlp_stop_PushButton.setEnabled(False)
+            self.mlp_status_Label.setText("중단 요청 중... (현재 에폭 완료 후 중단)")
 
     def _on_mlp_epoch_progress(self, epoch: int, total: int,
                                 loss: float, val_loss: float, train_acc: float, val_acc: float):
@@ -2265,13 +2288,20 @@ class MainWindow(QMainWindow):
     def _on_mlp_train_finished(self, b_train_done: bool):
         """MLP 학습 완료 후 UI 업데이트 (메인 스레드)"""
         self.mlp_train_PushButton.setEnabled(True)
+        self.mlp_stop_PushButton.setEnabled(False)
+        _stopped = hasattr(self, '_mlp_train_worker') and self._mlp_train_worker._stop_requested
         if b_train_done:
             best_val = max(self._mlp_train_val_acc) if self._mlp_train_val_acc else 0.0
             self.mlp_progress_ProgressBar.setValue(100)
-            self.mlp_progress_ProgressBar.setFormat(f"완료  최고 검증: {best_val:.1%}")
-            self.mlp_status_Label.setText(f"학습 완료  최고 검증 정확도: {best_val:.1%}")
-            self.log_TextEdit.append(f"[MLP] 학습 완료  최고 검증 정확도: {best_val:.1%}")
-            # 학습 완료 후 모델 목록 갱신
+            if _stopped:
+                self.mlp_progress_ProgressBar.setFormat(f"중단됨  최고 검증: {best_val:.1%}")
+                self.mlp_status_Label.setText(f"학습 중단  최고 검증 정확도: {best_val:.1%}")
+                self.log_TextEdit.append(f"[MLP] 학습 중단  최고 검증 정확도: {best_val:.1%}")
+            else:
+                self.mlp_progress_ProgressBar.setFormat(f"완료  최고 검증: {best_val:.1%}")
+                self.mlp_status_Label.setText(f"학습 완료  최고 검증 정확도: {best_val:.1%}")
+                self.log_TextEdit.append(f"[MLP] 학습 완료  최고 검증 정확도: {best_val:.1%}")
+            # 학습 완료/중단 후 모델 목록 갱신
             self._refresh_mlp_model_list()
         else:
             self.mlp_progress_ProgressBar.setFormat("학습 실패")
@@ -3617,7 +3647,7 @@ class MainWindow(QMainWindow):
                 'feature_mode':   self.mlp_feature_mode_ComboBox.currentIndex(),
                 'scaler':         self.mlp_scaler_ComboBox.currentIndex(),
                 'lr_patience':    self.mlp_lr_patience_SpinBox.value(),
-                'lr_factor':      self.mlp_lr_factor_ComboBox.currentText(),
+                'lr_factor':      str(self.mlp_lr_factor_DoubleSpinBox.value()),
             },
         }
         _path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ui_settings.json')
@@ -3692,7 +3722,7 @@ class MainWindow(QMainWindow):
         _set_combo_idx(self.mlp_feature_mode_ComboBox,'feature_mode')
         _set_combo_idx(self.mlp_scaler_ComboBox,     'scaler')
         _set_spin(self.mlp_lr_patience_SpinBox,      'lr_patience')
-        _set_combo_text(self.mlp_lr_factor_ComboBox, 'lr_factor')
+        _set_double_spin(self.mlp_lr_factor_DoubleSpinBox, 'lr_factor')
 
 
     def update_svm_label_count(self):

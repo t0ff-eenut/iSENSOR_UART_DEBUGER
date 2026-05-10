@@ -2,6 +2,33 @@
 
 ---
 
+## v1.4.0 — MLP 학습 제어 기능 개선
+
+**날짜:** 2026-05-10
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `debugger_start.py` | MLP 학습 패널에 **⏹ 중단 버튼** 추가 — 학습 중일 때만 활성화, 클릭 시 다음 에폭 완료 후 즉시 중단 |
+| `debugger_start.py` | `event_mlp_stop()` — 중단 버튼 이벤트 핸들러 추가 |
+| `debugger_start.py` | `MlpTrainWorker.stop()` — 중단 플래그 설정 메서드 추가 |
+| `debugger_start.py` | `MlpTrainWorker._stop_requested` — 중단 플래그 필드 추가 |
+| `AI/mlp/nn_mlp.py` | 학습 루프 내 `progress_callback` 반환값 체크 — `False` 반환 시 루프 `break` (중단 메시지 출력 포함) |
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `debugger_start.py` | `mlp_train_PushButton` 레이아웃을 `(16, 0, 1, 2)` → `(16, 0, 1, 1)` 로 축소 (중단 버튼 공간 확보) |
+| `debugger_start.py` | `event_mlp_train()` — 학습 시작 시 중단 버튼 활성화 |
+| `debugger_start.py` | `_on_mlp_train_finished()` — 중단 버튼 비활성화, 중단 여부에 따라 상태 메시지 분기 (`학습 완료` / `학습 중단`) |
+| `debugger_start.py` | `MlpTrainWorker._cb()` — 중단 플래그 확인 후 `False` 반환하도록 변경 |
+| `debugger_start.py` | `mlp_epochs_SpinBox.setRange(10, 2000)` → `setRange(10, 100000)` 로 상한 확장 |
+| `AI/mlp/TUNING_GUIDE.md` | **섹션 8. Epoch 수 설정 기준** 추가 — 분야별 범위, 이 프로젝트 실험 결과, 판단 기준, UI 상한 내용 포함 |
+
+---
+
 ## v1.3.0 — MLP UI 편의 기능 개선
 
 **날짜:** 2026-05-09

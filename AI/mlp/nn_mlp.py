@@ -589,9 +589,11 @@ class MLP_Module:
             history['train_acc'].append(round(train_acc, 6))
             history['val_acc'].append(round(val_acc, 6))
 
-            # GUI 실시간 진행 콜백
+            # GUI 실시간 진행 콜백 (False 반환 시 학습 중단)
             if progress_callback is not None:
-                progress_callback(epoch, _epochs, avg_loss, val_loss, train_acc, val_acc)
+                if progress_callback(epoch, _epochs, avg_loss, val_loss, train_acc, val_acc) is False:
+                    print(f"[MLP] ⏹ 학습 중단 요청 — {epoch}에폭에서 중단")
+                    break
 
             # Best checkpoint 저장
             if val_acc > best_val_acc:
