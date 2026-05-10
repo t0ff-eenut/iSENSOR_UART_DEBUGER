@@ -2,6 +2,30 @@
 
 ---
 
+## v1.4.1 — MLP 과적합 진단 및 로그 개선
+
+**날짜:** 2026-05-10
+
+### 수정
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | `_train_impl()` 에폭 로그 출력에 **검증 손실(`검증손실: X.XXXX`)** 컬럼 추가 — 기존에는 val_loss가 history에만 기록되고 로그에 미출력 |
+| `AI/mlp/nn_mlp.py` | `scheduler.step(avg_loss)` → **`scheduler.step(val_loss)`** 로 수정 — `ReduceLROnPlateau`의 감시 대상을 train loss에서 val loss로 교정 (과적합 중 LR 지속 문제 수정) |
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/TUNING_GUIDE.md` | **섹션 9. 과적합 진단 및 대응** 추가 — L256-128-64-32 실험 결과 기반 증상·원인·해결방법·버그 수정 내용 포함 |
+
+### 배경
+
+`L256-128-64-32` 구조 학습 시 Val Loss가 지속 상승하는 과적합 현상 발견.  
+원인 조사 과정에서 두 가지 버그(`val_loss` 로그 누락, `scheduler.step` 대상 오류) 확인 및 수정.
+
+---
+
 ## v1.4.0 — MLP 학습 제어 기능 개선
 
 **날짜:** 2026-05-10

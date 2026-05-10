@@ -581,7 +581,7 @@ class MLP_Module:
             val_loss  = self._evaluate_loss(val_loader, criterion, _device)
             train_acc = self._evaluate(train_loader, _device)
             val_acc   = self._evaluate(val_loader, _device)
-            scheduler.step(avg_loss)
+            scheduler.step(val_loss)
 
             history['epochs'].append(epoch)
             history['loss'].append(round(avg_loss, 6))
@@ -607,7 +607,7 @@ class MLP_Module:
                 current_lr = optimizer.param_groups[0]['lr']
                 _epoch_sec = _time.perf_counter() - _epoch_start
                 star = " ★" if no_improve_cnt == 0 else ""
-                print(f"  에폭 {epoch:3d}/{_epochs} | 손실: {avg_loss:.4f} | 학습: {train_acc:.1%} | 검증: {val_acc:.1%} | lr: {current_lr:.2e} | {_epoch_sec:.1f}s{star}")
+                print(f"  에폭 {epoch:3d}/{_epochs} | 손실: {avg_loss:.4f} | 검증손실: {val_loss:.4f} | 학습: {train_acc:.1%} | 검증: {val_acc:.1%} | lr: {current_lr:.2e} | {_epoch_sec:.1f}s{star}")
 
             # Early stopping
             if _patience > 0 and no_improve_cnt >= _patience:
