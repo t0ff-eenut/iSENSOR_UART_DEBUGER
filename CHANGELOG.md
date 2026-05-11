@@ -2,6 +2,147 @@
 
 ---
 
+## v1.5.4 — MLP Model Explorer GUI 추가 및 파일 구조 정리
+
+**날짜:** 2026-05-11
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/models/model_explorer.py` | PyQt6 기반 MLP 모델 탐색기 GUI 신규 추가 — 필터 패널(레이어·특징수·Dropout·Batch·LR), 모델 테이블(Val Acc 색상 강조·정렬), 단일 보기 탭(기존 PNG 자동 표시·재생성 버튼), 비교 보기 탭(Ctrl+다중선택 → 지표 비교 테이블) |
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/results/visualize.py` | `AI/mlp/` → `AI/mlp/results/` 로 이동 — 출력 PNG 와 동일 폴더 배치, `_HERE`/`SCRIPT_DIR` 분리로 경로 참조 정상 유지 |
+| `AI/mlp/models/model_explorer.py` | `AI/mlp/` → `AI/mlp/models/` 로 이동 — `_HERE`/`SCRIPT_DIR` 분리로 `models/`·`results/` 경로 정상 유지 |
+| `AI/mlp/results/visualize.py` | `draw_architecture()` — Dropout 값을 state_dict 대신 폴더명 `_D{n}_` 패턴 파싱으로 교체 (`nn.Dropout.p` 는 state_dict 에 저장 안 됨) |
+| `AI/mlp/results/visualize.py` | `draw_lr()` — Y축 범위 고정: 하단 `1e-6`(min_lr 수렴점), 상단 `max(lr)×5`(최소 `1e-2`) |
+
+### 삭제
+
+| 파일 | 이유 |
+|---|---|
+| `AI/mlp/prepare_data.py` | `visualize.py`가 `data_csv/` 직접 로드하므로 불필요 |
+| `AI/mlp/compare_models.py` | `model_explorer.py` 비교 탭으로 기능 대체 |
+
+---
+
+## v1.5.3 — MLP 시각화 LR 분석 강화 및 history 구조 개선
+
+**날짜:** 2026-05-11
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/visualize.py` | `draw_lr()` 추가 — 에폭별 학습률 독립 그래프 (log 스케일, LR 감소 지점 주황 마커·어노테이션) |
+| `AI/mlp/visualize.py` | `draw_lr_effect()` 추가 — LR 단계별 Δval_acc / Δloss 효과 분석 막대 그래프 (N=30 에폭 평균 비교) |
+| `AI/mlp/visualize.py` | `draw_learning_curve()` — LR 감소 시점 초록 점선 수직선 추가 (방법 A) |
+| `_migrate_lr.py` | 기존 모델 일괄 마이그레이션 스크립트 신규 추가 — `loss→train_loss` 키 리네임 + `.log` 파싱으로 `lr` 키 보완 (31개 JSON 처리) |
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/visualize.py` | 레이아웃 **2×4 → 2×5** (`figsize=(32,12)`) — `gs[0,3]` LR 변화, `gs[1,3]` LR 효과 분석, `gs[:,4]` 특징 중요도 |
+| `AI/mlp/visualize.py` | `draw_lr_effect()` x축 — 단계 수에 따라 레이블 동적 단축 (≤8: `L{k}\n{lr}`, ≤14: `L{k}` + 막대 하단 세로 LR, ≥15: 홀수만) |
+| `AI/mlp/visualize.py` | `draw_lr()` 어노테이션 겹침 방지 — x 간격 기반 2패스 충돌 감지·offset 분산, arrowprops 연결선 추가 |
+| `AI/mlp/visualize.py` | `draw_lr_effect()` 2패널 구조로 전환 — Δval_acc(위)·Δval_loss(아래) 분리, `GridSpecFromSubplotSpec` 사용, 각 패널이 y=0 기준선에서 시작 |
+| `AI/mlp/visualize.py` | `draw_lr_effect()` L1(초기 단계) 제외 — 압도적 스케일 차이로 나머지 단계가 왜소해지는 문제 해결, 제목에 "L1 제외" 표기 |
+| `AI/mlp/TUNING_GUIDE.md` | **§10 LR 감소 효과 그래프 해석** 섹션 추가 — 계산 방식, 막대 색상별 의미, 패널 구조, LRP/LRF 조정 판단표, 조기종료 도입 시기 판단 기준 |
+| `AI/mlp/nn_mlp.py` | history 키 `loss` → **`train_loss`** 리네임 (2곳) |
+| `AI/mlp/nn_mlp.py` | history에 `lr` 키 추가 — 매 에폭 학습률 기록 (2곳) |
+| `AI/mlp/compare_models.py` | `h.get('train_loss', h.get('loss', []))` 폴백 읽기 적용 |
+
+---
+
+## v1.5.2 — MLP 시각화 하드코딩 제거 및 PC 모드 특징 추출 정확도 수정
+
+**날짜:** 2026-05-11
+
+### 수정 (버그픽스)
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/visualize.py` | PC 모드 특징 추출 오류 수정 — `fft_*` 컬럼(하드웨어 FFT) 대신 ADC 컬럼 → numpy FFT 재계산(`extract_pc_features_from_adc_batch`) 사용, 학습 파이프라인과 동일하게 통일 |
+| `AI/mlp/visualize.py` | 특징 순서 불일치 수정 — `importance.json features`가 중요도 내림차순이므로 ESP32 모드는 CSV 컬럼 인덱스 기준 오름차순 정렬로 복원 |
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/visualize.py` | `draw_architecture()` — `HIDDEN_LAYERS`/`DROPOUT_RATE` 전역 상수 대신 저장된 `.pt` state_dict에서 실제 레이어 크기·드롭아웃 값 동적 추출 |
+| `AI/mlp/visualize.py` | `_extract_features()` — PC/ESP32 모드 판별을 폴더명(`_PC_`) 하드코딩에서 `importance.json features`의 `magnitudes_` 포함 여부 기반으로 교체 |
+| `AI/mlp/visualize.py` | `_extract_features()` — ESP32 모드 컬럼 목록 `ESP32_FEAT_COLS` 하드코딩 제거, `importance.json features`(대문자) → CSV 컬럼 인덱스 기준 자동 정렬 |
+| `AI/mlp/visualize.py` | `ESP32_FEAT_COLS` 상수 제거 |
+
+---
+
+## v1.5.1 — MLP 시각화 고도화 (LR 보조축, 전처리 내장, 특징 중요도)
+
+**날짜:** 2026-05-11
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/visualize.py` | `_load_raw_dataset()` 내장 — `data_csv/svm_data*.csv` 직접 로드 → `prepare_data.py` 불필요 |
+| `AI/mlp/visualize.py` | `draw_importance()` 추가 — 특징 중요도 가로 막대 차트 (≥10%: 주황, 5~10%: 파랑, <5%: 연청) |
+| `AI/mlp/visualize.py` | `ModelInfo` namedtuple에 `importance` 필드 추가 |
+| `AI/mlp/nn_mlp.py` | history dict에 `'lr'` 키 추가 — 매 에폭 학습률 기록 |
+| `requirements.txt` | `pandas>=1.5.0` 추가 |
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/visualize.py` | 레이아웃 2×3 → **2×4** (`figsize=(26,12)`) — 특징 중요도 우측 열 2행 span |
+| `AI/mlp/visualize.py` | `draw_learning_curve()` — 손실 그래프에 LR 보조축(오른쪽 y축, 로그 스케일, 초록 점선) 추가 |
+| `AI/mlp/visualize.py` | `draw_learning_curve()` — `val_loss` 곡선 추가, 검증 손실 최솟값 마커, 과적합 구역 음영 |
+| `AI/mlp/visualize.py` | `draw_pca()`, `draw_confidence()`, `draw_confusion_matrix()` — `raw_data` 파라미터 추가 |
+| `AI/mlp/visualize.py` | `draw_pca()`, `draw_confidence()`, `draw_confusion_matrix()` — scaler feature 수 불일치 시 graceful 처리 (크래시 없이 안내 메시지 표시) |
+| `AI/mlp/visualize.py` | `_list_model_versions()` — 정렬 기준을 알파벳 → **폴더명 끝 `MMDD_HHMMSS` 타임스탬프** 기준으로 수정 |
+| `AI/mlp/visualize.py` | 저장 파일명 — `모델폴더명_acc{val_acc:.1f}.png` (타임스탬프 없음) |
+| `AI/mlp/visualize.py` | `plt.show()` 제거 — 연속 처리 시 블로킹 방지 |
+
+---
+
+## v1.5.0 — MLP 파일 명명 규칙 통일 및 시각화 모델 선택 기능
+
+**날짜:** 2026-05-11
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | `_count_csv_rows()` 헬퍼 메서드 추가 — CSV 파일(또는 폴더)의 데이터 행 수를 헤더 제외 카운트 |
+| `AI/mlp/nn_mlp.py` | `_compute_stem()` 에 `n_samples` 파라미터 추가 — 학습 데이터 샘플 수를 파일명에 포함 (`MLP_{n_samples}_...`) |
+| `AI/mlp/nn_mlp.py` | `_compute_stem()` 파일명 키 대소문자 규칙 적용 — `F`, `D`, `LR`, `LRF`, `LRP` 대문자 / `b`, `ep` 소문자 |
+| `AI/mlp/_rename_mlp_files.py` | 기존 파일 일괄 이름 변경 유틸리티 신규 추가 — 구 명명 규칙(3가지 패턴) → 신 명명 규칙으로 30개 로그 + 31개 모델 폴더 rename (`DRY_RUN=True` 기본) |
+| `AI/mlp/visualize.py` | `ModelInfo` namedtuple 추가 — `(name, pt, scaler, history)` 경로 묶음 |
+| `AI/mlp/visualize.py` | `_list_model_versions()` 추가 — `models/MLP_*` 폴더 목록 내림차순 반환 |
+| `AI/mlp/visualize.py` | `_pick_model_paths()` 추가 — 폴더명으로 `ModelInfo` 경로 구성 |
+| `AI/mlp/visualize.py` | `_select_models()` 추가 — 콘솔 메뉴: ① 최신 모델 / ② 특정 모델 선택 / ③ 모든 모델 전체 저장 |
+| `AI/mlp/visualize.py` | `_render_one(model_info)` 추가 — 단일 모델 대시보드 생성·저장 함수 (루프 지원) |
+| `requirements.txt` | `matplotlib>=3.7.0` 추가 |
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | `train()` — `_count_csv_rows()` 호출 후 `n_samples`를 `_compute_stem()`에 전달 |
+| `AI/mlp/visualize.py` | 한글 폰트 설정을 OS 자동 감지 방식으로 변경 — Windows: `Malgun Gothic`, macOS: `AppleGothic`, Linux: `NanumGothic` |
+| `AI/mlp/visualize.py` | `_resolve_model_paths()` 제거 → `_select_models()` 메뉴 방식으로 교체 |
+| `AI/mlp/visualize.py` | `draw_learning_curve()` — `history_path` 파라미터 추가 (미지정 시 기본 경로 폴백) |
+| `AI/mlp/visualize.py` | `draw_confidence()` — `model_info` 파라미터 추가 |
+| `AI/mlp/visualize.py` | `draw_confusion_matrix()` — `model_info` 파라미터 추가 |
+| `AI/mlp/visualize.py` | `main()` — `_render_one()` + 루프 구조로 재구성, 저장 파일명을 모델 폴더명 기반으로 변경 |
+
+---
+
 ## v1.4.1 — MLP 과적합 진단 및 로그 개선
 
 **날짜:** 2026-05-10

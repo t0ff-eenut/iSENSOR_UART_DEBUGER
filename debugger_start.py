@@ -1244,7 +1244,7 @@ class MainWindow(QMainWindow):
         import AI.mlp.nn_mlp as _nn_mlp_ref
 
         # 에폭
-        self.mlp_epochs_Label = QLabel("에폭")
+        self.mlp_epochs_Label = QLabel("에폭 (Epochs)")
         self.mlp_epochs_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_train_GridLayout.addWidget(self.mlp_epochs_Label, 6, 0)
 
@@ -1255,7 +1255,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_epochs_SpinBox, 6, 1)
 
         # 학습률 (가수 × 10^지수 방식 직접 입력)
-        self.mlp_lr_Label = QLabel("LR")
+        self.mlp_lr_Label = QLabel("학습률 (LR)")
         self.mlp_lr_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_lr_Label.setToolTip("LR = 가수 × 10^지수  (예: 5.0 e-4 → 5×10⁻⁴ = 0.0005)")
         self.mlp_train_GridLayout.addWidget(self.mlp_lr_Label, 7, 0)
@@ -1289,7 +1289,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(_lr_container, 7, 1)
 
         # Early Stop patience
-        self.mlp_es_Label = QLabel("Early Stop")
+        self.mlp_es_Label = QLabel("조기종료 (Early Stop)")
         self.mlp_es_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_train_GridLayout.addWidget(self.mlp_es_Label, 10, 0)
 
@@ -1301,7 +1301,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_es_SpinBox, 10, 1)
 
         # 레이어 구조
-        self.mlp_layers_Label = QLabel("Layer")
+        self.mlp_layers_Label = QLabel("레이어 (Layer)")
         self.mlp_layers_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_train_GridLayout.addWidget(self.mlp_layers_Label, 2, 0)
 
@@ -1314,7 +1314,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_layers_ComboBox, 2, 1)
 
         # Dropout
-        self.mlp_dropout_Label = QLabel("Dropout")
+        self.mlp_dropout_Label = QLabel("드롭아웃 (Dropout)")
         self.mlp_dropout_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_train_GridLayout.addWidget(self.mlp_dropout_Label, 5, 0)
 
@@ -1326,7 +1326,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_dropout_SpinBox, 5, 1)
 
         # Batch size
-        self.mlp_batch_Label = QLabel("Batch")
+        self.mlp_batch_Label = QLabel("배치 (Batch)")
         self.mlp_batch_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_train_GridLayout.addWidget(self.mlp_batch_Label, 4, 0)
 
@@ -1337,7 +1337,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_batch_SpinBox, 4, 1)
 
         # 검증 비율 (Val Ratio)
-        self.mlp_val_ratio_Label = QLabel("검증 비율")
+        self.mlp_val_ratio_Label = QLabel("검증 비율 (Val Ratio)")
         self.mlp_val_ratio_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_val_ratio_Label.setToolTip("전체 데이터 중 검증에 사용할 비율 (예: 0.2 = 20%)")
         self.mlp_train_GridLayout.addWidget(self.mlp_val_ratio_Label, 11, 0)
@@ -1349,7 +1349,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_val_ratio_ComboBox, 11, 1)
 
         # 분리 시드 (random_state)
-        self.mlp_seed_Label = QLabel("분리 시드\n(-1=매번 다름, 숫자=고정)")
+        self.mlp_seed_Label = QLabel("분리 시드 (Seed)\n(-1=매번 다름, 숫자=고정)")
         self.mlp_seed_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_seed_Label.setToolTip("학습/검증 분리 시 사용하는 랜덤 시드\n-1 → 실행마다 다르게 분리 (재현 불가)\n0 이상 → 항상 동일하게 분리 (재현 가능)")
         self.mlp_train_GridLayout.addWidget(self.mlp_seed_Label, 13, 0)
@@ -1362,7 +1362,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_seed_SpinBox, 13, 1)
 
         # 비율 고정 (stratify)
-        self.mlp_stratify_Label = QLabel("비율 고정")
+        self.mlp_stratify_Label = QLabel("비율 고정 (Stratify)")
         self.mlp_stratify_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_stratify_Label.setToolTip("배경/사람 비율을 학습·검증에 동일하게 유지할지 여부")
         self.mlp_train_GridLayout.addWidget(self.mlp_stratify_Label, 12, 0)
@@ -1373,7 +1373,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_stratify_ComboBox, 12, 1)
 
         # 로그 출력 주기
-        self.mlp_log_interval_Label = QLabel("로그 주기")
+        self.mlp_log_interval_Label = QLabel("로그 주기 (Log Interval)")
         self.mlp_log_interval_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_log_interval_Label.setToolTip("몇 에폭마다 손실/정확도를 출력할지")
         self.mlp_train_GridLayout.addWidget(self.mlp_log_interval_Label, 14, 0)
@@ -1386,7 +1386,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_log_interval_SpinBox, 14, 1)
 
         # 특징 모드 선택
-        self.mlp_feature_mode_Label = QLabel("특징 모드")
+        self.mlp_feature_mode_Label = QLabel("특징 모드 (Feature Mode)")
         self.mlp_feature_mode_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_feature_mode_Label.setToolTip(
             "ESP32 (21개): ESP32가 계산한 특징 그대로 학습\n"
@@ -1404,7 +1404,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_feature_mode_ComboBox, 15, 1)
 
         # 스케일러 선택
-        self.mlp_scaler_Label = QLabel("스케일러")
+        self.mlp_scaler_Label = QLabel("스케일러 (Scaler)")
         self.mlp_scaler_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_scaler_Label.setToolTip(
             "StandardScaler: z-score 정규화 (평균0, 표준편차1) — 기본값\n"
@@ -1422,7 +1422,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_scaler_ComboBox, 3, 1)
 
         # LR 스케줄러 Patience
-        self.mlp_lr_patience_Label = QLabel("LR 감소 대기")
+        self.mlp_lr_patience_Label = QLabel("LR 감소 대기 (Patience)")
         self.mlp_lr_patience_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_lr_patience_Label.setToolTip(
             "ReduceLROnPlateau patience\n"
@@ -1439,7 +1439,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GridLayout.addWidget(self.mlp_lr_patience_SpinBox, 9, 1)
 
         # LR 스케줄러 Factor
-        self.mlp_lr_factor_Label = QLabel("LR 감소 비율")
+        self.mlp_lr_factor_Label = QLabel("LR 감소 비율 (Factor)")
         self.mlp_lr_factor_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_lr_factor_Label.setToolTip(
             "ReduceLROnPlateau factor\n"

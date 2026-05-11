@@ -289,39 +289,54 @@ class MLP_Module:
     # ─────────────────────────────────────────────────────────
     # 학습
     # ─────────────────────────────────────────────────────────
+    def _count_csv_rows(self, csv_path: str) -> int:
+        """CSV 파일(또는 폴더)의 데이터 행 수만 빠르게 카운트 (헤더 제외)."""
+        import glob as _glob
+        if os.path.isdir(csv_path):
+            csv_files = sorted(_glob.glob(os.path.join(csv_path, 'svm_data*.csv')))
+        elif os.path.isfile(csv_path):
+            csv_files = [csv_path]
+        else:
+            return 0
+        count = 0
+        for fpath in csv_files:
+            with open(fpath, 'r') as f:
+                count += sum(1 for row in f if row.strip()) - 1  # 헤더 제외
+        return max(count, 0)
+
     def _compute_stem(self, hidden_layers, epochs, learning_rate,
                        dropout_rate, batch_size, feature_mode, scaler_type,
-                       lr_scheduler_patience=None, lr_scheduler_factor=None) -> str:
-        """모델/로그 파일명 공통 stem 생성 — GUI 설정 순서(위→아래) 반영
-        순서: Layer → Scaler → Batch → Dropout → Epoch → LR → LR_factor → LR_patience → FeatureMode → n_feat → timestamp
+                       lr_scheduler_patience=None, lr_scheduler_factor=None,
+                       n_samples=0) -> str:
+        """모델/로그 파일명 공통 stem 생성
+        형식: MLP_{n_samples}_F{n_feat}{_PC?}_L{layers}{_rb?}_b{batch}_D{dropout}_LR{lr}_LRF{factor}_LRP{patience}_ep{epochs}_{date}_{time}
         """
         import datetime, math as _m
-        # Row2: Layer
+        # Layer 구조
         layers_str = '-'.join(str(h) for h in hidden_layers)
-        # Row3: Scaler
+        # Scaler 태그
         scaler_tag = '_rb' if scaler_type == 'robust' else ''
-        # Row4: Batch
-        # Row5: Dropout  (0.3 → 'd3')
-        do_str     = str(dropout_rate).replace('0.', 'd')
-        # Row6: Epochs
-        # Row7: LR  (e.g. 1e-3, 5e-4)
+        # Dropout  (0.3 → 'D3')
+        do_str     = str(dropout_rate).replace('0.', 'D')
+        # LR  (e.g. 1e-3, 5e-4)
         _exp   = int(_m.floor(_m.log10(learning_rate)))
         _man   = round(learning_rate / (10 ** _exp), 1)
         _man_s = str(int(_man)) if _man == int(_man) else str(_man)
         lr_str = f'{_man_s}e{_exp}'
-        # Row8: LR factor  (0.5 → 'lrf5', 0.1 → 'lrf1')
+        # LR factor  (0.5 → 'LRF5', 0.1 → 'LRF1')
         _lrf     = lr_scheduler_factor   if lr_scheduler_factor   is not None else LR_SCHEDULER_FACTOR
         _lrf_tag = str(_lrf).replace('0.', '').replace('.', '')
-        # Row9: LR patience  (10 → 'lrp10')
+        # LR patience  (10 → 'LRP10')
         _lrp     = lr_scheduler_patience if lr_scheduler_patience is not None else LR_SCHEDULER_PATIENCE
-        # Row15: Feature mode
-        mode_tag = '_pc' if feature_mode == 'pc' else ''
+        # Feature mode 태그
+        mode_tag = '_PC' if feature_mode == 'pc' else ''
         n_feat   = self.input_size
         ts       = datetime.datetime.now().strftime('%m%d_%H%M%S')
-        return (f'mlp_L{layers_str}{scaler_tag}'
-                f'_b{batch_size}_{do_str}_ep{epochs}_lr{lr_str}'
-                f'_lrp{_lrp}_lrf{_lrf_tag}'
-                f'{mode_tag}_f{n_feat}_{ts}')
+        return (f'MLP_{n_samples}_F{n_feat}{mode_tag}'
+                f'_L{layers_str}{scaler_tag}'
+                f'_b{batch_size}_{do_str}'
+                f'_LR{lr_str}_LRF{_lrf_tag}_LRP{_lrp}'
+                f'_ep{epochs}_{ts}')
 
     def train(self, csv_path: str = "svm_data.csv",
               progress_callback=None, log_callback=None,
@@ -375,10 +390,14 @@ class MLP_Module:
         _feat_mode = feature_mode  if feature_mode  is not None else 'esp32'
         _scaler_tp = scaler_type   if scaler_type   is not None else 'standard'
 
+        # CSV 데이터 수 미리 카운트 → stem에 반영
+        _n_samples = self._count_csv_rows(csv_path)
+
         # stem 확정 → 로그 파일명 & 모델 파일명 모두 이 stem 사용
         stem       = self._compute_stem(_hidden, _epochs, _lr, _dropout, _batch,
                                         _feat_mode, _scaler_tp,
-                                        lr_scheduler_patience, lr_scheduler_factor)
+                                        lr_scheduler_patience, lr_scheduler_factor,
+                                        n_samples=_n_samples)
         log_dir    = os.path.join(self._AI_DIR, 'logs')
         os.makedirs(log_dir, exist_ok=True)
         log_path   = os.path.join(log_dir, stem + '.log')
@@ -557,7 +576,7 @@ class MLP_Module:
         best_val_acc   = 0.0
         best_state     = None
         no_improve_cnt = 0
-        history = {'epochs': [], 'loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
+        history = {'epochs': [], 'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': [], 'lr': []}
         _train_start = _time.perf_counter()
 
         for epoch in range(1, _epochs + 1):
@@ -583,11 +602,13 @@ class MLP_Module:
             val_acc   = self._evaluate(val_loader, _device)
             scheduler.step(val_loss)
 
+            current_lr = optimizer.param_groups[0]['lr']
             history['epochs'].append(epoch)
-            history['loss'].append(round(avg_loss, 6))
+            history['train_loss'].append(round(avg_loss, 6))
             history['val_loss'].append(round(val_loss, 6))
             history['train_acc'].append(round(train_acc, 6))
             history['val_acc'].append(round(val_acc, 6))
+            history['lr'].append(round(current_lr, 10))
 
             # GUI 실시간 진행 콜백 (False 반환 시 학습 중단)
             if progress_callback is not None:
@@ -604,7 +625,6 @@ class MLP_Module:
                 no_improve_cnt += 1
 
             if epoch % _log_interval == 0:
-                current_lr = optimizer.param_groups[0]['lr']
                 _epoch_sec = _time.perf_counter() - _epoch_start
                 star = " ★" if no_improve_cnt == 0 else ""
                 print(f"  에폭 {epoch:3d}/{_epochs} | 손실: {avg_loss:.4f} | 검증손실: {val_loss:.4f} | 학습: {train_acc:.1%} | 검증: {val_acc:.1%} | lr: {current_lr:.2e} | {_epoch_sec:.1f}s{star}")
@@ -749,7 +769,7 @@ class MLP_Module:
         print(f"[MLP]  에폭: {EPOCHS}  배치: {effective_batch}  LR: {LEARNING_RATE:.0e}  Dropout: {DROPOUT_RATE}")
         print(f"[MLP] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         best_val_acc = 0.0
-        history = {'epochs': [], 'loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
+        history = {'epochs': [], 'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': [], 'lr': []}
 
         for epoch in range(1, EPOCHS + 1):
             self.model.train()
@@ -766,13 +786,14 @@ class MLP_Module:
             val_acc   = self._evaluate(val_loader)
             scheduler.step(avg_loss)
 
+            current_lr = optimizer.param_groups[0]['lr']
             history['epochs'].append(epoch)
-            history['loss'].append(round(avg_loss, 6))
+            history['train_loss'].append(round(avg_loss, 6))
             history['train_acc'].append(round(train_acc, 6))
             history['val_acc'].append(round(val_acc, 6))
+            history['lr'].append(round(current_lr, 10))
 
             if epoch % 10 == 0:
-                current_lr = optimizer.param_groups[0]['lr']
                 print(f"  에폭 {epoch:3d}/{EPOCHS} | 손실: {avg_loss:.4f} | 학습: {train_acc:.1%} | 검증: {val_acc:.1%} | lr: {current_lr:.2e}")
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
