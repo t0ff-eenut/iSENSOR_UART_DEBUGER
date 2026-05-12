@@ -25,11 +25,11 @@
     ]
   },
   "mlp": {
-    "epochs": 3000,
-    "lr_mantissa": 5.0,
+    "epochs": 4000,
+    "lr_mantissa": 1.0,
     "lr_exp": -4,
     "es": 0,
-    "layers": "128-64-32",
+    "layers": "256-128-64-32",
     "dropout": "0.3",
     "batch": 64,
     "val_ratio": "0.20",
@@ -38,7 +38,7 @@
     "log_interval": 1,
     "feature_mode": 0,
     "scaler": 0,
-    "lr_patience": 100,
-    "lr_factor": "0.9"
+    "lr_patience": 150,
+    "lr_factor": "0.8"
   }
 }

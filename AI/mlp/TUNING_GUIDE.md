@@ -290,6 +290,42 @@ Linear (→ 2)
 
 > 실험 계기: `L256-128-64-32, b128, d2, ep3000, lr=5e-4` 학습 결과 (2026-05-10)
 
+### 9-1. 모델 탐색기(model_explorer)의 과적합 지표
+
+`model_explorer.py` 비교 보기 탭의 **과적합 지표** 4행은 다음과 같이 계산됩니다.
+
+| 지표 | 계산식 | 좋음 | 나쁨 | 의미 |
+|---|---|---|---|---|
+| **Δacc T-V (%)** | `train_acc_last − val_acc_best` | 작을수록 ↓ | 5 % 이상 | Train/Val 정확도 갭 — 클수록 암기 중 |
+| **Δloss V-T** | `val_loss_final − train_loss_last` | 작을수록 ↓ | 양수가 클수록 | Val loss > Train loss 차이 — 클수록 과적합 |
+| **Val 반등** | `val_loss_final − val_loss_best` | 0에 가까울수록 | 0.01 이상 | best 이후 val_loss 반등량 — 클수록 학습 과잉 |
+| **과잉 에폭** | `total_epochs − best_epoch` | 작을수록 | 200+ | Early Stopping 없이 불필요하게 돈 에폭 수 |
+
+> **색상 강조**: 녹색 = 해당 지표에서 가장 낮은 값(양호), 빨간색 = 가장 높은 값(위험)
+
+#### 판독 가이드
+
+```
+Δacc T-V  < 3 %   → 정상 범위
+            3~8 %  → 경미한 과적합 (Dropout 상향 고려)
+            > 8 %  → 명확한 과적합 (구조 축소 또는 데이터 증강 필요)
+
+Val 반등  < 0.005 → ES가 잘 동작했거나 과적합 없음
+            > 0.02  → val_loss 반등 심각, best_epoch 이후 너무 많이 학습됨
+
+과잉 에폭 < 50    → ES patience 적절
+            > 200  → patience 값을 줄이거나 lr_factor 조정 검토
+```
+
+#### 곡선 비교 탭 — Train/Val 동시 표시
+
+`📉 곡선 비교` 탭의 상단 두 패널에서:
+- **실선**: Val Acc / Val Loss
+- **점선 (동일 색)**: Train Acc / Train Loss
+
+실선과 점선 사이 **벌어진 간격이 클수록 과적합**입니다.  
+정상 수렴 시 두 선이 수렴하며 간격이 좁아야 합니다.
+
 ### 증상 — 학습 곡선으로 확인
 
 | 지표 | 추이 | 의미 |

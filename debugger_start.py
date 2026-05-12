@@ -1501,6 +1501,29 @@ class MainWindow(QMainWindow):
         self.mlp_model_load_PushButton.clicked.connect(self.event_mlp_load_model)
         self.mlp_train_GridLayout.addWidget(self.mlp_model_load_PushButton, 19, 1)
 
+        # GPU 상태 레이블
+        import torch as _torch_check
+        _cuda_ok   = _torch_check.cuda.is_available()
+        _gpu_name  = _torch_check.cuda.get_device_name(0) if _cuda_ok else None
+        _gpu_text  = f"🟢 GPU: {_gpu_name}" if _cuda_ok else "🔴 GPU 사용 불가 (CPU 전용 torch)"
+        _gpu_color = "#00cc44" if _cuda_ok else "#ff5555"
+        self.mlp_gpu_status_Label = QLabel(_gpu_text)
+        self.mlp_gpu_status_Label.setStyleSheet(
+            MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none') + f"color: {_gpu_color};"
+        )
+        self.mlp_gpu_status_Label.setToolTip(
+            "torch.cuda.is_available() 결과\n"
+            "🔴 이면 pip install torch --index-url https://download.pytorch.org/whl/cu124 로 재설치 필요"
+        )
+        self.mlp_train_GridLayout.addWidget(self.mlp_gpu_status_Label, 20, 0, 1, 2)
+
+        # 모델 탐색기 실행 버튼
+        self.mlp_model_explorer_PushButton = QPushButton("🔍 모델 탐색기 열기")
+        self.mlp_model_explorer_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.mlp_model_explorer_PushButton.setToolTip("AI/mlp/models/model_explorer.py 를 별도 창으로 실행")
+        self.mlp_model_explorer_PushButton.clicked.connect(self._open_model_explorer)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_explorer_PushButton, 21, 0, 1, 2)
+
         # 초기 목록 채우기
         self._refresh_mlp_model_list()
         # 초기 데이터 수 갱신
@@ -2371,6 +2394,16 @@ class MainWindow(QMainWindow):
         if os.path.isfile(path) and path not in self._csv_watcher.files():
             self._csv_watcher.addPath(path)
         self._update_mlp_data_count(path)
+
+    def _open_model_explorer(self):
+        """model_explorer.py 를 별도 프로세스로 실행 (동시 사용 가능)"""
+        import subprocess
+        script = os.path.join(os.path.dirname(__file__), 'AI', 'mlp', 'models', 'model_explorer.py')
+        python = sys.executable
+        try:
+            subprocess.Popen([python, script], cwd=os.path.dirname(__file__))
+        except Exception as e:
+            QMessageBox.warning(self, "모델 탐색기", f"실행 실패:\n{e}")
 
     def _refresh_mlp_model_list(self):
         """models/ 폴더의 버전 모델 서브폴더 목록으로 ComboBox 갱신"""

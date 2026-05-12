@@ -12,6 +12,10 @@ bleak>=0.21.0
 # AI / ML
 numpy>=1.24.0
 scikit-learn>=1.3.0
+# torch: 현재 가상환경은 Python 3.14 → CPU 전용 빌드만 가능 (PyPI)
+#   GPU(CUDA) 사용하려면 Python 3.12 환경에서 아래 명령으로 설치:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+#   (PyTorch CUDA 빌드는 Python ≤ 3.12 지원, GTX 1660 / CUDA 드라이버 12.x 이상 환경 확인됨)
 torch>=2.0.0
 matplotlib>=3.7.0
 pandas>=1.5.0

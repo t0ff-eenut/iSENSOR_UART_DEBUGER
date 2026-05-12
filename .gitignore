@@ -26,6 +26,7 @@ sdkconfig.old
 managed_components/
 dependencies.lock
 
+.venv/
 
 # # Doxygen Generated Documentation
 # docs/Doxygen/Output/

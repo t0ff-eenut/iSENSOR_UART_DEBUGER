@@ -2,6 +2,109 @@
 
 ---
 
+## v1.5.10 — Model Explorer 과적합 지표 추가 및 Train/Val 곡선 비교
+
+**날짜:** 2026-05-12
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/models/model_explorer.py` | `_parse_model_folder` — `train_acc_last`, `train_loss_last`, `gap_acc`, `gap_loss`, `val_rebound`, `overrun` 과적합 지표 6개 계산·저장 |
+| `AI/mlp/models/model_explorer.py` | 비교 보기 탭 — `Δacc T-V (%)`, `Δloss V-T`, `Val 반등`, `과잉 에폭` 4개 행 추가, 낮을수록 좋음 기준 녹색/빨간색 강조 |
+| `AI/mlp/models/model_explorer.py` | 곡선 비교 탭 상단 두 패널 — Train Acc / Train Loss 점선(동일 색, alpha=0.45) 오버레이 추가 |
+| `AI/mlp/TUNING_GUIDE.md` | 섹션 9-1 신규 추가 — 과적합 지표 4개 정의/판독 가이드/곡선 비교 해석법 |
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/models/model_explorer.py` | Accuracy 패널 타이틀 → `Accuracy (실선: Val, 점선: Train, -- : LR↓)` |
+| `AI/mlp/models/model_explorer.py` | Loss 패널 타이틀 → `Loss (실선: Val, 점선: Train, -- : LR↓)` |
+
+---
+
+## v1.5.9 — Model Explorer 곡선/비교 탭 단일 모델 선택 지원 + LR 감소 수직선 표시
+
+**날짜:** 2026-05-12
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/models/model_explorer.py` | 곡선 비교 탭 — 모델 1개 선택 시에도 학습 곡선 표시 (기존: 2개 이상 필수) |
+| `AI/mlp/models/model_explorer.py` | 비교 보기 탭 — 모델 1개 선택 시에도 지표 표시 (기존: 2개 이상 필수) |
+| `AI/mlp/models/model_explorer.py` | 곡선 비교 탭 Val Accuracy / Val Loss 패널에 LR 감소 시점 수직선 추가 — 모델별 고유 색상 점선(`--`), 패널 타이틀에 `(-- : LR 감소 시점)` 명시, 범례에서 LR↓ 항목 제외 |
+| `AI/mlp/models/model_explorer.py` | 힌트 레이블 문구 수정 — 1개 선택도 가능함을 명시 |
+
+---
+
+## v1.5.8 — Model Explorer 필터 UX 개선
+
+**날짜:** 2026-05-12
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/models/model_explorer.py` | 필터 체크박스 기본값 전체 **미체크** 로 변경 (체크 없음 = 필터 없음 = 전체 모델 표시) |
+| `AI/mlp/models/model_explorer.py` | `모두 선택` / `모두 해제` 버튼 추가 — 필터 초기화 버튼 위에 나란히 배치 |
+| `AI/mlp/models/model_explorer.py` | `필터 초기화` 버튼 동작을 전체 미체크 기준으로 통일 |
+
+---
+
+## v1.5.7 — MLP GPU 상태 표시 추가 및 PyTorch CUDA 환경 안내
+
+**날짜:** 2026-05-12
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `debugger_start.py` | MLP Training GroupBox 하단에 `mlp_gpu_status_Label` 추가 — `torch.cuda.is_available()` 결과를 🟢/🔴 색상으로 실시간 표시, 툴팁에 CUDA 빌드 재설치 명령 안내 |
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `requirements.txt` | torch 항목에 CPU 전용 빌드 한계 및 GPU(CUDA) 설치 방법 주석 추가 — Python ≤ 3.12 환경에서 `--index-url https://download.pytorch.org/whl/cu124` 사용 안내 |
+
+### 기술 메모
+
+- 현재 가상환경 Python 3.14.3 → PyTorch CUDA 공식 휠 미지원 (최대 3.12)
+- GPU 학습 활성화하려면 **Python 3.12** 기반 가상환경 신규 생성 필요
+- 시스템 GPU: NVIDIA GeForce GTX 1660 / CUDA 드라이버 13.1 (cu124 빌드 호환)
+
+---
+
+## v1.5.6 — Model Explorer UI 개선 (탭 정리 + LR 감소 효과 비교)
+
+**날짜:** 2026-05-12
+
+### 변경
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/models/model_explorer.py` | `단일 보기` 탭 제거 — `VisualizationWorker`, `_start_visualization`, `_show_image` 등 관련 코드 일괄 삭제 |
+| `AI/mlp/models/model_explorer.py` | 모델 선택 시 탭 자동 전환 제거 — 현재 보고 있는 탭 유지 |
+| `AI/mlp/models/model_explorer.py` | 곡선 비교 탭 4번째 패널: `LR 변화율(lr[t]/lr[t-1])` → `LR 감소 효과` 로 교체 — `GridSpecFromSubplotSpec` 2서브패널(상: Δval_acc, 하: Δval_loss), 모델별 선+마커 오버레이, L1 단계 제외 |
+| `AI/mlp/models/model_explorer.py` | `numpy` 임포트 추가, `GridSpecFromSubplotSpec` 임포트 추가 |
+
+---
+
+## v1.5.5 — Model Explorer 곡선 비교 탭 추가
+
+**날짜:** 2026-05-12
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/models/model_explorer.py` | `📉 곡선 비교` 탭 추가 — matplotlib Qt 임베딩, 2×2 패널 구성(Val Acc / Val Loss / LR(log) / LR변화율(lr[t]/lr[t-1], log)), 선택된 모델 곡선 오버레이, 모델 2개 이상 선택 시 자동 전환 |
+| `AI/mlp/models/model_explorer.py` | `_load_history()` 헬퍼 함수 추가 — 모델 폴더에서 `_history.json` 직접 로드 |
+
+---
+
 ## v1.5.4 — MLP Model Explorer GUI 추가 및 파일 구조 정리
 
 **날짜:** 2026-05-11
