@@ -2,6 +2,110 @@
 
 ---
 
+## v1.5.15 — 필터 데이터 수 표시 개선 + 모드 설명 보강
+
+**날짜:** 2026-05-13
+
+### 수정
+- `_update_mlp_filtered_count()`: stride/interval 둘 다 "전체" 선택 시 "(필터 없음)"으로
+  고정되던 문제 수정. 이제 전체 데이터 수를 회색 텍스트로 항상 표시
+  - "학습 데이터: N개 전체 (배경 X / 사람 Y)"
+- 필터 모드 Label 툴팁 오타 수정: "쵔추한" → 올바른 문구 + 설명 보강
+- 필터 모드 ComboBox 툴팁 오타 수정: "선비" → "선별" + 각 모드 동작 예시 추가
+
+### 개선
+- 태그 매칭 / 다운샘플링 모드 툴팁을 구체적인 예시와 함께 재작성
+  - 태그 매칭: 동일 stride/interval 조건 데이터만 선별 학습
+  - 다운샘플링: 여러 주기 데이터를 목표 주기로 통일해 함께 학습
+
+---
+
+## v1.5.14 — CSV 컬럼 레이아웃 중앙화 (csv_layout.py)
+
+**날짜:** 2026-05-13
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/csv_layout.py` | **(신규)** CSV 컬럼 레이아웃 공용 상수 파일 — 단일 진실의 원천(SSOT). `CSV_N_FEATURES=21`, `CSV_N_ADC=256`, `CSV_N_FFT=129`, `CSV_N_META=2`, `CSV_COL_FEAT_START/ADC_START/FFT_START/META_START` 정의. 이 파일만 수정하면 관련 코드 전체에 반영됨 |
+
+### 수정
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/training_data_collector.py` | `csv_layout` import 추가. `_CSV_HEADER_FEATURES` 크기와 `CSV_N_FEATURES` 일치 여부 assertion 추가 |
+| `AI/mlp/pc_feature_extractor.py` | 하드코딩 상수(`FFT_START_COL=277`, `FFT_N_BINS=129`, `ADC_START_COL=21`, `ADC_N_SAMPLES=256`)를 `csv_layout` import로 교체. 하위 호환 유지 (동일한 이름으로 re-export) |
+| `AI/svm/svm.py` | `import sys` 추가. `csv_layout` import 추가. `train()` 내 `A_full_row = row[:-1]` (전체 컬럼) → `row[:CSV_N_FEATURES]` (정확히 특징 21개만) 버그 수정. `len(row) < 2` → `len(row) < CSV_N_FEATURES + 1` 체크 강화 |
+| `AI/mlp/export/export_float32.py` | `csv_layout` import 추가. `data_val.csv` 읽기 시 `row[:-1]` + `[:, feat_idx]` → `row[:CSV_N_FEATURES]` 명시적 슬라이싱으로 교체 (stride/interval 컬럼 있는 신규 CSV에서도 올바르게 동작) |
+| `AI/mlp/export/export_int8.py` | 동일 |
+
+---
+
+## v1.5.13 — MLP 필터 모드(다운샘플링) + 필터 데이터 수 실시간 표시
+
+**날짜:** 2026-05-13
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `debugger_start.py` | MLP 학습 탭 row 12 — `필터 모드` 레이블 + ComboBox (`태그 매칭` / `다운샘플링`) 추가 |
+| `debugger_start.py` | MLP 학습 탭 row 14 — `필터 데이터: XX개 (배경 N / 사람 M)` 실시간 카운트 레이블 추가 |
+| `debugger_start.py` | `_count_mlp_csv_rows_filtered()` 메서드 추가 — 현재 stride/interval/mode 설정으로 필터링된 샘플 수 계산 (태그 매칭 / 다운샘플링 두 모드 지원, stride/interval 컬럼 없는 구버전 CSV는 `None` 반환) |
+| `debugger_start.py` | `_update_mlp_filtered_count()` 메서드 추가 — 필터 카운트 결과를 레이블에 반영 (필터 없음=회색, 0개=빨간색 경고, 정상=파란색) |
+| `debugger_start.py` | `_update_mlp_filter_period_label()` — 주기 계산 + `_update_mlp_filtered_count()` 연속 호출로 확장 |
+| `debugger_start.py` | `_update_mlp_data_count()` — 총 데이터 갱신 후 `_update_mlp_filtered_count()` 연속 호출 |
+| `debugger_start.py` | `MlpTrainWorker.__init__()` — `filter_mode: str = 'match'` 파라미터 추가 |
+| `debugger_start.py` | `event_mlp_train()` — `filter_mode` 파싱 (`태그 매칭` → `'match'`, `다운샘플링` → `'downsample'`) 후 Worker 전달 |
+| `AI/mlp/nn_mlp.py` | `_load_csv()` — `filter_mode='match'/'downsample'` 지원: match는 stride/interval 태그 정확 일치, downsample은 목표 주기 배수 관계의 데이터에서 N번째 행 추출 |
+| `AI/mlp/nn_mlp.py` | `train()` / `_train_impl()` — `filter_mode` 파라미터 추가 및 `_load_csv()` 전달 |
+
+---
+
+## v1.5.12 — MLP 학습 탭 stride/interval 데이터 필터 GUI 추가
+
+**날짜:** 2026-05-13
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `debugger_start.py` | MLP 학습 탭 row 10 — `필터: 저장 주기 (stride)` 레이블 + ComboBox (`전체` / `1`~`20`) |
+| `debugger_start.py` | MLP 학습 탭 row 11 — `필터: FFT 갱신 횟수 (interval)` 레이블 + ComboBox (`전체` / `1`~`20`) |
+| `debugger_start.py` | MLP 학습 탭 row 12 — 수집 주기 계산 결과 레이블 (`stride × interval × 10ms = X ms/s`) — 두 ComboBox 변경 시 자동 갱신, 필터 있으면 파란색, 전체이면 회색 표시 |
+| `debugger_start.py` | `_update_mlp_filter_period_label()` 슬롯 추가 — stride/interval ComboBox 변경 신호 처리 |
+| `debugger_start.py` | `MlpTrainWorker.__init__()` — `filter_stride: int = None`, `filter_interval: int = None` 파라미터 추가 |
+| `debugger_start.py` | `MlpTrainWorker.run()` — `mlp_handle.train()` 호출 시 `filter_stride`, `filter_interval` 전달 |
+| `debugger_start.py` | `event_mlp_train()` — ComboBox 값 파싱 (`전체` → `None`, 숫자 → `int`) 후 `MlpTrainWorker` 생성 시 전달 |
+
+---
+
+## v1.5.11 — Weight Decay (L2 정규화) 지원 + CSV stride/interval 컬럼 추가
+
+**날짜:** 2026-05-13
+
+### 추가
+
+| 파일 | 변경 내용 |
+|---|---|
+| `AI/mlp/nn_mlp.py` | `WEIGHT_DECAY = 0.0` 전역 상수 추가 (0=비활성 / 1e-5=약 / 1e-4=중 / 5e-4=강) |
+| `AI/mlp/nn_mlp.py` | `train()` / `_train_impl()` — `weight_decay: float = None` 파라미터 추가, `optim.Adam(weight_decay=_wd)` 적용 |
+| `AI/mlp/nn_mlp.py` | `_compute_stem()` — weight_decay > 0 이면 `_WD{x}` 태그를 폴더명에 포함 (예: `_WD1e-4`) |
+| `AI/mlp/nn_mlp.py` | `_train_impl()` — 학습 시작 시 `[MLP]  Weight Decay (L2): x.xxe-xx (정규화 활성화/비활성화)` 출력 |
+| `AI/mlp/nn_mlp.py` | `train()` / `_train_impl()` — `filter_stride: int = None`, `filter_interval: int = None` 파라미터 추가 |
+| `AI/mlp/nn_mlp.py` | `_load_csv()` — `filter_stride` / `filter_interval` 파라미터 추가; CSV에 `stride`/`interval` 컬럼이 있으면 조건에 맞는 행만 로드, 두 컬럼은 학습 특징에서 자동 제외 |
+| `AI/training_data_collector.py` | `save_sample()` — `stride: int = 0`, `interval: int = 0` 파라미터 추가; CSV 행에 두 값 포함 |
+| `AI/training_data_collector.py` | `_build_header()` — `has_meta=True` 시 `stride`, `interval` 컬럼을 label 바로 앞에 삽입 |
+| `AI/training_data_collector.py` | `__init__` — `_b_has_meta: bool = False` 상태 변수 추가 (첫 번째 stride > 0 샘플 저장 시 자동 활성화) |
+| `debugger_start.py` | MLP 학습 탭 row 9 — `Weight Decay (L2)` 레이블 + ComboBox 위젯 추가 (선택지: `0 (비활성)` / `1e-5` / `1e-4` / `5e-4` / `1e-3`) |
+| `debugger_start.py` | `MlpTrainWorker.__init__()` — `weight_decay: float = None` 파라미터 + `self._weight_decay` 저장 |
+| `debugger_start.py` | `MlpTrainWorker.run()` — `mlp_handle.train()` 호출 시 `weight_decay=self._weight_decay` 전달 |
+| `debugger_start.py` | `event_mlp_train()` — ComboBox 텍스트 파싱 후 `MlpTrainWorker` 생성 시 `weight_decay` 전달 |
+| `debugger_start.py` | `save_sample()` 호출부 4곳 모두 `stride=self.i_auto_save_stride`, `interval=svm_auto_save_interval_SpinBox.value()` 전달 |
+
+---
+
 ## v1.5.10 — Model Explorer 과적합 지표 추가 및 Train/Val 곡선 비교
 
 **날짜:** 2026-05-12

@@ -20,21 +20,30 @@
   · peak_to_mean     : 피크/평균 비율 = peak_mag / mean(fft)
 
 [ CSV 컬럼 인덱스 ]
-  fft_0 = col 277, fft_128 = col 405
-  label = col 406
+  fft_0 = col CSV_COL_FFT_START  (csv_layout.py 에서 정의 — 기본값 277)
+  label = 항상 마지막 열
 """
 
 import numpy as np
+import os as _os
+import sys as _sys
+
+# csv_layout.py는 AI/ 에 위치 (이 파일은 AI/mlp/ 에 있음)
+_MLP_DIR = _os.path.dirname(_os.path.abspath(__file__))
+_AI_DIR  = _os.path.dirname(_MLP_DIR)
+if _AI_DIR not in _sys.path:
+    _sys.path.insert(0, _AI_DIR)
+import csv_layout
 
 # ──────────────────────────────────────────────────────────────
-#  CSV 컬럼 레이아웃 상수
-#  CSV 구조: [0~20 = ESP32 21개 특징] [21~276 = ADC 256개] [277~405 = FFT 129개] [406 = label]
+#  CSV 컨럼 레이아웃 상수  — csv_layout.py 에서 로드
+#  여기 이름을 유지해야 다른 모듈(nn_mlp.py)이 from pc_feature_extractor import FFT_START_COL으로
+#  가져가는 것이 계속 동작함
 # ──────────────────────────────────────────────────────────────
-FFT_START_COL = 277   # CSV에서 fft_0 컬럼 인덱스
-FFT_N_BINS    = 129   # fft_0 ~ fft_128
-
-ADC_START_COL = 21    # CSV에서 adc_0 컬럼 인덱스
-ADC_N_SAMPLES = 256   # ADC 샘플 수
+FFT_START_COL = csv_layout.CSV_COL_FFT_START   # 277  (특징 21 + ADC 256)
+FFT_N_BINS    = csv_layout.CSV_N_FFT            # 129  (fft_0 ~ fft_128)
+ADC_START_COL = csv_layout.CSV_COL_ADC_START   # 21   (특징 21개 이후)
+ADC_N_SAMPLES = csv_layout.CSV_N_ADC           # 256  (adc_0 ~ adc_255)
 
 # 특징 이름 목록 (순서 고정)
 PC_FEATURE_NAMES = (

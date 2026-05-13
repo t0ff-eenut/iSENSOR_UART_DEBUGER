@@ -25,13 +25,13 @@
     ]
   },
   "mlp": {
-    "epochs": 4000,
+    "epochs": 2000,
     "lr_mantissa": 1.0,
     "lr_exp": -4,
     "es": 0,
     "layers": "256-128-64-32",
-    "dropout": "0.3",
-    "batch": 64,
+    "dropout": "0.35",
+    "batch": 256,
     "val_ratio": "0.20",
     "seed": 42,
     "stratify": 0,

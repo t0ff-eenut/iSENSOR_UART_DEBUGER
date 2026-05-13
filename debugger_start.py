@@ -258,7 +258,11 @@ class MlpTrainWorker(PyQt6.QtCore.QThread):
                  feature_mode: str = None,
                  scaler_type: str = None,
                  lr_scheduler_patience: int = None,
-                 lr_scheduler_factor: float = None):
+                 lr_scheduler_factor: float = None,
+                 weight_decay: float = None,
+                 filter_stride: int = None,
+                 filter_interval: int = None,
+                 filter_mode: str = 'match'):
         super().__init__()
         self._mlp_handle              = mlp_handle
         self._str_csv_path            = str_csv_path
@@ -276,6 +280,10 @@ class MlpTrainWorker(PyQt6.QtCore.QThread):
         self._scaler_type             = scaler_type
         self._lr_scheduler_patience   = lr_scheduler_patience
         self._lr_scheduler_factor     = lr_scheduler_factor
+        self._weight_decay            = weight_decay
+        self._filter_stride           = filter_stride
+        self._filter_interval         = filter_interval
+        self._filter_mode             = filter_mode
         self._stop_requested          = False
 
     def stop(self):
@@ -305,7 +313,11 @@ class MlpTrainWorker(PyQt6.QtCore.QThread):
                                         feature_mode=self._feature_mode,
                                         scaler_type=self._scaler_type,
                                         lr_scheduler_patience=self._lr_scheduler_patience,
-                                        lr_scheduler_factor=self._lr_scheduler_factor)
+                                        lr_scheduler_factor=self._lr_scheduler_factor,
+                                        weight_decay=self._weight_decay,
+                                        filter_stride=self._filter_stride,
+                                        filter_interval=self._filter_interval,
+                                        filter_mode=self._filter_mode)
         self.finished.emit(result)
 
 
@@ -1240,6 +1252,13 @@ class MainWindow(QMainWindow):
         )
         self.mlp_train_GridLayout.addWidget(self.mlp_data_count_Label, 1, 0, 1, 2)
 
+        # 필터링된 데이터 수 표시 레이블
+        self.mlp_filtered_count_Label = QLabel("필터 데이터: (필터 없음)")
+        self.mlp_filtered_count_Label.setStyleSheet(
+            MACRO_BORDER_STYLE.format('none') + "color: gray;"
+        )
+        self.mlp_train_GridLayout.addWidget(self.mlp_filtered_count_Label, 2, 0, 1, 2)
+
         # ── 하이퍼파라미터 설정 행 ────────────────────────────
         import AI.mlp.nn_mlp as _nn_mlp_ref
 
@@ -1376,14 +1395,14 @@ class MainWindow(QMainWindow):
         self.mlp_log_interval_Label = QLabel("로그 주기 (Log Interval)")
         self.mlp_log_interval_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
         self.mlp_log_interval_Label.setToolTip("몇 에폭마다 손실/정확도를 출력할지")
-        self.mlp_train_GridLayout.addWidget(self.mlp_log_interval_Label, 14, 0)
+        self.mlp_train_GridLayout.addWidget(self.mlp_log_interval_Label, 15, 0)
 
         self.mlp_log_interval_SpinBox = QSpinBox()
         self.mlp_log_interval_SpinBox.setRange(1, 100)
         self.mlp_log_interval_SpinBox.setSingleStep(1)
         self.mlp_log_interval_SpinBox.setValue(10)
         self.mlp_log_interval_SpinBox.setSuffix(" 에폭마다")
-        self.mlp_train_GridLayout.addWidget(self.mlp_log_interval_SpinBox, 14, 1)
+        self.mlp_train_GridLayout.addWidget(self.mlp_log_interval_SpinBox, 15, 1)
 
         # 특징 모드 선택
         self.mlp_feature_mode_Label = QLabel("특징 모드 (Feature Mode)")
@@ -1392,7 +1411,7 @@ class MainWindow(QMainWindow):
             "ESP32 (21개): ESP32가 계산한 특징 그대로 학습\n"
             "PC 재계산 (25개): FFT 데이터로 PC에서 재계산한 특징으로 학습"
         )
-        self.mlp_train_GridLayout.addWidget(self.mlp_feature_mode_Label, 15, 0)
+        self.mlp_train_GridLayout.addWidget(self.mlp_feature_mode_Label, 16, 0)
 
         self.mlp_feature_mode_ComboBox = QComboBox()
         self.mlp_feature_mode_ComboBox.addItem("ESP32 (21개 특징)")
@@ -1401,7 +1420,7 @@ class MainWindow(QMainWindow):
             "학습에 사용할 특징 세트를 선택합니다.\n"
             "PC 재계산: FFT 원시 데이터로 PC에서 25개 특징 추출 → ESP32 결과와 비교 가능"
         )
-        self.mlp_train_GridLayout.addWidget(self.mlp_feature_mode_ComboBox, 15, 1)
+        self.mlp_train_GridLayout.addWidget(self.mlp_feature_mode_ComboBox, 16, 1)
 
         # 스케일러 선택
         self.mlp_scaler_Label = QLabel("스케일러 (Scaler)")
@@ -1456,18 +1475,114 @@ class MainWindow(QMainWindow):
         self.mlp_lr_factor_DoubleSpinBox.setToolTip("0.5 = LR 절반 감소 (권장) / 0.1 = 90% 감소 (공격적)")
         self.mlp_train_GridLayout.addWidget(self.mlp_lr_factor_DoubleSpinBox, 8, 1)
 
+        # Weight Decay (L2 정규화)
+        self.mlp_weight_decay_Label = QLabel("Weight Decay (L2)")
+        self.mlp_weight_decay_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_weight_decay_Label.setToolTip(
+            "L2 정규화 계수 (Adam optimizer weight_decay)\n"
+            "가중치 크기에 패널티를 부여해 과적합 억제\n"
+            "  0      = 비활성화 (기본)\n"
+            "  1e-5   = 약한 정규화 (갭 -0.3~0.5%p 기대)\n"
+            "  1e-4   = 중간 정규화 (권장 시작점, -0.5~1.5%p)\n"
+            "  5e-4   = 강한 정규화 (val acc 소폭 하락 가능)"
+        )
+        self.mlp_train_GridLayout.addWidget(self.mlp_weight_decay_Label, 9, 0)
+
+        self.mlp_weight_decay_ComboBox = QComboBox()
+        self.mlp_weight_decay_ComboBox.addItems(["0 (비활성)", "1e-5", "1e-4", "5e-4", "1e-3"])
+        self.mlp_weight_decay_ComboBox.setCurrentIndex(0)
+        self.mlp_weight_decay_ComboBox.setToolTip("0=비활성 / 1e-5=약 / 1e-4=중(권장) / 5e-4=강 / 1e-3=매우강")
+        self.mlp_train_GridLayout.addWidget(self.mlp_weight_decay_ComboBox, 9, 1)
+
+        # 필터: stride (수집 시 저장 주기)
+        self.mlp_filter_stride_Label = QLabel("필터: 저장 주기 (stride)")
+        self.mlp_filter_stride_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_filter_stride_Label.setToolTip(
+            "학습에 사용할 stride 값 필터\n"
+            "CSV에 stride 컬럼이 있는 경우에만 동작\n"
+            "전체 = 모든 stride 데이터 사용")
+        self.mlp_train_GridLayout.addWidget(self.mlp_filter_stride_Label, 10, 0)
+
+        self.mlp_filter_stride_ComboBox = QComboBox()
+        self.mlp_filter_stride_ComboBox.addItems(["전체", "1", "2", "3", "5", "10", "15", "20"])
+        self.mlp_filter_stride_ComboBox.setCurrentIndex(0)
+        self.mlp_filter_stride_ComboBox.setToolTip("전체 = 필터 없음")
+        self.mlp_filter_stride_ComboBox.currentIndexChanged.connect(self._update_mlp_filter_period_label)
+        self.mlp_train_GridLayout.addWidget(self.mlp_filter_stride_ComboBox, 10, 1)
+
+        # 필터: interval (FFT 갱신 횟수)
+        self.mlp_filter_interval_Label = QLabel("필터: FFT 갱신 횟수 (interval)")
+        self.mlp_filter_interval_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_filter_interval_Label.setToolTip(
+            "학습에 사용할 interval 값 필터\n"
+            "CSV에 interval 컬럼이 있는 경우에만 동작\n"
+            "전체 = 모든 interval 데이터 사용")
+        self.mlp_train_GridLayout.addWidget(self.mlp_filter_interval_Label, 11, 0)
+
+        self.mlp_filter_interval_ComboBox = QComboBox()
+        self.mlp_filter_interval_ComboBox.addItems(["전체", "1", "2", "3", "5", "10", "15", "20"])
+        self.mlp_filter_interval_ComboBox.setCurrentIndex(0)
+        self.mlp_filter_interval_ComboBox.setToolTip("전체 = 필터 없음")
+        self.mlp_filter_interval_ComboBox.currentIndexChanged.connect(self._update_mlp_filter_period_label)
+        self.mlp_train_GridLayout.addWidget(self.mlp_filter_interval_ComboBox, 11, 1)
+
+        # 필터 모드 선택
+        self.mlp_filter_mode_Label = QLabel("필터 모드")
+        self.mlp_filter_mode_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_filter_mode_Label.setToolTip(
+            "태그 매칭 (Match):\n"
+            "  CSV의 stride/interval 값이 지정한 값과 정확히 일치하는 행만 사용\n"
+            "  → 동일 조건으로 수집한 데이터만 선별 학습\n"
+            "  예) stride=2/interval=3으로 수집한 데이터만 학습에 사용\n"
+            "\n"
+            "다운샘플링 (Downsample):\n"
+            "  수집 주기가 다른 데이터를 목표 주기에 맞게 간격으로 추출\n"
+            "  → 구조는 다르지만 동등한 주기로 변환해 함께 학습\n"
+            "  예) 목표 stride=2/interval=2 (40ms),\n"
+            "       보유 데이터 stride=1/interval=1 (10ms)\n"
+            "       → 40÷10=4 ∴ 4개 중 1개만 추출 → 40ms 데이터로 변환")
+        self.mlp_train_GridLayout.addWidget(self.mlp_filter_mode_Label, 12, 0)
+
+        self.mlp_filter_mode_ComboBox = QComboBox()
+        self.mlp_filter_mode_ComboBox.addItems(["태그 매칭", "다운샘플링"])
+        self.mlp_filter_mode_ComboBox.setCurrentIndex(0)
+        self.mlp_filter_mode_ComboBox.setToolTip(
+            "태그 매칭  : stride/interval 태그로 데이터를 구분해 저장한 경우 사용\n"
+            "  예) stride=5, interval=3 자동저장 ON으로 수집한 데이터만 선별\n"
+            "\n"
+            "다운샘플링: 여러 주기의 데이터를 한껏에 학습할 때 사용\n"
+            "  예) stride=1(10ms) + stride=2(20ms) 데이터를\n"
+            "       필터 stride=2(20ms)로 다운샘플링하면\n"
+            "       stride=1 데이터는 2개 중 1개, stride=2는 전체 사용\n"
+            "       → 구조가 다른 데이터도 같은 주기로 통일해 학습")
+        self.mlp_filter_mode_ComboBox.currentIndexChanged.connect(self._update_mlp_filter_period_label)
+        self.mlp_train_GridLayout.addWidget(self.mlp_filter_mode_ComboBox, 12, 1)
+
+        # 주기 계산 결과 표시
+        self.mlp_filter_period_Label = QLabel("→ 수집 주기: 전체 데이터 사용")
+        self.mlp_filter_period_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none') + "color: gray;")
+        self.mlp_filter_period_Label.setToolTip("stride × interval × 10ms = 실제 샘플 수집 주기")
+        self.mlp_train_GridLayout.addWidget(self.mlp_filter_period_Label, 13, 0, 1, 2)
+
+        # 필터링된 데이터 수 표시
+        self.mlp_filtered_count_Label = QLabel("필터 데이터: (필터 없음)")
+        self.mlp_filtered_count_Label.setStyleSheet(
+            MACRO_BORDER_STYLE.format('none') + "color: gray;")
+        self.mlp_filtered_count_Label.setToolTip("현재 stride/interval/mode 설정으로 필터링된 실제 학습 샘플 수")
+        self.mlp_train_GridLayout.addWidget(self.mlp_filtered_count_Label, 14, 0, 1, 2)
+
         # 학습 버튼
         self.mlp_train_PushButton = QPushButton("🧠 MLP 학습")
         self.mlp_train_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.mlp_train_PushButton.clicked.connect(self.event_mlp_train)
-        self.mlp_train_GridLayout.addWidget(self.mlp_train_PushButton, 16, 0, 1, 1)
+        self.mlp_train_GridLayout.addWidget(self.mlp_train_PushButton, 17, 0, 1, 1)
 
         # 학습 중단 버튼
         self.mlp_stop_PushButton = QPushButton("⏹ 중단")
         self.mlp_stop_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.mlp_stop_PushButton.setEnabled(False)
         self.mlp_stop_PushButton.clicked.connect(self.event_mlp_stop)
-        self.mlp_train_GridLayout.addWidget(self.mlp_stop_PushButton, 16, 1, 1, 1)
+        self.mlp_train_GridLayout.addWidget(self.mlp_stop_PushButton, 17, 1, 1, 1)
 
         # 에폭 진행률 바
         self.mlp_progress_ProgressBar = QProgressBar()
@@ -1475,31 +1590,31 @@ class MainWindow(QMainWindow):
         self.mlp_progress_ProgressBar.setValue(0)
         self.mlp_progress_ProgressBar.setTextVisible(True)
         self.mlp_progress_ProgressBar.setFormat("대기 중")
-        self.mlp_train_GridLayout.addWidget(self.mlp_progress_ProgressBar, 17, 0, 1, 2)
+        self.mlp_train_GridLayout.addWidget(self.mlp_progress_ProgressBar, 18, 0, 1, 2)
 
         # 학습 상태 레이블
         self.mlp_status_Label = QLabel("미학습" if not self.mlp_handle.b_is_trained else "모델 로드 완료")
         self.mlp_status_Label.setStyleSheet("" + MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
-        self.mlp_train_GridLayout.addWidget(self.mlp_status_Label, 18, 0, 1, 2)
+        self.mlp_train_GridLayout.addWidget(self.mlp_status_Label, 19, 0, 1, 2)
 
         # ── 저장 모델 선택 ──────────────────────────────────────
         self.mlp_model_Label = QLabel("💾 모델 선택")
         self.mlp_model_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
-        self.mlp_train_GridLayout.addWidget(self.mlp_model_Label, 18, 0)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_Label, 20, 0)
 
         self.mlp_model_ComboBox = QComboBox()
         self.mlp_model_ComboBox.setToolTip("models/ 폴더의 버전 .pt 파일 목록")
-        self.mlp_train_GridLayout.addWidget(self.mlp_model_ComboBox, 18, 1)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_ComboBox, 20, 1)
 
         self.mlp_model_refresh_PushButton = QPushButton("🔄 목록 갱신")
         self.mlp_model_refresh_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.mlp_model_refresh_PushButton.clicked.connect(self._refresh_mlp_model_list)
-        self.mlp_train_GridLayout.addWidget(self.mlp_model_refresh_PushButton, 19, 0)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_refresh_PushButton, 21, 0)
 
         self.mlp_model_load_PushButton = QPushButton("📂 모델 로드")
         self.mlp_model_load_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.mlp_model_load_PushButton.clicked.connect(self.event_mlp_load_model)
-        self.mlp_train_GridLayout.addWidget(self.mlp_model_load_PushButton, 19, 1)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_load_PushButton, 21, 1)
 
         # GPU 상태 레이블
         import torch as _torch_check
@@ -2145,7 +2260,9 @@ class MainWindow(QMainWindow):
         
         self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_BACKGROUND,
                                     A_adc=self.A_adc_buffer or None,
-                                    A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None)
+                                    A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None,
+                                    stride=self.i_auto_save_stride,
+                                    interval=self.svm_auto_save_interval_SpinBox.value())
         self.collector.flush_write_buffer()  # 수동 저장: 버퍼 대기 없이 즉시 기록
 
         self.update_svm_label_count()
@@ -2161,7 +2278,9 @@ class MainWindow(QMainWindow):
 
         self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_HUMAN,
                                     A_adc=self.A_adc_buffer or None,
-                                    A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None)
+                                    A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None,
+                                    stride=self.i_auto_save_stride,
+                                    interval=self.svm_auto_save_interval_SpinBox.value())
         self.collector.flush_write_buffer()  # 수동 저장: 버퍼 대기 없이 즉시 기록
 
         self.update_svm_label_count()
@@ -2222,6 +2341,65 @@ class MainWindow(QMainWindow):
     # ──────────────────────────────────────────────────────────────────
     # MLP 학습
     # ──────────────────────────────────────────────────────────────────
+    def _update_mlp_filter_period_label(self):
+        """stride/interval/mode ComboBox 변경 시 수집 주기 계산 결과 레이블 갱신"""
+        s_txt = self.mlp_filter_stride_ComboBox.currentText()
+        i_txt = self.mlp_filter_interval_ComboBox.currentText()
+        mode  = self.mlp_filter_mode_ComboBox.currentText()
+        if s_txt == "전체" or i_txt == "전체":
+            self.mlp_filter_period_Label.setText("→ 수집 주기: 전체 데이터 사용")
+            self.mlp_filter_period_Label.setStyleSheet(
+                MACRO_BORDER_STYLE.format('none') + "color: gray;")
+        else:
+            ms = int(s_txt) * int(i_txt) * 10
+            if ms >= 1000:
+                t_str = f"{ms / 1000:.2f}".rstrip('0').rstrip('.') + " s"
+            else:
+                t_str = f"{ms} ms"
+            if mode == "태그 매칭":
+                desc = f"태그 매칭 ({s_txt}×{i_txt}×10ms = {t_str})"
+            else:
+                step = int(s_txt) * int(i_txt)
+                desc = f"다운샘플링 ({s_txt}×{i_txt}×10ms = {t_str}, {step}개중 1개)"
+            self.mlp_filter_period_Label.setText(f"→ {desc}")
+            self.mlp_filter_period_Label.setStyleSheet(
+                MACRO_BORDER_STYLE.format('none') + "color: #00aaff;")
+        self._update_mlp_filtered_count()
+
+    def _update_mlp_filtered_count(self):
+        """현재 필터 설정에 맞는 데이터 수를 mlp_filtered_count_Label에 표시.
+        stride/interval이 뤜 'full'이면 전체 데이터 수를 표시.
+        """
+        s_txt = self.mlp_filter_stride_ComboBox.currentText()
+        i_txt = self.mlp_filter_interval_ComboBox.currentText()
+
+        if s_txt == "전체" and i_txt == "전체":
+            # 필터 없음 → 전체 데이터 수 직접 표시
+            total, n_bg, n_human = self._count_mlp_csv_rows()
+            if total == 0:
+                self.mlp_filtered_count_Label.setText("학습 데이터: 0개  (CSV 없음)")
+            else:
+                self.mlp_filtered_count_Label.setText(
+                    f"학습 데이터: {total}개 전체  (배경 {n_bg} / 사람 {n_human})")
+            self.mlp_filtered_count_Label.setStyleSheet(
+                MACRO_BORDER_STYLE.format('none') + "color: gray;")
+            return
+
+        f_total, f_bg, f_human = self._count_mlp_csv_rows_filtered()
+        if f_total is None:
+            self.mlp_filtered_count_Label.setText("필터 데이터: CSV에 stride/interval 컨럼 없음")
+            self.mlp_filtered_count_Label.setStyleSheet(
+                MACRO_BORDER_STYLE.format('none') + "color: gray;")
+        elif f_total == 0:
+            self.mlp_filtered_count_Label.setText("필터 데이터: 0개  ⚠ (조건 불일치)")
+            self.mlp_filtered_count_Label.setStyleSheet(
+                MACRO_BORDER_STYLE.format('none') + "color: #ff6666;")
+        else:
+            self.mlp_filtered_count_Label.setText(
+                f"필터 데이터: {f_total}개  (배경 {f_bg} / 사람 {f_human})")
+            self.mlp_filtered_count_Label.setStyleSheet(
+                MACRO_BORDER_STYLE.format('none') + "color: #00aaff;")
+
     def event_mlp_train(self):
         """현재 수집 세션 CSV로 MLP 학습 (백그라운드 스레드)"""
         self.mlp_train_PushButton.setEnabled(False)
@@ -2269,6 +2447,10 @@ class MainWindow(QMainWindow):
             scaler_type           = _scaler_type,
             lr_scheduler_patience = self.mlp_lr_patience_SpinBox.value(),
             lr_scheduler_factor   = self.mlp_lr_factor_DoubleSpinBox.value(),
+            weight_decay          = float(self.mlp_weight_decay_ComboBox.currentText().split()[0]),
+            filter_stride         = None if self.mlp_filter_stride_ComboBox.currentText() == "전체" else int(self.mlp_filter_stride_ComboBox.currentText()),
+            filter_interval       = None if self.mlp_filter_interval_ComboBox.currentText() == "전체" else int(self.mlp_filter_interval_ComboBox.currentText()),
+            filter_mode           = 'downsample' if self.mlp_filter_mode_ComboBox.currentIndex() == 1 else 'match',
         )
         self._mlp_train_worker.epoch_progress.connect(self._on_mlp_epoch_progress)
         self._mlp_train_worker.log_message.connect(self.log_TextEdit.append)
@@ -2367,8 +2549,76 @@ class MainWindow(QMainWindow):
                 pass
         return total, n_bg, n_human
 
+    def _count_mlp_csv_rows_filtered(self) -> tuple[int, int, int]:
+        """현재 GUI 필터 설정(stride/interval/mode)에 맞는 데이터 수를 반환.
+        Returns: (total, n_bg, n_human)  — CSV에 stride/interval 컬럼 없으면 (None, None, None)
+        """
+        import glob as _glob
+        s_txt = self.mlp_filter_stride_ComboBox.currentText()
+        i_txt = self.mlp_filter_interval_ComboBox.currentText()
+        if s_txt == "전체" and i_txt == "전체":
+            return None, None, None   # 필터 없음 — 레이블을 '필터 없음'으로 표시
+
+        _filt_s = None if s_txt == "전체" else int(s_txt)
+        _filt_i = None if i_txt == "전체" else int(i_txt)
+        _mode   = 'downsample' if self.mlp_filter_mode_ComboBox.currentIndex() == 1 else 'match'
+        _target_ms = (_filt_s or 1) * (_filt_i or 1) * 10
+
+        if not os.path.isdir(self._data_csv_dir):
+            return 0, 0, 0
+        csv_files = sorted(_glob.glob(os.path.join(self._data_csv_dir, "svm_data*.csv")))
+        total, n_bg, n_human = 0, 0, 0
+        _has_meta = False
+        for fpath in csv_files:
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    import csv as _csv
+                    reader = _csv.reader(f)
+                    header = next(reader, None)
+                    if not header:
+                        continue
+                    _stride_idx   = header.index('stride')   if 'stride'   in header else None
+                    _interval_idx = header.index('interval') if 'interval' in header else None
+                    if _stride_idx is None and _interval_idx is None:
+                        continue   # 이 CSV는 meta 컬럼 없음 — 건너뜀
+                    _has_meta = True
+                    _period_counters: dict = {}
+                    for row in reader:
+                        if not row:
+                            continue
+                        row_s = int(float(row[_stride_idx]))   if _stride_idx   is not None else 1
+                        row_i = int(float(row[_interval_idx])) if _interval_idx is not None else 1
+                        if _mode == 'match':
+                            if _filt_s is not None and row_s != _filt_s:
+                                continue
+                            if _filt_i is not None and row_i != _filt_i:
+                                continue
+                        else:  # downsample
+                            row_ms = row_s * row_i * 10
+                            if row_ms > _target_ms or _target_ms % row_ms != 0:
+                                continue
+                            step = _target_ms // row_ms
+                            cnt = _period_counters.get(row_ms, 0)
+                            _period_counters[row_ms] = cnt + 1
+                            if cnt % step != 0:
+                                continue
+                        total += 1
+                        try:
+                            label = int(float(row[-1]))
+                            if label == 0:
+                                n_bg += 1
+                            else:
+                                n_human += 1
+                        except (ValueError, IndexError):
+                            pass
+            except (OSError, StopIteration):
+                pass
+        if not _has_meta:
+            return None, None, None   # stride/interval 컬럼 없는 구버전 CSV만 존재
+        return total, n_bg, n_human
+
     def _update_mlp_data_count(self, _path: str = ""):
-        """mlp_data_count_Label 텍스트를 현재 CSV 데이터 수로 갱신."""
+        """mlp_data_count_Label + mlp_filtered_count_Label 텍스트를 갱신."""
         total, n_bg, n_human = self._count_mlp_csv_rows()
         if total == 0:
             self.mlp_data_count_Label.setText("총 데이터: 0개  (CSV 없음)")
@@ -2376,6 +2626,7 @@ class MainWindow(QMainWindow):
             self.mlp_data_count_Label.setText(
                 f"총 데이터: {total}개  (배경 {n_bg} / 사람 {n_human})"
             )
+        self._update_mlp_filtered_count()
 
     def _on_data_csv_dir_changed(self, path: str):
         """data_csv/ 폴더에 파일이 추가·삭제될 때 watcher 경로 재등록 후 카운트 갱신."""
@@ -3900,11 +4151,15 @@ class MainWindow(QMainWindow):
                             if self.b_auto_save_bg:
                                 self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_BACKGROUND,
                                                            A_adc=self.A_adc_buffer or None,
-                                                           A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None)
+                                                           A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None,
+                                                           stride=self.i_auto_save_stride,
+                                                           interval=self.svm_auto_save_interval_SpinBox.value())
                             else:
                                 self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_HUMAN,
                                                            A_adc=self.A_adc_buffer or None,
-                                                           A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None)
+                                                           A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None,
+                                                           stride=self.i_auto_save_stride,
+                                                           interval=self.svm_auto_save_interval_SpinBox.value())
                             self.update_svm_label_count()
 
 if __name__ == "__main__":

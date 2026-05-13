@@ -16,9 +16,17 @@ import enum
 import numpy
 import csv
 import os
+import sys
 from sklearn.svm       import SVC
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+
+# csv_layout.py는 AI/ 에 위치 (이 파일은 AI/svm/ 에 있음)
+_svm_dir = os.path.dirname(os.path.abspath(__file__))
+_ai_dir  = os.path.dirname(_svm_dir)
+if _ai_dir not in sys.path:
+    sys.path.insert(0, _ai_dir)
+import csv_layout
 
 class enum_label(enum.IntEnum):
     LABEL_BACKGROUND = 0
@@ -212,9 +220,10 @@ class SVM_Module():
                 reader = csv.reader(f)
                 next(reader, None)  # 헤더 스킵
                 for row in reader:
-                    if len(row) < 2:
+                    if len(row) < csv_layout.CSV_N_FEATURES + 1:  # 특징 21개 + label 1개 최소
                         continue
-                    A_full_row = [float(v) for v in row[:-1]]        # 21개 특징 전체
+                    # 정확히 특징 21개만 사용 (ADC/FFT/meta 컨럼 무시)
+                    A_full_row = [float(row[i]) for i in range(csv_layout.CSV_N_FEATURES)]
                     A_features.append([A_full_row[i] for i in self.A_feature_indices])
                     A_full_features.append(A_full_row)
                     A_labels.append(int(float(row[-1])))

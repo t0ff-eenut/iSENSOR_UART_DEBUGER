@@ -32,6 +32,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, AI_DIR)
 import nn_mlp
+import csv_layout   # CSV 컨럼 레이아웃 공용 상수 (ROOT_DIR = AI/ 이어서 로드 가능)
 
 # ── 현재 세팅과 일치하는 모델 탐색 ──────────────────────────────
 def _find_model():
@@ -109,8 +110,6 @@ if not os.path.exists(val_csv):
     print(f"[int8] 캘리브레이션 데이터 없음 → {val_csv}")
     sys.exit(1)
 
-import svm as svm_mod
-feat_idx = svm_mod.SVM_Module().A_feature_indices
 X_list, y_list = [], []
 with open(val_csv) as f:
     reader = csv.reader(f)
@@ -119,12 +118,13 @@ with open(val_csv) as f:
         if not row:
             continue
         try:
-            X_list.append([float(v) for v in row[:-1]])
+            # 특징 컨럼(0~CSV_N_FEATURES-1)만 명시적으로 추출 — ADC/FFT/meta 컨럼 무시
+            X_list.append([float(row[i]) for i in range(csv_layout.CSV_N_FEATURES)])
             y_list.append(int(float(row[-1])))
-        except ValueError:
+        except (ValueError, IndexError):
             continue
 
-X_raw = np.array(X_list)[:, feat_idx].astype(np.float32)
+X_raw = np.array(X_list, dtype=np.float32)
 y_cal = np.array(y_list)
 X_cal = scaler.transform(X_raw).astype(np.float32)
 print(f"[int8] 캘리브레이션: {len(X_cal)} 샘플")

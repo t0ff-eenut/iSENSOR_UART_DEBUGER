@@ -17,8 +17,11 @@ _AI_DIR  = os.path.dirname(os.path.abspath(__file__))
 _SVM_DIR = os.path.join(_AI_DIR, 'svm')
 if _SVM_DIR not in sys.path:
     sys.path.insert(0, _SVM_DIR)
+if _AI_DIR not in sys.path:
+    sys.path.insert(0, _AI_DIR)
 
-import svm  # enum_label, feature_vector_from_uart, I_FEATURES_COUNT
+import svm          # enum_label, feature_vector_from_uart, I_FEATURES_COUNT
+import csv_layout   # CSV 컬럼 레이아웃 공용 상수 (단일 진실의 원천)
 
 
 _CSV_HEADER_FEATURES = [
@@ -29,13 +32,19 @@ _CSV_HEADER_FEATURES = [
     "peak1_to_peak2_ratio", "skewness",
     "dc_ratio", "delta_peak_freq", "spectral_flatness",
 ]
+assert len(_CSV_HEADER_FEATURES) == csv_layout.CSV_N_FEATURES, (
+    f"CSV 특징 헤더 수({len(_CSV_HEADER_FEATURES)})가 "
+    f"csv_layout.CSV_N_FEATURES({csv_layout.CSV_N_FEATURES})와 불일치 — 두 곳 중 하나를 수정하세요"
+)
 
 
-def _build_header(n_adc: int, n_fft: int) -> list:
-    """특징 21열 + adc_N열 + fft_M열 + label 로 구성된 헤더를 반환."""
+def _build_header(n_adc: int, n_fft: int, has_meta: bool = False) -> list:
+    """특징 21열 + adc_N열 + fft_M열 + {stride, interval?} + label 로 구성된 헤더를 반환."""
     h = list(_CSV_HEADER_FEATURES)
     h += [f"adc_{i}" for i in range(n_adc)]
     h += [f"fft_{i}" for i in range(n_fft)]
+    if has_meta:
+        h += ["stride", "interval"]
     h.append("label")
     return h
 
@@ -78,6 +87,7 @@ class TrainingDataCollector:
 
         self._I_FLUSH_EVERY: int  = 20    # 이 개수마다 CSV 에 한꺼번에 기록
         self._write_buffer: list  = []
+        self._b_has_meta: bool    = False  # stride/interval 컬럼 사용 여부
         self._b_need_header: bool = not os.path.exists(str_csv_path)
 
         # ADC / FFT 배열 크기 (첫 샘플 수신 시 확정)
@@ -115,14 +125,17 @@ class TrainingDataCollector:
     # ------------------------------------------------------------------
 
     def save_sample(self, ft, i_label: int,
-                    A_adc=None, A_fft_mag=None):
-        """FftFeaturesData + 레이블(+ 선택적 원시 배열)을 버퍼에 추가하고 필요 시 CSV 에 flush.
+                    A_adc=None, A_fft_mag=None,
+                    stride: int = 0, interval: int = 0):
+        """FftFeaturesData + 레이블(+ 선택적 원시 배열)를 버퍼에 추가하고 필요 시 CSV 에 flush.
 
         Args:
             ft        : FftFeaturesData (None 이면 무시)
             i_label   : enum_label.LABEL_BACKGROUND (0) or LABEL_HUMAN (1)
             A_adc     : ADC 샘플 배열 (list/ndarray, 예: 256개)  — CNN 학습용
             A_fft_mag : FFT magnitude 배열 (list/ndarray, 예: 129개) — CNN 학습용
+            stride    : FFT Stride (smp) — 나중에 stride별 필터 학습용 (0 = 미지정)
+            interval  : 저장 주기 (FFT 갱신 횟수) — 나중에 interval별 필터 학습용 (0 = 미지정)
         """
         if ft is None:
             return
@@ -136,7 +149,16 @@ class TrainingDataCollector:
         if A_fft_list and self._i_fft_len == 0:
             self._i_fft_len = len(A_fft_list)
 
-        A_row = list(svm.feature_vector_from_uart(ft)) + A_adc_list + A_fft_list + [float(i_label)]
+        # stride/interval 존재 여부 트래킹 (한 세션에서 stride>0 인 경우 이후 모두 포함)
+        _has_meta = stride > 0 or interval > 0
+        if _has_meta and not self._b_has_meta:
+            self._b_has_meta = True
+        if not _has_meta and self._b_has_meta:
+            # 이전 샘플들은 meta가 있었으므로 이번도 0으로 넣음
+            _has_meta = True
+
+        meta_cols = [stride, interval] if self._b_has_meta else []
+        A_row = list(svm.feature_vector_from_uart(ft)) + A_adc_list + A_fft_list + meta_cols + [float(i_label)]
 
         if i_label == svm.enum_label.LABEL_BACKGROUND:
             self.i_bg_count += 1
@@ -157,7 +179,8 @@ class TrainingDataCollector:
         with open(self.str_csv_path, 'a', newline='') as f:
             writer = csv.writer(f)
             if b_write_header:
-                writer.writerow(_build_header(self._i_adc_len, self._i_fft_len))
+                writer.writerow(_build_header(self._i_adc_len, self._i_fft_len,
+                                              has_meta=self._b_has_meta))
                 self._b_need_header = False
             writer.writerows(self._write_buffer)
 

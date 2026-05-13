@@ -102,6 +102,14 @@ DROPOUT_RATE  = 0.3   # 드롭아웃: 첫 번째 은닉층 뒤 뉴런의 30%를 
 LR_SCHEDULER_PATIENCE = 10    # 몇 에폭 동안 개선 없으면 낮출지
 LR_SCHEDULER_FACTOR   = 0.5   # 학습률을 몇 배로 낮출지 (0.5 = 절반)
 
+# ── 정규화 설정 ──────────────────────────────────────────────────
+# Weight Decay (L2 정규화): 가중치 크기에 패널티를 부여해 과적합 억제
+#   0.0    = 비활성화 (기본값)
+#   1e-5   = 약한 정규화 (train-val 갭 -0.3~0.5%p 기대)
+#   1e-4   = 중간 정규화 (권장 시작점, -0.5~1.5%p 기대)
+#   5e-4   = 강한 정규화 (val acc 소폭 하락 가능)
+WEIGHT_DECAY = 0.0
+
 # ── 하위 호환용 (visualize.py 등에서 참조) ──────────────────────
 HIDDEN_SIZE_1 = HIDDEN_LAYERS[0]
 HIDDEN_SIZE_2 = HIDDEN_LAYERS[1] if len(HIDDEN_LAYERS) > 1 else HIDDEN_LAYERS[0]
@@ -307,9 +315,10 @@ class MLP_Module:
     def _compute_stem(self, hidden_layers, epochs, learning_rate,
                        dropout_rate, batch_size, feature_mode, scaler_type,
                        lr_scheduler_patience=None, lr_scheduler_factor=None,
+                       weight_decay=None,
                        n_samples=0) -> str:
         """모델/로그 파일명 공통 stem 생성
-        형식: MLP_{n_samples}_F{n_feat}{_PC?}_L{layers}{_rb?}_b{batch}_D{dropout}_LR{lr}_LRF{factor}_LRP{patience}_ep{epochs}_{date}_{time}
+        형식: MLP_{n_samples}_F{n_feat}{_PC?}_L{layers}{_rb?}_b{batch}_D{dropout}_LR{lr}_LRF{factor}_LRP{patience}{_WD?}_ep{epochs}_{date}_{time}
         """
         import datetime, math as _m
         # Layer 구조
@@ -331,11 +340,14 @@ class MLP_Module:
         # Feature mode 태그
         mode_tag = '_PC' if feature_mode == 'pc' else ''
         n_feat   = self.input_size
+        # Weight Decay 태그 (0이면 생략)
+        _wd      = weight_decay if weight_decay is not None else WEIGHT_DECAY
+        _wd_tag  = '' if _wd == 0.0 else f'_WD{_wd:.0e}'.replace('e-0', 'e-').replace('e+0', 'e')
         ts       = datetime.datetime.now().strftime('%m%d_%H%M%S')
         return (f'MLP_{n_samples}_F{n_feat}{mode_tag}'
                 f'_L{layers_str}{scaler_tag}'
                 f'_b{batch_size}_{do_str}'
-                f'_LR{lr_str}_LRF{_lrf_tag}_LRP{_lrp}'
+                f'_LR{lr_str}_LRF{_lrf_tag}_LRP{_lrp}{_wd_tag}'
                 f'_ep{epochs}_{ts}')
 
     def train(self, csv_path: str = "svm_data.csv",
@@ -352,7 +364,11 @@ class MLP_Module:
               feature_mode: str = None,
               scaler_type: str = None,
               lr_scheduler_patience: int = None,
-              lr_scheduler_factor: float = None) -> bool:
+              lr_scheduler_factor: float = None,
+              weight_decay: float = None,
+              filter_stride: int = None,
+              filter_interval: int = None,
+              filter_mode: str = 'match') -> bool:
         """
         CSV 파일을 로드해 MLP를 학습합니다.
 
@@ -397,6 +413,7 @@ class MLP_Module:
         stem       = self._compute_stem(_hidden, _epochs, _lr, _dropout, _batch,
                                         _feat_mode, _scaler_tp,
                                         lr_scheduler_patience, lr_scheduler_factor,
+                                        weight_decay=weight_decay,
                                         n_samples=_n_samples)
         log_dir    = os.path.join(self._AI_DIR, 'logs')
         os.makedirs(log_dir, exist_ok=True)
@@ -421,6 +438,10 @@ class MLP_Module:
                                     scaler_type=_scaler_tp,
                                     lr_scheduler_patience=lr_scheduler_patience,
                                     lr_scheduler_factor=lr_scheduler_factor,
+                                    weight_decay=weight_decay,
+                                    filter_stride=filter_stride,
+                                    filter_interval=filter_interval,
+                                    filter_mode=filter_mode,
                                     model_stem=stem)
         finally:
             sys.stdout = _orig_out
@@ -441,6 +462,10 @@ class MLP_Module:
                     scaler_type: str = None,
                     lr_scheduler_patience: int = None,
                     lr_scheduler_factor: float = None,
+                    weight_decay: float = None,
+                    filter_stride: int = None,
+                    filter_interval: int = None,
+                    filter_mode: str = 'match',
                     model_stem: str = None) -> bool:
         # 파라미터 기본값 설정 (train()에서 이미 확정되어 넘어오지만 단돈 방어)
         _epochs       = epochs        if epochs        is not None else EPOCHS
@@ -457,9 +482,13 @@ class MLP_Module:
         _scaler_type  = scaler_type   if scaler_type   is not None else 'standard'
         _lr_patience  = lr_scheduler_patience if lr_scheduler_patience is not None else LR_SCHEDULER_PATIENCE
         _lr_factor    = lr_scheduler_factor   if lr_scheduler_factor   is not None else LR_SCHEDULER_FACTOR
+        _wd           = weight_decay  if weight_decay  is not None else WEIGHT_DECAY
 
         # ① CSV 로드
-        X_raw, y = self._load_csv(csv_path)
+        X_raw, y = self._load_csv(csv_path,
+                                  filter_stride=filter_stride,
+                                  filter_interval=filter_interval,
+                                  filter_mode=filter_mode)
         if X_raw is None:
             print("[MLP] ❌ 데이터 부족 또는 파일 없음 — 학습 불가")
             return False
@@ -550,7 +579,8 @@ class MLP_Module:
         # Adam 옵티마이저:
         #   SGD(확률적 경사하강법)의 개선판
         #   파라미터마다 학습률을 자동으로 조절 → 빠르고 안정적
-        optimizer = optim.Adam(self.model.parameters(), lr=_lr)
+        #   weight_decay: L2 정규화 계수 (0 = 비활성화, 1e-4 정도 권장)
+        optimizer = optim.Adam(self.model.parameters(), lr=_lr, weight_decay=_wd)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode='min', patience=_lr_patience,
             factor=_lr_factor, min_lr=1e-6
@@ -568,6 +598,7 @@ class MLP_Module:
         print(f"[MLP]  에폭: {_epochs}  배치: {effective_batch}  LR: {_lr:.2e}  Dropout: {_dropout}")
         print(f"[MLP]  Early Stop: {_es_str}")
         print(f"[MLP]  LR 스케줄러: patience={_lr_patience}  factor={_lr_factor}  min_lr=1e-6")
+        print(f"[MLP]  Weight Decay (L2): {_wd:.0e}" + (" (비활성화)" if _wd == 0.0 else " (정규화 활성화)"))
         print(f"[MLP]  검증 비율: {_val_ratio:.0%}  분리 비율고정: {_st_str2}  분리 시드: {_rs_str2}")
         print(f"[MLP]  스케일러: {_sc_str}  특징 모드: {_fm_str}")
         # 사용 특징 출력
@@ -1006,17 +1037,27 @@ class MLP_Module:
     # ─────────────────────────────────────────────────────────
     # 내부 유틸리티
     # ─────────────────────────────────────────────────────────
-    def _load_csv(self, csv_path: str, min_check: bool = True):
+    def _load_csv(self, csv_path: str, min_check: bool = True,
+                  filter_stride: int = None, filter_interval: int = None,
+                  filter_mode: str = 'match'):
         """
         CSV 파일 또는 폴더 경로를 받아 (특징 행렬, 레이블 배열) 반환.
         폴더이면 svm_data*.csv 전체를 병합해 로드.
         데이터 부족 시 (None, None) 반환.
 
         Args:
-            csv_path  : CSV 파일 경로 또는 data_csv/ 폴더 경로
-            min_check : True면 최소 샘플(10개) + 양 클래스 존재 여부 확인
+            csv_path        : CSV 파일 경로 또는 data_csv/ 폴더 경로
+            min_check       : True면 최소 샘플(10개) + 양 클래스 존재 여부 확인
+            filter_stride   : 필터 목표 stride 값 (None = 필터 없음)
+            filter_interval : 필터 목표 interval 값 (None = 필터 없음)
+            filter_mode     : 'match'      = 태그 매칭 (stride/interval이 정확히 일치하는 행만)
+                              'downsample' = 다운샘플링 (목표 주기 비율로 N번째 행 추출)
         """
         import glob as _glob
+
+        _filt_s = filter_stride   if (filter_stride   is not None and filter_stride   > 0) else None
+        _filt_i = filter_interval if (filter_interval is not None and filter_interval > 0) else None
+        _target_ms = (_filt_s or 1) * (_filt_i or 1) * 10 if (_filt_s or _filt_i) else None
 
         # 폴더면 svm_data*.csv 전체 병합
         if os.path.isdir(csv_path):
@@ -1032,21 +1073,76 @@ class MLP_Module:
             return None, None
 
         X_list, y_list = [], []
+        n_skipped_total = 0
         for fpath in csv_files:
             before = len(X_list)
+            n_skipped = 0
+            _period_counters: dict = {}   # 다운샘플링용 row_ms별 카운터
             with open(fpath, 'r') as f:
                 reader = csv.reader(f)
-                next(reader, None)  # 헤더 한 줄 건너뜀
+                header = next(reader, None)  # 헤더 한 줄 건너뜀
+                # stride/interval 컬럼 인덱스 탐색 (없으면 None)
+                _stride_idx   = header.index('stride')   if header and 'stride'   in header else None
+                _interval_idx = header.index('interval') if header and 'interval' in header else None
                 for row in reader:
                     if not row:
                         continue
+                    row_s = int(float(row[_stride_idx]))   if _stride_idx   is not None else 1
+                    row_i = int(float(row[_interval_idx])) if _interval_idx is not None else 1
+
+                    if filter_mode == 'match':
+                        # ── 태그 매칭: stride/interval이 정확히 일치하는 행만 통과 ──
+                        if _filt_s is not None and _stride_idx is not None:
+                            if row_s != _filt_s:
+                                n_skipped += 1
+                                continue
+                        if _filt_i is not None and _interval_idx is not None:
+                            if row_i != _filt_i:
+                                n_skipped += 1
+                                continue
+                    elif filter_mode == 'downsample' and _target_ms is not None:
+                        # ── 다운샘플링: 목표 주기(target_ms) 기준으로 N번째 행 추출 ──
+                        # target_ms = filter_stride * filter_interval * 10ms
+                        # row_ms    = row_stride   * row_interval    * 10ms
+                        # step      = target_ms // row_ms  (목표 주기가 row 주기보다 크거나 같아야 함)
+                        row_ms = row_s * row_i * 10
+                        if row_ms > _target_ms or _target_ms % row_ms != 0:
+                            # row 주기가 목표보다 크거나, 배수 관계가 아니면 제외
+                            n_skipped += 1
+                            continue
+                        step = _target_ms // row_ms
+                        cnt = _period_counters.get(row_ms, 0)
+                        _period_counters[row_ms] = cnt + 1
+                        if cnt % step != 0:  # 0번째, step번째, 2*step번째... 만 통과
+                            n_skipped += 1
+                            continue
+
                     # 마지막 컬럼이 레이블, 나머지가 특징
-                    X_list.append([float(v) for v in row[:-1]])
+                    # stride/interval 컬럼은 학습 특징에서 제외
+                    raw_row = [float(v) for v in row[:-1]]
+                    if _stride_idx is not None:
+                        raw_row.pop(_stride_idx)
+                    # interval 컬럼은 stride 제거 후 인덱스 조정 필요
+                    if _interval_idx is not None:
+                        adj = _interval_idx - (1 if _stride_idx is not None and _interval_idx > _stride_idx else 0)
+                        raw_row.pop(adj)
+                    X_list.append(raw_row)
                     y_list.append(int(float(row[-1])))
             n_added = len(X_list) - before
-            print(f"[MLP]   {os.path.basename(fpath):<50s} {n_added:4d}샘플")
+            n_skipped_total += n_skipped
+            print(f"[MLP]   {os.path.basename(fpath):<50s} {n_added:4d}샘플" +
+                  (f"  (필터 제외: {n_skipped})" if n_skipped else ""))
 
-        if len(csv_files) > 1:
+        if (_filt_s is not None or _filt_i is not None) and n_skipped_total:
+            if filter_mode == 'match':
+                filt_desc = []
+                if _filt_s is not None: filt_desc.append(f"stride={_filt_s}")
+                if _filt_i is not None: filt_desc.append(f"interval={_filt_i}")
+                mode_str = f"태그 매칭: {', '.join(filt_desc)}"
+            else:
+                mode_str = f"다운샘플링: 목표 주기 {_target_ms}ms"
+            print(f"[MLP] 필터 적용 ({mode_str})  →  총 {len(X_list)}샘플 사용 / {n_skipped_total}샘플 제외")
+        elif len(csv_files) > 1:
             print(f"[MLP] CSV {len(csv_files)}개 병합  →  총 {len(X_list)}샘플")
         else:
             print(f"[MLP] CSV 로드  →  총 {len(X_list)}샘플")
