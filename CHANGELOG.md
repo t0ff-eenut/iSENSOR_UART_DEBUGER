@@ -2,6 +2,118 @@
 
 ---
 
+## v1.5.20 — Human/BG 확신도 동시 표시
+
+**날짜:** 2026-05-13
+
+### 추가 (`vision/webcam_person_detector.py`)
+- **`DetectionResult`** 에 `human_conf`, `bg_conf` 필드 추가
+  - `human_conf`: YOLO valid box 최고 score (사람 없으면 0.0)
+  - `bg_conf`   : `1.0 - max_raw_score` (YOLO 전용, 항상 계산)
+- **`_detect_yolo()`**: Human / BG 양쪽 모두 `human_conf`, `bg_conf`를 계산해 `DetectionResult`에 반환
+- **`_draw_status()` 시그니처 변경**: `conf` 단일 인자 → `human_conf`, `bg_conf` 두 인자
+  - **3줄 레이아웃** (우상단 박스 높이 80px로 확장)
+    - 1행: 주 판정 + dominant conf  — `"HUMAN x1  hm=0.87"` / `"BACKGROUND  bg=0.95"`
+    - 2행: 반대측 conf 항상 표시   — `"bg=0.13"` / `"hm=0.05"`
+    - 3행: 백엔드 이름              — `"[YOLO]"`
+
+### 개선 (`vision/test_webcam_detector.py`)
+- **`draw_stats()` 시그니처 변경**: `raw_conf` 단일 인자 → `human_conf`, `bg_conf` 두 인자
+  - Raw 항목: `"Raw  : HUMAN  hm=0.87  bg=0.13"` — Human/BG 두 값 항상 동시 표시
+- **콘솔 로그**: `hm=X.XX  bg=X.XX` 형태로 두 값 항상 동시 출력
+- `draw_stats()` 호출부: `result.human_conf`, `result.bg_conf` 전달로 변경
+
+---
+
+## v1.5.19 — YOLO BG 확신도(Confidence) 추가
+
+**날짜:** 2026-05-13
+
+### 개선 (`vision/webcam_person_detector.py`)
+- **YOLO BG 확신도 계산 구현**: `_detect_yolo()` 내부 raw score probe 방식 적용
+  - 기존: YOLO는 object detection 구조상 BG 판정 시 `confidence=0.0` 하드코딩
+  - 변경: `conf=0.01` low-conf probe로 임계값 이하 박스 raw score 수집
+    - `BG confidence = 1.0 - max_raw_person_score`
+    - raw score가 낮을수록 (배경에 사람 없을수록) BG 확신도가 높음
+    - 예: raw 최고 점수 0.05 → BG conf **0.95** (확실한 배경)
+    - 예: raw 최고 점수 0.38 → BG conf **0.62** (불확실 — 오판단 위험 구간)
+  - `YOLO_CONF` 이상인 박스만 Human으로 처리 (valid_boxes 필터)
+  - 1회 predict 호출로 raw score + Human 판정 동시 처리 (속도 무손실)
+- `_draw_status()`: BG 시 `"BACKGROUND  cf=0.95"` 형태로 우상단 박스에 확신도 표시
+
+### 개선 (`vision/test_webcam_detector.py`)
+- `draw_stats()` Raw 항목 표기 분리
+  - Human: `Raw: HUMAN  conf=0.87`
+  - BG:    `Raw: BG     bg_cf=0.95`
+
+---
+
+## v1.5.18 — vision 테스트 스크립트: 시간적 앙상블 + 멀티 모델 지원
+
+**날짜:** 2026-05-13
+
+### 추가 (`vision/test_webcam_detector.py`)
+- **시간적 앙상블 (Temporal Smoothing)**: 간헐적 오판단 흡수
+  - `SMOOTH_WINDOW = 5`, `SMOOTH_THRESH = 3` 상수 추가
+  - 최근 N프레임 중 M개 이상 Human이면 최종 Human 판정 (다수결 방식)
+  - 1~2프레임 순간 오판단 완전 흡수
+- **YOLO 3종 모델 선택 지원**: `YOLO_MODEL` 상수 추가
+  - `"yolov8n.pt"` — nano (~6 MB, 기본값)
+  - `"yolov8s.pt"` — small (~22 MB, 정확도 향상)
+  - `"yolov8m.pt"` — medium (~52 MB, 정확도 최고)
+- **사전 다운로드**: `YOLO_PREDOWNLOAD_ALL = True` 시 시작할 때 3종 모두 캐시 확인/다운로드
+- **`predownload_yolo_models()` 함수** 신규 추가
+
+### 개선 (`vision/test_webcam_detector.py`)
+- `draw_stats()`: `Raw` 항목 추가 (원시 감지 결과 + 신뢰도), `Detect` 항목(앙상블 결과) 색상 구분
+  - Human → 초록색 굵은 텍스트, BG → 파란색 굵은 텍스트
+- 콘솔 로그: `raw=` / `smooth=` 분리 출력, Human 투표수 `(votes/window)` 표시
+- 시작 헤더에 `YOLO_MODEL`, 앙상블 설정 출력 추가
+
+---
+
+## v1.5.17 — vision 테스트 스크립트 UX 개선
+
+**날짜:** 2026-05-13
+
+### 개선 (`vision/test_webcam_detector.py`)
+- **창 X 버튼 종료**: `cv2.getWindowProperty(..., WND_PROP_VISIBLE)` 로 창 닫힘을 감지해
+  마우스로 X를 누르면 루프가 즉시 종료되고 최종 통계를 출력
+- **창 크기 배율 지원**: `WINDOW_SCALE` 상수 추가
+  - `WINDOW_WIDTH/HEIGHT > 0` → px 직접 지정 (최우선)
+  - `WINDOW_SCALE > 0.0`       → 카메라 해상도 배율 (예: `1.5` = 150%)
+  - 기본값 `WINDOW_SCALE = 1.0` = 원본 크기 유지
+- **콘솔 로그 간격 상수화**: `LOG_INTERVAL_FRAMES` 추가
+  - `1` = 매 프레임, `2` = 2프레임마다, `30` = 약 1초마다 (기본값)
+- **해상도 오버레이**: `draw_stats()` 에 `Res : W x H` 항목 추가
+  - 프레임 실제 크기 기준으로 표시 (창 배율과 무관)
+- 시작 콘솔 출력에 카메라 해상도 및 창 크기 라인 추가
+
+---
+
+## v1.5.16 — 웹캠 사람 감지 모듈 추가 (vision 패키지)
+
+**날짜:** 2026-05-13
+
+### 추가
+- `vision/` 패키지 신규 생성
+  - `vision/webcam_person_detector.py` — 웹캠 기반 사람 감지 독립 모듈
+  - `vision/test_webcam_detector.py` — 독립 성능 검증 테스트 스크립트
+- `WebcamPersonDetector` 클래스: 3개 백엔드 지원
+  - **YOLOv8n** (AUTO 시 자동 선택, 권장): 바운딩 박스, 상반신/부분 가림 상황에서도 우수
+  - **MediaPipe Pose**: 33개 관절 스켈레톤, 전신/상반신 지원
+  - **OpenCV HOG+SVM**: 적외 환경 폴백 (전신 기준, 상반신 취약)
+- 백엔드 우선순위: YOLO > MediaPipe > HOG (AUTO 선택 시)
+- `DetectionResult` 데이터클래스: label(0/1), confidence, frame, backend, n_persons, latency_ms
+- 테스트 스크립트: 실시간 FPS/레이턴시/감지 통계 오버레이, `s` 키 스냅샷 저장
+- `requirements.txt`: `opencv-python`, `mediapipe`, `ultralytics` 의존성 추가
+
+### 참고
+- 현재 독립 성능 검증 단계이며, 검증 후 `debugger_start.py` 데이터 수집 탭과 통합 예정
+- YOLOv8n 모델 파일(`yolov8n.pt`, ~6MB)은 첫 실행 시 자동 다운로드
+
+---
+
 ## v1.5.15 — 필터 데이터 수 표시 개선 + 모드 설명 보강
 
 **날짜:** 2026-05-13

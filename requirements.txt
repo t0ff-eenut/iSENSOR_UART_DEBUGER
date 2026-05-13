@@ -19,3 +19,8 @@ scikit-learn>=1.3.0
 torch>=2.0.0
 matplotlib>=3.7.0
 pandas>=1.5.0
+
+# Vision (웹캠 사람 감지)
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+ultralytics>=8.0.0  # YOLOv8 (yolov8n.pt 첫 실행 시 자동 다운로드)
