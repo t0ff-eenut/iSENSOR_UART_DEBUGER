@@ -26,9 +26,9 @@ from PyQt6.QtWidgets import (
     QComboBox, QPushButton, QGridLayout, QLabel, QTextEdit, QGroupBox, QTabWidget,
     QSpinBox, QDoubleSpinBox, QAbstractSpinBox, QMessageBox,
     QSizePolicy, QDialog, QCheckBox, QScrollArea, QDialogButtonBox, QLineEdit,
-    QRadioButton, QButtonGroup, QProgressBar
+    QRadioButton, QButtonGroup, QProgressBar, QFormLayout
 )
-from PyQt6.QtGui import QShortcut, QKeySequence
+from PyQt6.QtGui import QShortcut, QKeySequence, QImage, QPixmap
 from PyQt6.QtCore import QFileSystemWatcher
 
 import config                               as cfg
@@ -201,13 +201,15 @@ class SvmTrainWorker(PyQt6.QtCore.QThread):
     """SVM 학습을 백그라운드에서 실행하는 워커 스레드"""
     finished = PyQt6.QtCore.pyqtSignal(bool)  # 학습 성공 여부
 
-    def __init__(self, svm_handle, str_csv_path: str):
+    def __init__(self, svm_handle, str_csv_path: str, use_cam_label: bool = False):
         super().__init__()
-        self._svm_handle   = svm_handle
-        self._str_csv_path = str_csv_path
+        self._svm_handle    = svm_handle
+        self._str_csv_path  = str_csv_path
+        self._use_cam_label = use_cam_label
 
     def run(self):
-        result = self._svm_handle.train(self._str_csv_path)
+        result = self._svm_handle.train(self._str_csv_path,
+                                        use_cam_label=self._use_cam_label)
         self.finished.emit(result)
 
 
@@ -262,7 +264,8 @@ class MlpTrainWorker(PyQt6.QtCore.QThread):
                  weight_decay: float = None,
                  filter_stride: int = None,
                  filter_interval: int = None,
-                 filter_mode: str = 'match'):
+                 filter_mode: str = 'match',
+                 use_cam_label: bool = False):
         super().__init__()
         self._mlp_handle              = mlp_handle
         self._str_csv_path            = str_csv_path
@@ -284,6 +287,7 @@ class MlpTrainWorker(PyQt6.QtCore.QThread):
         self._filter_stride           = filter_stride
         self._filter_interval         = filter_interval
         self._filter_mode             = filter_mode
+        self._use_cam_label           = use_cam_label
         self._stop_requested          = False
 
     def stop(self):
@@ -317,7 +321,8 @@ class MlpTrainWorker(PyQt6.QtCore.QThread):
                                         weight_decay=self._weight_decay,
                                         filter_stride=self._filter_stride,
                                         filter_interval=self._filter_interval,
-                                        filter_mode=self._filter_mode)
+                                        filter_mode=self._filter_mode,
+                                        use_cam_label=self._use_cam_label)
         self.finished.emit(result)
 
 
@@ -395,6 +400,126 @@ class UartWorker(PyQt6.QtCore.QThread):
         self.log_message.emit("Requesting to stop UART thread...")
         self.wait(2000) # Wait up to 2 seconds for the thread to finish
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 카메라 관련 헬퍼 위젯 / 다이얼로그
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _CamPreviewWindow(QWidget):
+    """카메라 라이브 미리보기 팝업 창 (항상 위 + Tool 윈도우)."""
+
+    closed = PyQt6.QtCore.pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(
+            parent,
+            PyQt6.QtCore.Qt.WindowType.Tool |
+            PyQt6.QtCore.Qt.WindowType.WindowStaysOnTopHint,
+        )
+        self.setWindowTitle("\U0001f4f7 카메라 라이브 미리보기")
+        self.resize(640, 520)
+        self._lbl = QLabel()
+        self._lbl.setAlignment(PyQt6.QtCore.Qt.AlignmentFlag.AlignCenter)
+        self._lbl.setStyleSheet("background-color: #111111;")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 4, 4, 4)
+        lay.addWidget(self._lbl)
+
+    def update_frame(self, pixmap: QPixmap) -> None:
+        lw = self._lbl.width()  or 640
+        lh = self._lbl.height() or 480
+        self._lbl.setPixmap(
+            pixmap.scaled(
+                lw, lh,
+                PyQt6.QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                PyQt6.QtCore.Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+
+    def closeEvent(self, event) -> None:
+        self.closed.emit()
+        super().closeEvent(event)
+
+
+class _CamSettingsDialog(QDialog):
+    """카메라 감지 파라미터 설정 다이얼로그."""
+
+    def __init__(self, settings: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("\u2699\ufe0f 카메라 설정")
+        self.setModal(True)
+        self.setMinimumWidth(300)
+
+        form = QFormLayout(self)
+        form.setSpacing(8)
+        form.setContentsMargins(12, 12, 12, 8)
+
+        self._cam_idx = QSpinBox()
+        self._cam_idx.setRange(0, 9)
+        self._cam_idx.setValue(settings.get("camera_index", 0))
+        form.addRow("카메라 인덱스:", self._cam_idx)
+
+        self._yolo_model = QComboBox()
+        self._yolo_model.setEditable(True)
+        for m in (
+            # YOLOv8 — 안정 버전 (권장)
+            "yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yolov8x.pt",
+            # YOLO11 — 최신 Ultralytics (구 YOLOv8 후속)
+            "yolo11n.pt", "yolo11s.pt", "yolo11m.pt", "yolo11l.pt", "yolo11x.pt",
+            # YOLOv9
+            "yolov9c.pt", "yolov9e.pt",
+            # YOLOv10
+            "yolov10n.pt", "yolov10s.pt", "yolov10m.pt", "yolov10l.pt", "yolov10x.pt",
+        ):
+            self._yolo_model.addItem(m)
+        self._yolo_model.setToolTip(
+            "모델 파일이 없으면 Ultralytics가 자동 다운로드합니다 (인터넷 필요).\n"
+            "권장: yolov8n.pt (속도), yolov8s.pt (균형), yolo11n.pt (최신 경량)\n"
+            "직접 경로 입력도 가능합니다."
+        )
+        cur = settings.get("yolo_model", "yolov8n.pt")
+        idx = self._yolo_model.findText(cur)
+        if idx >= 0:
+            self._yolo_model.setCurrentIndex(idx)
+        else:
+            self._yolo_model.setCurrentText(cur)
+        form.addRow("YOLO 모델:", self._yolo_model)
+
+        self._yolo_conf = QDoubleSpinBox()
+        self._yolo_conf.setRange(0.05, 1.0)
+        self._yolo_conf.setSingleStep(0.05)
+        self._yolo_conf.setDecimals(2)
+        self._yolo_conf.setValue(settings.get("yolo_conf", 0.3))
+        form.addRow("YOLO 임계값 (conf):", self._yolo_conf)
+
+        self._smooth_win = QSpinBox()
+        self._smooth_win.setRange(1, 60)
+        self._smooth_win.setValue(settings.get("smooth_window", 10))
+        form.addRow("앙상블 윈도우 (프레임):", self._smooth_win)
+
+        self._smooth_thr = QSpinBox()
+        self._smooth_thr.setRange(1, 60)
+        self._smooth_thr.setValue(settings.get("smooth_thresh", 3))
+        form.addRow("앙상블 임계값 (다수결):", self._smooth_thr)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        form.addRow(btns)
+
+    def get_settings(self) -> dict:
+        return {
+            "camera_index":  self._cam_idx.value(),
+            "yolo_model":    self._yolo_model.currentText().strip(),
+            "yolo_conf":     self._yolo_conf.value(),
+            "smooth_window": self._smooth_win.value(),
+            "smooth_thresh": self._smooth_thr.value(),
+        }
+
+
 class MainWindow(QMainWindow):
 
     def adc_bit_2_range(self, input_i_bit:int = 0) -> int:
@@ -471,6 +596,15 @@ class MainWindow(QMainWindow):
         self.A_graph_plot_value.append(self.A_adc_fft_plot_TabWidget_configs)   # 1
         self.A_graph_plot_value.append(self.A_svm_plot_TabWidget_configs)       # 2
         self.uart_thread = None
+        self.webcam_worker = None          # WebcamWorker 인스턴스 (카메라 라벨링 모드)
+        self._cam_popup_window = None      # 팝업 미리보기 창
+        self._cam_settings: dict = {       # 카메라 감지 파라미터 (설정 다이얼로그에서 편집)
+            "camera_index":  0,
+            "yolo_model":    "yolov8n.pt",
+            "yolo_conf":     0.3,
+            "smooth_window": 10,
+            "smooth_thresh": 3,
+        }
         self.command_sender = upcs.CommandSender()  # 명령 송신 객체
         self._settings_loaded: bool = False  # 초기 설정값 수신 여부 (한 번만 SpinBox 반영)
 
@@ -693,7 +827,6 @@ class MainWindow(QMainWindow):
         # --- 좌측 패널 (제어 + 설정) ---
         self.left_Widget = QWidget()                     # 1. 대상 위젯 생성
         self.left_Widget.setFixedWidth(cfg.LEFT_BOX_WIDTH)              # * 위젯 가로 사이즈 설정
-
         self.left_Widget.setStyleSheet(""
                                        + MACRO_BORDER_RADIUS.format(6)
                                        + MACRO_PADDING.format(2)
@@ -706,10 +839,12 @@ class MainWindow(QMainWindow):
         self.main_HBoxLayout.addWidget(self.left_Widget, stretch=1)     # 1-1. 상위 레이아웃에 위젯 적용
 
 # --- 좌측 패널 구성 ---
-        self.left_GridLayout = QGridLayout()            # 2. 3열 그리드 레이아웃 생성
-        self.left_GridLayout.setColumnStretch(0, 1)     # 좌열 / 중열 / 우열 동등 비율
-        self.left_GridLayout.setColumnStretch(1, 1)
-        self.left_GridLayout.setColumnStretch(2, 1)
+        self.left_GridLayout = QGridLayout()            # 2. 5열 그리드 레이아웃 생성
+        self.left_GridLayout.setColumnStretch(0, 2)     # Col0 Connection   - 2배
+        self.left_GridLayout.setColumnStretch(1, 2)     # Col1 ESP Control  - 2배
+        self.left_GridLayout.setColumnStretch(2, 1)     # Col2 ADC 주석     - 1배
+        self.left_GridLayout.setColumnStretch(3, 2)     # Col3 SVM Setting  - 2배
+        self.left_GridLayout.setColumnStretch(4, 2)     # Col4 MLP Training - 2배
         self.left_Widget.setLayout(self.left_GridLayout)     # 3. 레이아웃을 대상 위젯에 적용
 # --- 제어창 표시 설정 ---
         self.left_control_Label = QLabel("제어창")             # 1. 대상 위젯 생성
@@ -718,7 +853,7 @@ class MainWindow(QMainWindow):
                                               + MACRO_FONT_SIZE.format(14)
                                               )  # * 위젯 폰트 설정
         self.left_control_Label.setFixedHeight(30)             # * 위젯 가로 사이즈 설정
-        self.left_GridLayout.addWidget(self.left_control_Label, 0, 0, 1, 3)    # Row0 - 전체 3열 차지
+        self.left_GridLayout.addWidget(self.left_control_Label, 0, 0, 1, 5)    # Row0 - 전체 5열 차지
 # --- Connection 그룹 설정 ---
         self.connection_GroupBox = QGroupBox("Connection")             # 1. 대상 위젯 생성
         self.connection_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성 
@@ -810,13 +945,13 @@ class MainWindow(QMainWindow):
                                            )
         self.status_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성
         self.status_GroupBox.setLayout(self.status_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
-        self.left_GridLayout.addWidget(self.status_GroupBox, 2, 0, 2, 1)       # Row2-3 Col0 - Setting(Status)
+        self.left_GridLayout.addWidget(self.status_GroupBox, 2, 0)             # Row2 Col0 - Status
 
         # --- 제어창 표시 설정 ---
         self.connect_status_Label = QLabel("🔴 Not connected")
         self.connect_status_Label.setStyleSheet(""
                                                 + MACRO_FONT_BOLD
-                                                + MACRO_FONT_SIZE.format(14)
+                                                + MACRO_FONT_SIZE.format(9)
                                                 + MACRO_BORDER_STYLE.format('none')
                                                 )
         self.connect_status_Label.setWordWrap(True)             # 자동 줄넘김
@@ -826,7 +961,7 @@ class MainWindow(QMainWindow):
         self.occupancy_Label = QLabel("⚪ 재실 상태: 대기 중")
         self.occupancy_Label.setStyleSheet(""
                                            + MACRO_FONT_BOLD
-                                           + MACRO_FONT_SIZE.format(14)
+                                           + MACRO_FONT_SIZE.format(9)
                                            )  # * 위젯 폰트 설정
         self.status_GridLayout.addWidget(self.occupancy_Label)
 
@@ -834,7 +969,7 @@ class MainWindow(QMainWindow):
         self.pir_output_Label = QLabel("💤 PIR 출력: 대기 중")  # 👀
         self.pir_output_Label.setStyleSheet(""
                                             + MACRO_FONT_BOLD
-                                            + MACRO_FONT_SIZE.format(14)
+                                            + MACRO_FONT_SIZE.format(9)
                                             )  # * 위젯 폰트 설정
         self.status_GridLayout.addWidget(self.pir_output_Label)
 
@@ -842,7 +977,7 @@ class MainWindow(QMainWindow):
         self.mlp_result_Label = QLabel("🤖 MLP: 모델 로딩 중...")
         self.mlp_result_Label.setStyleSheet(""
                                             + MACRO_FONT_BOLD
-                                            + MACRO_FONT_SIZE.format(14)
+                                            + MACRO_FONT_SIZE.format(9)
                                             )
         self.status_GridLayout.addWidget(self.mlp_result_Label)
         # 초기 MLP 상태 반영
@@ -854,7 +989,7 @@ class MainWindow(QMainWindow):
         # --- 프로파일링 표시 설정 ---
         self.profiling_Label = QLabel("⏱ 프로파일링: 대기 중")
         self.profiling_Label.setStyleSheet(""
-                                           + MACRO_FONT_SIZE.format(11)
+                                           + MACRO_FONT_SIZE.format(9)
                                            + MACRO_BORDER_STYLE.format('none')
                                            )
         self.profiling_Label.setWordWrap(True)
@@ -983,7 +1118,7 @@ class MainWindow(QMainWindow):
                                                )
         self.fft_gain_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성
         self.fft_gain_GroupBox.setLayout(self.fft_gain_GridLayout)            # 3. 레이아웃을 대상 위젯에 적용
-        self.left_GridLayout.addWidget(self.fft_gain_GroupBox, 4, 0, 1, 1)            # Row4 Col0 - FFT Setting
+        self.left_GridLayout.addWidget(self.fft_gain_GroupBox, 3, 2)                # Row3 Col2 - FFT Setting
 
 
         # --- Gain 라벨 ---
@@ -1073,7 +1208,7 @@ class MainWindow(QMainWindow):
         self.adc_stats_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
         adc_stats_VBoxLayout = QVBoxLayout()
         self.adc_stats_GroupBox.setLayout(adc_stats_VBoxLayout)
-        self.left_GridLayout.addWidget(self.adc_stats_GroupBox, 1, 2, 3, 1)   # Row1-3 Col2 - ADC 주석 패널
+        self.left_GridLayout.addWidget(self.adc_stats_GroupBox, 1, 2)         # Row1 Col2 - ADC 주석
 
         self.adc_stats_Label = QLabel("수신 대기 중...")
         self.adc_stats_Label.setStyleSheet(
@@ -1091,14 +1226,14 @@ class MainWindow(QMainWindow):
         self.svm_collect_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
         self.svm_collect_GridLayout = QGridLayout()
         self.svm_collect_GroupBox.setLayout(self.svm_collect_GridLayout)
-        self.left_GridLayout.addWidget(self.svm_collect_GroupBox, 5, 0, 1, 1)          # Row5 Col0 - SVM Setting
+        self.left_GridLayout.addWidget(self.svm_collect_GroupBox, 1, 3, 3, 1)          # Row1-3 Col3 - SVM Setting
 
         # --- FFT Features 패널 (SVM Setting 오른쪽, Row5 Col1) ---
         self.fft_features_GroupBox = QGroupBox("FFT Features")
         self.fft_features_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
         fft_features_VBoxLayout = QVBoxLayout()
         self.fft_features_GroupBox.setLayout(fft_features_VBoxLayout)
-        self.left_GridLayout.addWidget(self.fft_features_GroupBox, 4, 2, 2, 1)   # Row4-5 Col2 - FFT Features 패널
+        self.left_GridLayout.addWidget(self.fft_features_GroupBox, 2, 2)         # Row2 Col2 - FFT Features (ADC 주석 하단)
 
         self.fft_features_Label = QLabel("수신 대기 중...")
         self.fft_features_Label.setStyleSheet(
@@ -1157,52 +1292,165 @@ class MainWindow(QMainWindow):
         self.svm_auto_save_interval_SpinBox.valueChanged.connect(self.event_svm_auto_save_interval_changed)
         self.svm_collect_GridLayout.addWidget(self.svm_auto_save_interval_SpinBox, 3, 1)
 
+        # ── 라벨링 소스 선택 ─────────────────────────────────────────────────
+        _lbl_src_label = QLabel("라벨링 소스:")
+        _lbl_src_label.setStyleSheet(MACRO_FONT_BOLD)
+        _lbl_src_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)
+        self.svm_collect_GridLayout.addWidget(_lbl_src_label, 4, 0)
+
+        _lbl_src_widget = QWidget()
+        _lbl_src_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        _lbl_src_hbox   = QHBoxLayout(_lbl_src_widget)
+        _lbl_src_hbox.setContentsMargins(0, 0, 0, 0)
+        self._cam_label_radio_manual = QRadioButton("수동")
+        self._cam_label_radio_camera = QRadioButton("카메라")
+        self._cam_label_radio_manual.setChecked(True)
+        self._cam_label_radio_group  = QButtonGroup(self)
+        self._cam_label_radio_group.addButton(self._cam_label_radio_manual)
+        self._cam_label_radio_group.addButton(self._cam_label_radio_camera)
+        _lbl_src_hbox.addWidget(self._cam_label_radio_manual)
+        _lbl_src_hbox.addWidget(self._cam_label_radio_camera)
+        self._cam_label_radio_manual.toggled.connect(self._on_label_mode_changed)
+        self.svm_collect_GridLayout.addWidget(_lbl_src_widget, 4, 1)
+
+        # 카메라 ON/OFF 토글 버튼
+        _CAM_TOGGLE_STYLE = (
+            "QPushButton { font-weight: bold; border: 1px solid gray; border-radius: 4px; padding: 3px; }"
+            "QPushButton:checked { background-color: #1a5c8a; color: white; border: 1px solid #0d3d5e; }"
+            "QPushButton:disabled { color: gray; }"
+        )
+        self._cam_toggle_Button = QPushButton("📷 카메라 라벨링 OFF")
+        self._cam_toggle_Button.setCheckable(True)
+        self._cam_toggle_Button.setEnabled(False)
+        self._cam_toggle_Button.setStyleSheet(_CAM_TOGGLE_STYLE)
+        self._cam_toggle_Button.toggled.connect(self._on_cam_toggle)
+        self.svm_collect_GridLayout.addWidget(self._cam_toggle_Button, 5, 0)
+
+        # 스냅샷 체크박스 해제 시 버퍼 즉시 flush (미기록 데이터 유실 방지)
+        # 이 연결은 체크박스 생성 후 아래에서 addWidget 된 뒤 실제 시그널이 활성화됨
+        # → 체크박스 위젯 생성 이후에 연결해야 하므로 아래 _cam_snapshot_CheckBox 생성 직후로 이동
+
+        # cam_max_age SpinBox (카메라 결과 유효 시간)
+        _age_widget = QWidget()
+        _age_hbox   = QHBoxLayout(_age_widget)
+        _age_hbox.setContentsMargins(0, 0, 0, 0)
+        _age_hbox.setSpacing(2)
+        _age_lbl = QLabel("유효:")
+        _age_lbl.setStyleSheet("color: gray; font-size: 10px;")
+        self._cam_max_age_SpinBox = QDoubleSpinBox()
+        self._cam_max_age_SpinBox.setRange(0.1, 5.0)
+        self._cam_max_age_SpinBox.setSingleStep(0.1)
+        self._cam_max_age_SpinBox.setValue(0.5)
+        self._cam_max_age_SpinBox.setSuffix("s")
+        self._cam_max_age_SpinBox.setDecimals(1)
+        self._cam_max_age_SpinBox.setEnabled(False)
+        self._cam_max_age_SpinBox.setFixedWidth(72)
+        self._cam_settings_Button = QPushButton("\u2699\ufe0f")
+        self._cam_settings_Button.setFixedWidth(30)
+        self._cam_settings_Button.setToolTip("카메라 감지 파라미터 설정 (모델 / conf / 앙상블 등)")
+        self._cam_settings_Button.clicked.connect(self._on_cam_settings_clicked)
+        _age_hbox.addWidget(_age_lbl)
+        _age_hbox.addWidget(self._cam_max_age_SpinBox)
+        _age_hbox.addWidget(self._cam_settings_Button)
+        self.svm_collect_GridLayout.addWidget(_age_widget, 5, 1)
+
+        # ── 카메라 상태 + 미리보기 컨테이너 (Row 6) ─────────────────────
+        _cam_info_widget = QWidget()
+        _cam_info_vbox   = QVBoxLayout(_cam_info_widget)
+        _cam_info_vbox.setContentsMargins(0, 0, 0, 0)
+        _cam_info_vbox.setSpacing(2)
+        self._cam_status_Label = QLabel("카메라 꺼짐")
+        self._cam_status_Label.setStyleSheet("color: gray; " + MACRO_BORDER_STYLE.format('none'))
+        self._cam_preview_Label = QLabel()
+        self._cam_preview_Label.setAlignment(PyQt6.QtCore.Qt.AlignmentFlag.AlignCenter)
+        self._cam_preview_Label.setFixedHeight(120)
+        self._cam_preview_Label.setStyleSheet(
+            "background-color: #111111; border-radius: 3px;"
+        )
+        self._cam_preview_Label.hide()
+        self._cam_snapshot_CheckBox = QCheckBox("📸 스냅샷 저장 (CSV 동기화)")
+        self._cam_snapshot_CheckBox.setEnabled(False)
+        self._cam_snapshot_CheckBox.setToolTip(
+            "FFT 샘플 저장 시 카메라 프레임을 data_csv/snapshots/ 에 함께 저장합니다.\n"
+            "파일명: frame_{timestamp:.3f}.jpg  ←  CSV 의 timestamp 열과 1:1 대응"
+        )
+        # 체크 해제 시 버퍼에 남은 데이터 즉시 flush (20개 미만 누적 시 유실 방지)
+        self._cam_snapshot_CheckBox.toggled.connect(
+            lambda checked: self.collector.flush_write_buffer() if not checked else None
+        )
+        self._cam_popup_CheckBox = QCheckBox("🖥️ 팝업 창으로 보기")
+        self._cam_popup_CheckBox.setEnabled(False)
+        self._cam_popup_CheckBox.setToolTip("카메라 영상을 별도 팝업 창에서 확대해서 확인")
+        self._cam_popup_CheckBox.toggled.connect(self._on_cam_popup_toggled)
+        _cam_info_vbox.addWidget(self._cam_status_Label)
+        _cam_info_vbox.addWidget(self._cam_preview_Label)
+        _cam_info_vbox.addWidget(self._cam_snapshot_CheckBox)
+        _cam_info_vbox.addWidget(self._cam_popup_CheckBox)
+        self.svm_collect_GridLayout.addWidget(_cam_info_widget, 6, 0, 1, 2)
+
         # 단축키: 1=배경 자동 토글, 2=사람 자동 토글, 3=학습 데이터 삭제
         # QShortcut 대신 앱 레벨 eventFilter 사용 → SpinBox/LineEdit 포커스와 무관하게 동작
         QApplication.instance().installEventFilter(self)
+
+        # 학습 레이블 소스 선택
+        self.svm_label_source_Label = QLabel("레이블 소스")
+        self.svm_label_source_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.svm_label_source_Label.setToolTip(
+            "학습에 사용할 레이블 열 선택\n"
+            "원본 label   : CSV 마지막 열 (기본값)\n"
+            "카메라 cam_label: YOLO 카메라가 판정한 레이블 (cam 열이 있는 행만 사용)")
+        self.svm_collect_GridLayout.addWidget(self.svm_label_source_Label, 7, 0)
+
+        self.svm_label_source_ComboBox = QComboBox()
+        self.svm_label_source_ComboBox.addItem("원본 label")
+        self.svm_label_source_ComboBox.addItem("📷 cam_label")
+        self.svm_label_source_ComboBox.setToolTip(
+            "원본 label   : CSV 마지막 열 (기본값)\n"
+            "📷 cam_label : YOLO 카메라 레이블 — cam 열 없는 행은 학습 제외")
+        self.svm_collect_GridLayout.addWidget(self.svm_label_source_ComboBox, 7, 1)
 
         # SVM 학습 버튼
         self.svm_train_PushButton = QPushButton("🤖 SVM 학습")
         self.svm_train_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.svm_train_PushButton.clicked.connect(self.event_svm_train)
-        self.svm_collect_GridLayout.addWidget(self.svm_train_PushButton, 4, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_train_PushButton, 8, 0, 1, 2)
 
         # 학습 상태 레이블
         self.svm_status_Label = QLabel("미학습")
         self.svm_status_Label.setStyleSheet("" + MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
-        self.svm_collect_GridLayout.addWidget(self.svm_status_Label, 5, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_status_Label, 9, 0, 1, 2)
 
         # 학습 데이터 삭제 버튼
         self.svm_clear_PushButton = QPushButton("🗑 학습 데이터 삭제  [3]")
         self.svm_clear_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.svm_clear_PushButton.clicked.connect(self.event_svm_clear)
-        self.svm_collect_GridLayout.addWidget(self.svm_clear_PushButton, 6, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_clear_PushButton, 10, 0, 1, 2)
 
         # 특징 선택 버튼
         self.svm_feature_PushButton = QPushButton("⚙ 특징 선택...")
         self.svm_feature_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.svm_feature_PushButton.clicked.connect(self.event_svm_feature_select)
-        self.svm_collect_GridLayout.addWidget(self.svm_feature_PushButton, 7, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_feature_PushButton, 11, 0, 1, 2)
 
         # 현재 선택된 특징 수 표시 레이블
         self.svm_feature_count_Label = QLabel(f"선택된 특징: 24개 (권장 세트)")
         self.svm_feature_count_Label.setStyleSheet("" + MACRO_BORDER_STYLE.format('none'))
-        self.svm_collect_GridLayout.addWidget(self.svm_feature_count_Label, 8, 0, 1, 2)
+        self.svm_collect_GridLayout.addWidget(self.svm_feature_count_Label, 12, 0, 1, 2)
 
         # X/Y 축 선택 콤보박스
-        self.svm_collect_GridLayout.addWidget(QLabel("Y축:"), 9, 0)
+        self.svm_collect_GridLayout.addWidget(QLabel("Y축:"), 13, 0)
         self.svm_y_ComboBox = QComboBox()
         for col in svm.enum_csv_col:
             self.svm_y_ComboBox.addItem(self._SVM_COL_LABEL_MAP.get(col, col.name), userData=col)
         self.svm_y_ComboBox.setCurrentIndex(list(svm.enum_csv_col).index(svm.enum_csv_col.LOW_RATIO))
-        self.svm_collect_GridLayout.addWidget(self.svm_y_ComboBox, 9, 1)
+        self.svm_collect_GridLayout.addWidget(self.svm_y_ComboBox, 13, 1)
 
-        self.svm_collect_GridLayout.addWidget(QLabel("X축:"), 10, 0)
+        self.svm_collect_GridLayout.addWidget(QLabel("X축:"), 14, 0)
         self.svm_x_ComboBox = QComboBox()
         for col in svm.enum_csv_col:
             self.svm_x_ComboBox.addItem(self._SVM_COL_LABEL_MAP.get(col, col.name), userData=col)
         self.svm_x_ComboBox.setCurrentIndex(list(svm.enum_csv_col).index(svm.enum_csv_col.SPECTRAL_FLATNESS))
-        self.svm_collect_GridLayout.addWidget(self.svm_x_ComboBox, 10, 1)
+        self.svm_collect_GridLayout.addWidget(self.svm_x_ComboBox, 14, 1)
 
         self.svm_x_ComboBox.currentIndexChanged.connect(self.on_svm_axis_changed)
         self.svm_y_ComboBox.currentIndexChanged.connect(self.on_svm_axis_changed)
@@ -1222,14 +1470,14 @@ class MainWindow(QMainWindow):
         self.svm_show_bg_ToggleButton.setChecked(True)
         self.svm_show_bg_ToggleButton.setStyleSheet(_TOGGLE_STYLE3)
         self.svm_show_bg_ToggleButton.toggled.connect(lambda checked: self._set_svm_point_visible(cfg.SVM_BACKGROUND_POINT_NAME, checked))
-        self.svm_collect_GridLayout.addWidget(self.svm_show_bg_ToggleButton, 11, 0)
+        self.svm_collect_GridLayout.addWidget(self.svm_show_bg_ToggleButton, 15, 0)
 
         self.svm_show_occu_ToggleButton = QPushButton("화면: 사람 표시")
         self.svm_show_occu_ToggleButton.setCheckable(True)
         self.svm_show_occu_ToggleButton.setChecked(True)
         self.svm_show_occu_ToggleButton.setStyleSheet(_TOGGLE_STYLE4)
         self.svm_show_occu_ToggleButton.toggled.connect(lambda checked: self._set_svm_point_visible(cfg.SVM_OCCUPANCY_POINT_NAME, checked))
-        self.svm_collect_GridLayout.addWidget(self.svm_show_occu_ToggleButton, 11, 1)
+        self.svm_collect_GridLayout.addWidget(self.svm_show_occu_ToggleButton, 15, 1)
 
 ############################################################################################################ SVM
 
@@ -1238,7 +1486,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
         self.mlp_train_GridLayout = QGridLayout()
         self.mlp_train_GroupBox.setLayout(self.mlp_train_GridLayout)
-        self.left_GridLayout.addWidget(self.mlp_train_GroupBox, 4, 1, 2, 1)     # Row4-5 Col1 - MLP Training
+        self.left_GridLayout.addWidget(self.mlp_train_GroupBox, 1, 4, 3, 1)     # Row1-3 Col4 - MLP Training
 
         # CSV 파일 선택 레이블 + 버튼
         self.mlp_csv_Label = QLabel("CSV: data_csv/ 전체 병합 학습")
@@ -1571,18 +1819,35 @@ class MainWindow(QMainWindow):
         self.mlp_filtered_count_Label.setToolTip("현재 stride/interval/mode 설정으로 필터링된 실제 학습 샘플 수")
         self.mlp_train_GridLayout.addWidget(self.mlp_filtered_count_Label, 14, 0, 1, 2)
 
+        # 학습 레이블 소스 선택
+        self.mlp_label_source_Label = QLabel("레이블 소스")
+        self.mlp_label_source_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
+        self.mlp_label_source_Label.setToolTip(
+            "학습에 사용할 레이블 열 선택\n"
+            "원본 label   : CSV 마지막 열 (기본값)\n"
+            "카메라 cam_label: YOLO 카메라가 판정한 레이블 (cam 열이 있는 행만 사용)")
+        self.mlp_train_GridLayout.addWidget(self.mlp_label_source_Label, 17, 0)
+
+        self.mlp_label_source_ComboBox = QComboBox()
+        self.mlp_label_source_ComboBox.addItem("원본 label")
+        self.mlp_label_source_ComboBox.addItem("📷 cam_label")
+        self.mlp_label_source_ComboBox.setToolTip(
+            "원본 label   : CSV 마지막 열 (기본값)\n"
+            "📷 cam_label : YOLO 카메라 레이블 — cam 열 없는 행은 학습 제외")
+        self.mlp_train_GridLayout.addWidget(self.mlp_label_source_ComboBox, 17, 1)
+
         # 학습 버튼
         self.mlp_train_PushButton = QPushButton("🧠 MLP 학습")
         self.mlp_train_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.mlp_train_PushButton.clicked.connect(self.event_mlp_train)
-        self.mlp_train_GridLayout.addWidget(self.mlp_train_PushButton, 17, 0, 1, 1)
+        self.mlp_train_GridLayout.addWidget(self.mlp_train_PushButton, 18, 0, 1, 1)
 
         # 학습 중단 버튼
         self.mlp_stop_PushButton = QPushButton("⏹ 중단")
         self.mlp_stop_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.mlp_stop_PushButton.setEnabled(False)
         self.mlp_stop_PushButton.clicked.connect(self.event_mlp_stop)
-        self.mlp_train_GridLayout.addWidget(self.mlp_stop_PushButton, 17, 1, 1, 1)
+        self.mlp_train_GridLayout.addWidget(self.mlp_stop_PushButton, 18, 1, 1, 1)
 
         # 에폭 진행률 바
         self.mlp_progress_ProgressBar = QProgressBar()
@@ -1590,12 +1855,12 @@ class MainWindow(QMainWindow):
         self.mlp_progress_ProgressBar.setValue(0)
         self.mlp_progress_ProgressBar.setTextVisible(True)
         self.mlp_progress_ProgressBar.setFormat("대기 중")
-        self.mlp_train_GridLayout.addWidget(self.mlp_progress_ProgressBar, 18, 0, 1, 2)
+        self.mlp_train_GridLayout.addWidget(self.mlp_progress_ProgressBar, 19, 0, 1, 2)
 
         # 학습 상태 레이블
         self.mlp_status_Label = QLabel("미학습" if not self.mlp_handle.b_is_trained else "모델 로드 완료")
         self.mlp_status_Label.setStyleSheet("" + MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
-        self.mlp_train_GridLayout.addWidget(self.mlp_status_Label, 19, 0, 1, 2)
+        self.mlp_train_GridLayout.addWidget(self.mlp_status_Label, 20, 0, 1, 2)
 
         # ── 저장 모델 선택 ──────────────────────────────────────
         self.mlp_model_Label = QLabel("💾 모델 선택")
@@ -1604,17 +1869,17 @@ class MainWindow(QMainWindow):
 
         self.mlp_model_ComboBox = QComboBox()
         self.mlp_model_ComboBox.setToolTip("models/ 폴더의 버전 .pt 파일 목록")
-        self.mlp_train_GridLayout.addWidget(self.mlp_model_ComboBox, 20, 1)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_ComboBox, 21, 1)
 
         self.mlp_model_refresh_PushButton = QPushButton("🔄 목록 갱신")
         self.mlp_model_refresh_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.mlp_model_refresh_PushButton.clicked.connect(self._refresh_mlp_model_list)
-        self.mlp_train_GridLayout.addWidget(self.mlp_model_refresh_PushButton, 21, 0)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_refresh_PushButton, 22, 0)
 
         self.mlp_model_load_PushButton = QPushButton("📂 모델 로드")
         self.mlp_model_load_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.mlp_model_load_PushButton.clicked.connect(self.event_mlp_load_model)
-        self.mlp_train_GridLayout.addWidget(self.mlp_model_load_PushButton, 21, 1)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_load_PushButton, 22, 1)
 
         # GPU 상태 레이블
         import torch as _torch_check
@@ -1630,14 +1895,14 @@ class MainWindow(QMainWindow):
             "torch.cuda.is_available() 결과\n"
             "🔴 이면 pip install torch --index-url https://download.pytorch.org/whl/cu124 로 재설치 필요"
         )
-        self.mlp_train_GridLayout.addWidget(self.mlp_gpu_status_Label, 20, 0, 1, 2)
+        self.mlp_train_GridLayout.addWidget(self.mlp_gpu_status_Label, 21, 0, 1, 2)
 
         # 모델 탐색기 실행 버튼
         self.mlp_model_explorer_PushButton = QPushButton("🔍 모델 탐색기 열기")
         self.mlp_model_explorer_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.mlp_model_explorer_PushButton.setToolTip("AI/mlp/models/model_explorer.py 를 별도 창으로 실행")
         self.mlp_model_explorer_PushButton.clicked.connect(self._open_model_explorer)
-        self.mlp_train_GridLayout.addWidget(self.mlp_model_explorer_PushButton, 21, 0, 1, 2)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_explorer_PushButton, 22, 0, 1, 2)
 
         # 초기 목록 채우기
         self._refresh_mlp_model_list()
@@ -2246,6 +2511,162 @@ class MainWindow(QMainWindow):
             self.collector.flush_write_buffer()
             self.log_TextEdit.append(f"[SVM] 사람 자동 저장 OFF — 잔여 {flushed}개 flush 완료")
 
+    # ── 카메라 라벨링 이벤트 핸들러 ──────────────────────────────────────────
+
+    def _on_label_mode_changed(self, checked: bool):
+        """수동 / 카메라 라디오버튼 전환"""
+        is_manual = self._cam_label_radio_manual.isChecked()
+        self._cam_toggle_Button.setEnabled(not is_manual)
+        self._cam_max_age_SpinBox.setEnabled(not is_manual)
+        if is_manual and self.webcam_worker and self.webcam_worker.isRunning():
+            # 카메라 모드 → 수동으로 전환 시 자동으로 카메라 끄기
+            self._cam_toggle_Button.setChecked(False)
+
+    def _on_cam_toggle(self, checked: bool):
+        """📷 카메라 라벨링 토글 ON / OFF"""
+        if checked:
+            self._start_webcam_worker()
+            self._cam_toggle_Button.setText("📷 카메라 라벨링 ON")
+            self._cam_preview_Label.show()
+            self._cam_snapshot_CheckBox.setEnabled(True)
+            self._cam_popup_CheckBox.setEnabled(True)
+        else:
+            self._stop_webcam_worker()
+            self.collector.flush_write_buffer()   # 카메라 OFF 전 버퍼 잔량 즉시 저장
+            self._cam_toggle_Button.setText("📷 카메라 라벨링 OFF")
+            self._cam_status_Label.setText("카메라 꺼짐")
+            self._cam_status_Label.setStyleSheet("color: gray; " + MACRO_BORDER_STYLE.format('none'))
+            self._cam_preview_Label.clear()
+            self._cam_preview_Label.hide()
+            self._cam_snapshot_CheckBox.setEnabled(False)
+            self._cam_snapshot_CheckBox.setChecked(False)
+            self._cam_popup_CheckBox.setEnabled(False)
+            self._cam_popup_CheckBox.setChecked(False)
+
+    def _start_webcam_worker(self):
+        """WebcamWorker 인스턴스 생성 및 시작"""
+        from vision.webcam_worker import WebcamWorker
+        if self.webcam_worker and self.webcam_worker.isRunning():
+            return
+        _s = self._cam_settings
+        self.webcam_worker = WebcamWorker(
+            camera_index=_s["camera_index"],
+            yolo_model=_s["yolo_model"],
+            yolo_conf=_s["yolo_conf"],
+            smooth_window=_s["smooth_window"],
+            smooth_thresh=_s["smooth_thresh"],
+            cam_max_age=self._cam_max_age_SpinBox.value(),
+        )
+        self.webcam_worker.result_ready.connect(self._on_cam_result)
+        self.webcam_worker.frame_ready.connect(self._on_cam_frame)
+        self.webcam_worker.error_occurred.connect(self._on_cam_error)
+        self.webcam_worker.start()
+        self.log_TextEdit.append(
+            f"[CAM] 카메라 라벨링 시작 "
+            f"(cam={_s['camera_index']} model={_s['yolo_model']} "
+            f"conf={_s['yolo_conf']:.2f} sw={_s['smooth_window']}/{_s['smooth_thresh']})"
+        )
+
+    def _stop_webcam_worker(self):
+        """WebcamWorker 종료 및 해제"""
+        if self.webcam_worker:
+            self.webcam_worker.result_ready.disconnect()
+            self.webcam_worker.frame_ready.disconnect()
+            self.webcam_worker.error_occurred.disconnect()
+            self.webcam_worker.stop()
+            self.webcam_worker = None
+
+    def _on_cam_result(self, payload: dict):
+        """카메라 감지 결과 수신 → 상태 레이블 갱신 (GUI 스레드에서 호출)"""
+        label  = payload['label']
+        hm     = payload['human_conf']
+        bg     = payload['bg_conf']
+        votes  = payload['smooth_votes']
+        window = 10   # WebcamWorker 기본 smooth_window
+        if label == 1:
+            txt   = f"Human  hm={hm:.2f}  bg={bg:.2f}  ({votes}/{window})"
+            color = "#2e8b2e"
+        else:
+            txt   = f"BG     hm={hm:.2f}  bg={bg:.2f}  ({window - votes}/{window})"
+            color = "#888888"
+        self._cam_status_Label.setText(txt)
+        self._cam_status_Label.setStyleSheet(
+            f"color: {color}; font-weight: bold; " + MACRO_BORDER_STYLE.format('none')
+        )
+
+    def _on_cam_error(self, msg: str):
+        """카메라 초기화 / 런타임 오류 처리"""
+        self._cam_toggle_Button.setChecked(False)
+        self._cam_status_Label.setText("오류: " + msg)
+        self._cam_status_Label.setStyleSheet("color: #cc3333; " + MACRO_BORDER_STYLE.format('none'))
+        self.log_TextEdit.append(f"[CAM] {msg}")
+
+    def _on_cam_frame(self, frame_bgr) -> None:
+        """카메라 프레임 (numpy BGR) → QPixmap 변환 후 썸네일 / 팝업 창에 표시."""
+        try:
+            frame_rgb = frame_bgr[:, :, ::-1].copy()   # BGR → RGB (C-contiguous)
+            h, w, ch  = frame_rgb.shape
+            qimg = QImage(frame_rgb.data, w, h, ch * w, QImage.Format.Format_RGB888)
+            pix  = QPixmap.fromImage(qimg)
+            # 패널 썸네일
+            if self._cam_preview_Label.isVisible():
+                lw = self._cam_preview_Label.width()
+                lh = self._cam_preview_Label.height()
+                self._cam_preview_Label.setPixmap(
+                    pix.scaled(
+                        lw if lw > 0 else 240, lh,
+                        PyQt6.QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                        PyQt6.QtCore.Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+            # 팝업 창
+            if self._cam_popup_window is not None and self._cam_popup_window.isVisible():
+                self._cam_popup_window.update_frame(pix)
+        except Exception:
+            pass   # 프레임 변환 실패 시 조용히 무시
+
+    def _save_cam_snapshot(self, frame_bgr, timestamp: float) -> None:
+        """카메라 프레임을 data_csv/snapshots/frame_{timestamp:.3f}.jpg 에 저장."""
+        try:
+            import cv2
+            snap_dir = os.path.join("data_csv", "snapshots")
+            os.makedirs(snap_dir, exist_ok=True)
+            fname = os.path.join(snap_dir, f"frame_{timestamp:.3f}.jpg")
+            cv2.imwrite(fname, frame_bgr)
+        except Exception as exc:
+            self.log_TextEdit.append(f"[CAM] 스냅샷 저장 실패: {exc}")
+
+    def _on_cam_popup_toggled(self, checked: bool) -> None:
+        """\U0001f5a5\ufe0f 팝업 창 열기 / 닫기."""
+        if checked:
+            if self._cam_popup_window is None:
+                self._cam_popup_window = _CamPreviewWindow(self)
+                self._cam_popup_window.closed.connect(
+                    lambda: self._cam_popup_CheckBox.setChecked(False)
+                )
+            self._cam_popup_window.show()
+            self._cam_popup_window.raise_()
+        else:
+            if self._cam_popup_window is not None:
+                self._cam_popup_window.hide()
+
+    def _on_cam_settings_clicked(self) -> None:
+        """⚙️ 카메라 설정 다이얼로그 열기."""
+        dlg = _CamSettingsDialog(self._cam_settings, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._cam_settings = dlg.get_settings()
+            _s = self._cam_settings
+            self.log_TextEdit.append(
+                f"[CAM] 설정 변경: cam={_s['camera_index']} "
+                f"model={_s['yolo_model']} conf={_s['yolo_conf']:.2f} "
+                f"sw={_s['smooth_window']}/{_s['smooth_thresh']}"
+            )
+            # 카메라가 현재 ON 중이면 워커를 재시작하여 새 설정 즉시 적용
+            if self._cam_toggle_Button.isChecked():
+                self._stop_webcam_worker()
+                self._start_webcam_worker()
+                self.log_TextEdit.append("[CAM] 새 설정으로 카메라 워커 재시작")
+
     def event_svm_auto_save_interval_changed(self, i_value: int):
         """자동 저장 주기 변경 (FFT 갱신 횟수)"""
         self.i_auto_save_stride = int(i_value)
@@ -2321,7 +2742,10 @@ class MainWindow(QMainWindow):
         self.svm_train_PushButton.setEnabled(False)
         self.svm_status_Label.setText("학습 중...")
 
-        self._svm_train_worker = SvmTrainWorker(self.svm_handle, os.path.dirname(self.collector.str_csv_path))
+        _use_cam = (self.svm_label_source_ComboBox.currentIndex() == 1)
+        self._svm_train_worker = SvmTrainWorker(self.svm_handle,
+                                                os.path.dirname(self.collector.str_csv_path),
+                                                use_cam_label=_use_cam)
         self._svm_train_worker.finished.connect(self._on_svm_train_finished)
         self._svm_train_worker.start()
 
@@ -2451,6 +2875,7 @@ class MainWindow(QMainWindow):
             filter_stride         = None if self.mlp_filter_stride_ComboBox.currentText() == "전체" else int(self.mlp_filter_stride_ComboBox.currentText()),
             filter_interval       = None if self.mlp_filter_interval_ComboBox.currentText() == "전체" else int(self.mlp_filter_interval_ComboBox.currentText()),
             filter_mode           = 'downsample' if self.mlp_filter_mode_ComboBox.currentIndex() == 1 else 'match',
+            use_cam_label         = (self.mlp_label_source_ComboBox.currentIndex() == 1),
         )
         self._mlp_train_worker.epoch_progress.connect(self._on_mlp_epoch_progress)
         self._mlp_train_worker.log_message.connect(self.log_TextEdit.append)
@@ -3906,6 +4331,8 @@ class MainWindow(QMainWindow):
         """윈도우 종료 이벤트 — 버퍼에 남은 데이터를 CSV에 기록 후 종료"""
         self._save_settings()
         self.collector.flush_write_buffer()
+        if self.webcam_worker and self.webcam_worker.isRunning():
+            self.webcam_worker.stop()
         if self.uart_thread and self.uart_thread.isRunning():
             self.uart_thread.stop()
         event.accept()
@@ -3915,6 +4342,14 @@ class MainWindow(QMainWindow):
         _cfg = {
             'svm': {
                 'feature_indices': self.svm_handle.A_feature_indices,
+            },
+            'cam': {
+                'camera_index':  self._cam_settings.get('camera_index', 0),
+                'yolo_model':    self._cam_settings.get('yolo_model', 'yolov8n.pt'),
+                'yolo_conf':     self._cam_settings.get('yolo_conf', 0.3),
+                'smooth_window': self._cam_settings.get('smooth_window', 10),
+                'smooth_thresh': self._cam_settings.get('smooth_thresh', 3),
+                'cam_max_age':   self._cam_max_age_SpinBox.value(),
             },
             'mlp': {
                 'epochs':       self.mlp_epochs_SpinBox.value(),
@@ -3992,6 +4427,22 @@ class MainWindow(QMainWindow):
                 try: widget.setValue(float(v))
                 except Exception: pass
 
+        # 카메라 설정 복원
+        cam = _cfg.get('cam', {})
+        if cam:
+            try:
+                self._cam_settings['camera_index']  = int(cam.get('camera_index', 0))
+                self._cam_settings['yolo_model']    = str(cam.get('yolo_model', 'yolov8n.pt'))
+                self._cam_settings['yolo_conf']     = float(cam.get('yolo_conf', 0.3))
+                self._cam_settings['smooth_window'] = int(cam.get('smooth_window', 10))
+                self._cam_settings['smooth_thresh'] = int(cam.get('smooth_thresh', 3))
+            except Exception:
+                pass
+            try:
+                self._cam_max_age_SpinBox.setValue(float(cam.get('cam_max_age', 0.5)))
+            except Exception:
+                pass
+
         _set_spin(self.mlp_epochs_SpinBox,                   'epochs')
         _set_double_spin(self.mlp_lr_mantissa_DoubleSpinBox, 'lr_mantissa')
         _set_spin(self.mlp_lr_exp_SpinBox,                   'lr_exp')
@@ -4038,14 +4489,14 @@ class MainWindow(QMainWindow):
             if self.mlp_handle.b_is_trained:
                 if self.i_mlp_label == svm.enum_label.LABEL_HUMAN:
                     self.mlp_result_Label.setText(f"🔴 MLP: 사람 감지  ({self.f_mlp_confidence*100:.1f}%)")
-                    self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(14) + MACRO_TEXT_COLOR.format('#ff5555'))
+                    self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(9) + MACRO_TEXT_COLOR.format('#ff5555'))
                 else:
                     self.mlp_result_Label.setText(f"🟢 MLP: 배경  ({self.f_mlp_confidence*100:.1f}%)")
-                    self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(14) + MACRO_TEXT_COLOR.format('#55cc55'))
+                    self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(9) + MACRO_TEXT_COLOR.format('#55cc55'))
                 self.update_mlp_visual()
             else:
                 self.mlp_result_Label.setText("🤖 MLP: 미로드 (모델 없음)")
-                self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(14))
+                self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(9))
 
             # ★ 자동 저장 토글 ON 상태일 때 FFT 데이터 준비된 경우만, 구독 유니트에서 저장 (시간 기반 → FFT 갱신 횟수 기반로 변경)
             # 자동 저장은 아래 '# 5. ESP32 FFT 수신 데이터 업데이트' 블록에서 처리됨
@@ -4135,7 +4586,13 @@ class MainWindow(QMainWindow):
             # ★ FFT 갱신 횟수 기반 자동 저장
             # ESP32에서 새 FFT 결과가 도착할 때마다 카운터 증가,
             # i_auto_save_stride회마다 SVM 특징을 1회 캐포마 함으로 동일 프레임 중복 저장 방지.
-            if self.b_auto_save_bg or self.b_auto_save_human:
+            _cam_active = (
+                self._cam_label_radio_camera.isChecked()
+                and self._cam_toggle_Button.isChecked()
+                and self.webcam_worker is not None
+                and self.webcam_worker.isRunning()
+            )
+            if self.b_auto_save_bg or self.b_auto_save_human or _cam_active:
                 if self.fft_features_data is not None:
                     # 동일 FFT 프레임 판별: avg_energy + peak_energy + peak_freq 조합 키
                     _cur_key = (
@@ -4148,19 +4605,52 @@ class MainWindow(QMainWindow):
                         if self.i_fft_since_last_save >= self.i_auto_save_stride:
                             self.i_fft_since_last_save = 0
                             self._last_auto_saved_fft_key = _cur_key
-                            if self.b_auto_save_bg:
+                            if _cam_active:
+                                # 스냅샷 체크박스가 꺼져 있으면 CSV도 저장하지 않음
+                                if (self._cam_snapshot_CheckBox.isChecked()
+                                        and self.webcam_worker.is_fresh()):
+                                    _latest  = self.webcam_worker.latest()
+                                    _cam_lbl = _latest['label']
+                                    _cam_meta = {
+                                        'cam_label':   _cam_lbl,
+                                        'cam_hm_conf': _latest['human_conf'],
+                                        'cam_bg_conf': _latest['bg_conf'],
+                                        'timestamp':   _latest['timestamp'],
+                                    }
+                                    _i_label = (
+                                        svm.enum_label.LABEL_HUMAN
+                                        if _cam_lbl == 1
+                                        else svm.enum_label.LABEL_BACKGROUND
+                                    )
+                                    self.collector.save_sample(
+                                        self.fft_features_data, _i_label,
+                                        A_adc=self.A_adc_buffer or None,
+                                        A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None,
+                                        stride=self.i_auto_save_stride,
+                                        interval=self.svm_auto_save_interval_SpinBox.value(),
+                                        cam_meta=_cam_meta)
+                                    self.update_svm_label_count()
+                                    # ── 스냅샷 이미지 저장 ────────────────
+                                    _frame = self.webcam_worker.latest_raw_frame()
+                                    if _frame is not None:
+                                        self._save_cam_snapshot(
+                                            _frame, _cam_meta['timestamp']
+                                        )
+                                # else: 체크박스 OFF 또는 stale — 저장 스킵
+                            elif self.b_auto_save_bg:
                                 self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_BACKGROUND,
                                                            A_adc=self.A_adc_buffer or None,
                                                            A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None,
                                                            stride=self.i_auto_save_stride,
                                                            interval=self.svm_auto_save_interval_SpinBox.value())
+                                self.update_svm_label_count()
                             else:
                                 self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_HUMAN,
                                                            A_adc=self.A_adc_buffer or None,
                                                            A_fft_mag=self.A_fft_magnitudes if len(self.A_fft_magnitudes) else None,
                                                            stride=self.i_auto_save_stride,
                                                            interval=self.svm_auto_save_interval_SpinBox.value())
-                            self.update_svm_label_count()
+                                self.update_svm_label_count()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

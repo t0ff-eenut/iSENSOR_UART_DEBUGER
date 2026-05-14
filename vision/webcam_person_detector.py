@@ -76,6 +76,7 @@ class DetectionResult:
     latency_ms:  float = 0.0   # 처리 시간 (ms)
     human_conf:  float = 0.0   # 사람 확신도 (YOLO valid box 최고 score, 없으면 0)
     bg_conf:     float = 0.0   # 배경 확신도 = 1 - max_raw_score (YOLO 전용, 없으면 0)
+    raw_frame:   Optional[np.ndarray] = None  # UI 오버레이 없는 원본 프레임 (스냅샷 저장용)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -212,14 +213,18 @@ class WebcamPersonDetector:
             result = self._detect_mediapipe(frame)
         else:
             result = self._detect_hog(frame)
+        result.raw_frame  = frame                               # 오버레이 없는 원본
         result.latency_ms = (time.perf_counter() - t0) * 1000.0
         return result
 
     # ── YOLOv8 초기화 & 감지 ─────────────────────────────────────────────────
     def _init_yolo(self) -> None:
-        # 최초 실행 시 yolov8n.pt 자동 다운로드 (~6MB)
-        self._yolo = _YOLO(self._yolo_model)
-        import logging
+        import os, logging
+        # vision/ 폴더에 파일이 있으면 그 경로를 사용, 없으면 이름만 전달(자동 다운로드)
+        _vision_dir = os.path.dirname(os.path.abspath(__file__))
+        _local_path = os.path.join(_vision_dir, self._yolo_model)
+        model_arg   = _local_path if os.path.exists(_local_path) else self._yolo_model
+        self._yolo  = _YOLO(model_arg)
         logging.getLogger("ultralytics").setLevel(logging.WARNING)
 
     # BG 확신도 계산용 low-conf probe (임계값 이하 박스의 raw score 수집)

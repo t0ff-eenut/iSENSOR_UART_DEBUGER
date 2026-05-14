@@ -189,7 +189,7 @@ class SVM_Module():
     # -------------------------------------------------------
     # 학습
     # -------------------------------------------------------
-    def train(self, str_csv_path: str = "data_csv") -> bool:
+    def train(self, str_csv_path: str = "data_csv", use_cam_label: bool = False) -> bool:
         """CSV 파일 또는 폴더로 SVM 학습.
 
         Args:
@@ -218,15 +218,23 @@ class SVM_Module():
         for csv_file in csv_files:
             with open(csv_file, 'r') as f:
                 reader = csv.reader(f)
-                next(reader, None)  # 헤더 스킵
+                header = next(reader, None)  # 헤더 읽기
+                _cam_label_idx = header.index('cam_label') if header and 'cam_label' in header else None
                 for row in reader:
                     if len(row) < csv_layout.CSV_N_FEATURES + 1:  # 특징 21개 + label 1개 최소
                         continue
+                    # 레이블 결정
+                    if use_cam_label and _cam_label_idx is not None:
+                        _lbl = int(float(row[_cam_label_idx]))
+                        if _lbl == -1:  # 카메라 레이블 없는 행 제외
+                            continue
+                    else:
+                        _lbl = int(float(row[-1]))
                     # 정확히 특징 21개만 사용 (ADC/FFT/meta 컨럼 무시)
                     A_full_row = [float(row[i]) for i in range(csv_layout.CSV_N_FEATURES)]
                     A_features.append([A_full_row[i] for i in self.A_feature_indices])
                     A_full_features.append(A_full_row)
-                    A_labels.append(int(float(row[-1])))
+                    A_labels.append(_lbl)
 
         if len(A_features) < 10:
             return False

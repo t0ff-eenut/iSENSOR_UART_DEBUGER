@@ -28,6 +28,12 @@ dependencies.lock
 
 .venv/
 
+# YOLO / ML 모델 가중치 (대용량)
+vision/*.pt
+vision/*.pth
+vision/*.weights
+
+
 # # Doxygen Generated Documentation
 # docs/Doxygen/Output/
 # docs/Doxygen/doxygen_warnings.log

@@ -2,6 +2,151 @@
 
 ---
 
+## v1.5.25 — CSV cam_label 편집기 신규 모듈
+
+**날짜:** 2026-05-14
+
+### 추가 (`csv_label_editor.py`) — 신규 독립 실행 모듈
+- **`CsvLabelEditor`** (QMainWindow) — data_csv/ CSV 파일의 cam_label 검토·편집 도구
+  - **CSV 파일 선택**: `data_csv/` 폴더 자동 스캔 ComboBox + 파일 탐색기 선택 (`QFileDialog`)
+  - **행 테이블**: `#`, `cam_label`, `label`, `hm_conf`, `bg_conf`, `timestamp` 컬럼 표시
+    - cam_label 값에 따른 행 색상 코딩: Human(1) = 연초록, Background(0) = 연빨강, Unknown(-1) = 회색
+    - 필터 ComboBox (전체 / Human / Background / Unknown)로 행 필터링
+  - **스냅샷 이미지 뷰어**: 선택된 행의 `timestamp` 기준 ±N초 이내 스냅샷 자동 탐색 및 표시
+    - `data_csv/snapshots/frame_{ts:.3f}.jpg` 파일명 규칙으로 탐색
+    - Exact match 강조 표시 (초록 테두리), 거리(Δ초) 표시
+    - 스냅샷 폴더 직접 지정 가능, 근방 범위 SpinBox로 조절
+  - **cam_label 편집**: Radio Button (Human/Background/Unknown) 선택 후 Apply
+    - 행 색상 및 테이블 텍스트 즉시 갱신
+  - **저장**: 수정 후 Ctrl+S 또는 저장 버튼으로 원본 CSV 덮어쓰기
+    - 미저장 상태에서 파일 전환/종료 시 확인 다이얼로그
+  - **단축키**: `←/→` 행 이동, `0` BG 적용, `1` Human 적용, `Ctrl+S` 저장, `Enter` 적용 후 다음 행
+
+---
+
+## v1.5.24 — MLP cam_label 버그 수정 + 학습 레이블 소스 선택 기능
+
+**날짜:** 2026-05-14
+
+### 버그 수정 (`AI/mlp/nn_mlp.py`)
+- **`_load_csv()` cam 컬럼 특징 포함 버그 수정**
+  - 기존: `row[:-1]` 전체를 특징으로 사용 → `cam_label`, `cam_hm_conf`, `cam_bg_conf`, `timestamp` 4개 컬럼이 학습 특징에 포함되던 문제
+  - 수정: 헤더에서 `_CAM_META_COLS = ('cam_label', 'cam_hm_conf', 'cam_bg_conf', 'timestamp')` 인덱스 탐색 후 역순 pop으로 제거
+  - stride/interval 컬럼도 동일 방식으로 통합 처리
+
+### 추가 (`AI/svm/svm.py`, `AI/mlp/nn_mlp.py`, `debugger_start.py`)
+- **`use_cam_label: bool = False` 파라미터 추가** (SVM/MLP 학습 함수 전 체인)
+  - `svm.train(use_cam_label=...)` — 헤더에서 `cam_label` 컬럼 인덱스 탐색, `True` 시 해당 값을 레이블로 사용 (`cam_label == -1` 행은 건너뜀)
+  - `mlp.train(use_cam_label=...)` → `_train_impl()` → `_load_csv()` 전 체인 파라미터 전파
+  - `SvmTrainWorker.__init__(use_cam_label=...)` / `MlpTrainWorker.__init__(use_cam_label=...)` — 워커에서 학습 함수로 전달
+- **GUI 레이블 소스 선택 ComboBox 추가** (`debugger_start.py`)
+  - SVM 패널: `svm_label_source_Label` + `svm_label_source_ComboBox` (row 7 삽입, 기존 행 +1씩 이동)
+  - MLP 패널: `mlp_label_source_Label` + `mlp_label_source_ComboBox` (row 17 삽입, 기존 행 +1씩 이동)
+  - ComboBox 항목: `원본 label` (index 0) / `📷 cam_label` (index 1)
+  - `event_svm_train()` / `event_mlp_train()` — ComboBox 선택 값을 워커 생성 시 `use_cam_label` 전달
+
+---
+
+## v1.5.23 — 레이아웃 재구성 + UI 세부 개선
+
+**날짜:** 2026-05-14
+
+### 변경 (`debugger_start.py`) — 좌측 제어창 레이아웃
+
+- **6열 → 5열 × 3행** 구조로 변경
+  - FFT Setting: Row1-2 Col3 → **Row3 Col2** (FFT Features 바로 아래)
+  - SVM Setting: Row1-2 Col4 → **Row1-3 Col3** (rowspan 3)
+  - MLP Training: Row1-2 Col5 → **Row1-3 Col4** (rowspan 3)
+  - ESP Control: rowspan 2 → **rowspan 3** (전체 3행 스팬)
+  - 헤더 라벨 span: 6열 → 5열
+  - `setColumnStretch(5, 2)` 제거 (5열로 축소)
+
+- **Status GroupBox 폰트 크기 축소** (14pt → 9pt)
+  - `connect_status_Label`, `occupancy_Label`, `pir_output_Label`, `mlp_result_Label`
+  - `profiling_Label`: 11pt → 9pt
+  - 런타임 `mlp_result_Label` 업데이트(`setStyleSheet` 3곳)도 동일하게 변경
+
+- **라벨링 소스 행 높이 수정**
+  - `_lbl_src_widget` (QWidget): 세로 SizePolicy `Preferred` → `Maximum`
+  - `_lbl_src_label` (QLabel): 세로 SizePolicy `Maximum` 추가
+  - 이전에는 bare QWidget의 기본 `Preferred, Preferred` 정책으로 GroupBox 여유 공간을 흡수
+
+- **카메라 팝업 체크박스 UI 추가**
+  - `self._cam_popup_CheckBox = QCheckBox("🖥️ 팝업 창으로 보기")` — `_cam_info_vbox`에 추가
+  - 카메라 OFF 시 초기 `setEnabled(False)`
+  - `_on_cam_toggle(ON)` → `setEnabled(True)`, `_on_cam_toggle(OFF)` → `setEnabled(False)` + `setChecked(False)`
+  - `toggled` → `_on_cam_popup_toggled()` 연결 (기존 구현 연결)
+
+- **카메라 설정 즉시 적용** (`_on_cam_settings_clicked`)
+  - 기존: `self._cam_settings` 저장만 하고 워커 미재시작 → 다음 카메라 ON 시에만 적용
+  - **수정**: 카메라 ON 중 OK 확인 시 `_stop_webcam_worker()` → `_start_webcam_worker()` 자동 재실행
+
+- **YOLO 모델 목록 확장** (`_CamSettingsDialog._yolo_model`)
+  - 기존: yolov8n/s/m/l/x.pt (5개)
+  - **추가**: yolo11n/s/m/l/x.pt, yolov9c/e.pt, yolov10n/s/m/l/x.pt (12개 추가, 총 17개)
+  - 모델 파일 없을 시 Ultralytics 자동 다운로드 안내 ToolTip 추가
+
+---
+
+## v1.5.22 — 카메라 팝업 창 + 감지 파라미터 GUI 설정
+
+**날짜:** 2026-05-14
+
+### 추가 (`debugger_start.py`)
+- **`_CamPreviewWindow`** (QWidget) — 카메라 라이브 미리보기 팝업 창
+  - `WindowStaysOnTopHint + Tool` 힌트로 항상 최상위 표시
+  - 기본 크기 640×520, 프레임이 비율 유지하며 창 크기에 맞게 스케일
+  - 닫기(X) 시 `closed` 시그널 → 패널 체크박스 자동 해제
+- **`_CamSettingsDialog`** (QDialog) — 카메라 감지 파라미터 설정 다이얼로그
+  - 설정 항목: 카메라 인덱스, YOLO 모델, YOLO conf, 앙상블 윈도우/임계값
+  - YOLO 모델: yolov8n/s/m/l/x.pt 드롭다운 + 직접 입력 가능
+  - OK 확인 시 즉시 `self._cam_settings` 에 반영 (다음 카메라 시작 시 적용)
+- **`🖥️ 별도 창으로 보기`** QCheckBox — 카메라 ON 시 활성화
+  - 체크 시 `_CamPreviewWindow` 팝업 오픈, 해제 시 숨김
+- **`⚙️`** QPushButton — Row 5 유효시간 SpinBox 옆에 배치
+  - 클릭 시 `_CamSettingsDialog` 열기 (카메라 OFF 중에도 편집 가능)
+- `_on_cam_frame`: 패널 썸네일과 팝업 창을 동시에 업데이트하도록 개선
+- `_start_webcam_worker`: `_cam_settings` 딕셔너리 값을 사용하도록 변경
+  - 시작 로그에 model/conf/sw 파라미터 출력
+
+---
+
+## v1.5.21 — 카메라 라벨링 GUI 통합 (웹캠 → SVM 학습 데이터 자동 수집)
+
+**날짜:** 2026-05-14
+
+### 추가 (`vision/webcam_worker.py`) — 신규 파일
+- **`WebcamWorker(QThread)`**: `WebcamPersonDetector`를 PyQt6 백그라운드 스레드로 래핑
+  - 시그널: `result_ready(dict)`, `frame_ready(object)`, `error_occurred(str)`
+  - `latest()` / `is_fresh()` — FFT 저장 시점에 최신 결과 조회 및 유효성 확인
+  - `latest_frame()` — 최신 BGR 프레임 반환 (스냅샷 저장용)
+  - `is_fresh()`: 마지막 결과 타임스탬프가 `cam_max_age` 이내인 경우만 `True`
+  - 시간적 앙상블 내장 (`smooth_window=10`, `smooth_thresh=3`)
+
+### 추가 (`debugger_start.py`) — SVM 수집 패널 카메라 라벨링 UI
+- **라벨링 소스 선택 라디오버튼** (Row 4): 수동 / 카메라
+- **`📷 카메라 라벨링 ON/OFF` 토글 버튼** (Row 5 col 0)
+- **`유효:` + `cam_max_age` QDoubleSpinBox** (Row 5 col 1, 0.1–5.0 s, 기본 0.5 s)
+- **카메라 상태 + 미리보기 컨테이너** (Row 6)
+  - `_cam_status_Label`: Human/BG 확신도 실시간 표시
+  - `_cam_preview_Label`: 높이 120 px 라이브 썸네일 (카메라 ON 시 표시)
+  - `_cam_snapshot_CheckBox` "📸 스냅샷 저장 (CSV 동기화)": 카메라 ON 시 활성
+- **FFT 카메라 자동 저장**: 카메라 소스 선택 시 `is_fresh()` 확인 후 cam_meta 포함 저장
+  - `cam_label`, `cam_hm_conf`, `cam_bg_conf`, `timestamp` 열 CSV에 추가
+  - stale 프레임은 저장 스킵
+
+### 추가 (`debugger_start.py`) — 스냅샷 저장 (STEP 5)
+- `_save_cam_snapshot(frame_bgr, timestamp)`: FFT 샘플 저장 시 카메라 프레임을 동시 저장
+  - 저장 경로: `data_csv/snapshots/frame_{timestamp:.3f}.jpg`
+  - CSV `timestamp` 열과 1:1 파일명 매핑 → 시각적 검증 가능
+  - `_cam_snapshot_CheckBox` 체크 시에만 동작
+
+### 추가 (`AI/training_data_collector.py`)
+- `_build_header(has_cam=False)` — 카메라 세션 시 `cam_label`, `cam_hm_conf`, `cam_bg_conf`, `timestamp` 열 자동 추가
+- `save_sample(cam_meta: dict = None)` — `cam_meta` 수신 시 cam 열 기록
+
+---
+
 ## v1.5.20 — Human/BG 확신도 동시 표시
 
 **날짜:** 2026-05-13

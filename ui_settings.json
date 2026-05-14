@@ -24,6 +24,14 @@
       20
     ]
   },
+  "cam": {
+    "camera_index": 0,
+    "yolo_model": "yolov9e.pt",
+    "yolo_conf": 0.3,
+    "smooth_window": 10,
+    "smooth_thresh": 2,
+    "cam_max_age": 0.2
+  },
   "mlp": {
     "epochs": 2000,
     "lr_mantissa": 1.0,

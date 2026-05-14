@@ -368,7 +368,8 @@ class MLP_Module:
               weight_decay: float = None,
               filter_stride: int = None,
               filter_interval: int = None,
-              filter_mode: str = 'match') -> bool:
+              filter_mode: str = 'match',
+              use_cam_label: bool = False) -> bool:
         """
         CSV 파일을 로드해 MLP를 학습합니다.
 
@@ -442,6 +443,7 @@ class MLP_Module:
                                     filter_stride=filter_stride,
                                     filter_interval=filter_interval,
                                     filter_mode=filter_mode,
+                                    use_cam_label=use_cam_label,
                                     model_stem=stem)
         finally:
             sys.stdout = _orig_out
@@ -466,6 +468,7 @@ class MLP_Module:
                     filter_stride: int = None,
                     filter_interval: int = None,
                     filter_mode: str = 'match',
+                    use_cam_label: bool = False,
                     model_stem: str = None) -> bool:
         # 파라미터 기본값 설정 (train()에서 이미 확정되어 넘어오지만 단돈 방어)
         _epochs       = epochs        if epochs        is not None else EPOCHS
@@ -488,7 +491,8 @@ class MLP_Module:
         X_raw, y = self._load_csv(csv_path,
                                   filter_stride=filter_stride,
                                   filter_interval=filter_interval,
-                                  filter_mode=filter_mode)
+                                  filter_mode=filter_mode,
+                                  use_cam_label=use_cam_label)
         if X_raw is None:
             print("[MLP] ❌ 데이터 부족 또는 파일 없음 — 학습 불가")
             return False
@@ -1039,7 +1043,7 @@ class MLP_Module:
     # ─────────────────────────────────────────────────────────
     def _load_csv(self, csv_path: str, min_check: bool = True,
                   filter_stride: int = None, filter_interval: int = None,
-                  filter_mode: str = 'match'):
+                  filter_mode: str = 'match', use_cam_label: bool = False):
         """
         CSV 파일 또는 폴더 경로를 받아 (특징 행렬, 레이블 배열) 반환.
         폴더이면 svm_data*.csv 전체를 병합해 로드.
@@ -1084,6 +1088,10 @@ class MLP_Module:
                 # stride/interval 컬럼 인덱스 탐색 (없으면 None)
                 _stride_idx   = header.index('stride')   if header and 'stride'   in header else None
                 _interval_idx = header.index('interval') if header and 'interval' in header else None
+                # 카메라 메타 컬럼 인덱스 탐색 (학습 특징에서 제외해야 함)
+                _CAM_META_COLS = ('cam_label', 'cam_hm_conf', 'cam_bg_conf', 'timestamp')
+                _cam_meta_indices = [header.index(c) for c in _CAM_META_COLS if header and c in header]
+                _cam_label_idx = header.index('cam_label') if header and 'cam_label' in header else None
                 for row in reader:
                     if not row:
                         continue
@@ -1117,17 +1125,26 @@ class MLP_Module:
                             n_skipped += 1
                             continue
 
+                    # 레이블 결정
+                    if use_cam_label and _cam_label_idx is not None:
+                        _lbl = int(float(row[_cam_label_idx]))
+                        if _lbl == -1:  # 카메라 레이블 없는 행 제외
+                            n_skipped += 1
+                            continue
+                    else:
+                        _lbl = int(float(row[-1]))
+
                     # 마지막 컬럼이 레이블, 나머지가 특징
-                    # stride/interval 컬럼은 학습 특징에서 제외
+                    # stride/interval/카메라 메타 컬럼은 학습 특징에서 제외
                     raw_row = [float(v) for v in row[:-1]]
-                    if _stride_idx is not None:
-                        raw_row.pop(_stride_idx)
-                    # interval 컬럼은 stride 제거 후 인덱스 조정 필요
-                    if _interval_idx is not None:
-                        adj = _interval_idx - (1 if _stride_idx is not None and _interval_idx > _stride_idx else 0)
-                        raw_row.pop(adj)
+                    _remove_indices = sorted(
+                        {i for i in (_stride_idx, _interval_idx) if i is not None} | set(_cam_meta_indices),
+                        reverse=True)
+                    for _ri in _remove_indices:
+                        if _ri < len(raw_row):
+                            raw_row.pop(_ri)
                     X_list.append(raw_row)
-                    y_list.append(int(float(row[-1])))
+                    y_list.append(_lbl)
             n_added = len(X_list) - before
             n_skipped_total += n_skipped
             print(f"[MLP]   {os.path.basename(fpath):<50s} {n_added:4d}샘플" +

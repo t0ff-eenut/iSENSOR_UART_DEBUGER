@@ -38,13 +38,15 @@ assert len(_CSV_HEADER_FEATURES) == csv_layout.CSV_N_FEATURES, (
 )
 
 
-def _build_header(n_adc: int, n_fft: int, has_meta: bool = False) -> list:
-    """특징 21열 + adc_N열 + fft_M열 + {stride, interval?} + label 로 구성된 헤더를 반환."""
+def _build_header(n_adc: int, n_fft: int, has_meta: bool = False, has_cam: bool = False) -> list:
+    """특징 21열 + adc_N열 + fft_M열 + {stride, interval?} + {cam_label, cam_hm_conf, cam_bg_conf, timestamp?} + label 로 구성된 헤더를 반환."""
     h = list(_CSV_HEADER_FEATURES)
     h += [f"adc_{i}" for i in range(n_adc)]
     h += [f"fft_{i}" for i in range(n_fft)]
     if has_meta:
         h += ["stride", "interval"]
+    if has_cam:
+        h += ["cam_label", "cam_hm_conf", "cam_bg_conf", "timestamp"]
     h.append("label")
     return h
 
@@ -88,6 +90,7 @@ class TrainingDataCollector:
         self._I_FLUSH_EVERY: int  = 20    # 이 개수마다 CSV 에 한꺼번에 기록
         self._write_buffer: list  = []
         self._b_has_meta: bool    = False  # stride/interval 컬럼 사용 여부
+        self._b_has_cam:  bool    = False  # cam_label/cam_hm_conf/cam_bg_conf/timestamp 컬럼 사용 여부
         self._b_need_header: bool = not os.path.exists(str_csv_path)
 
         # ADC / FFT 배열 크기 (첫 샘플 수신 시 확정)
@@ -126,7 +129,8 @@ class TrainingDataCollector:
 
     def save_sample(self, ft, i_label: int,
                     A_adc=None, A_fft_mag=None,
-                    stride: int = 0, interval: int = 0):
+                    stride: int = 0, interval: int = 0,
+                    cam_meta: dict = None):
         """FftFeaturesData + 레이블(+ 선택적 원시 배열)를 버퍼에 추가하고 필요 시 CSV 에 flush.
 
         Args:
@@ -136,6 +140,8 @@ class TrainingDataCollector:
             A_fft_mag : FFT magnitude 배열 (list/ndarray, 예: 129개) — CNN 학습용
             stride    : FFT Stride (smp) — 나중에 stride별 필터 학습용 (0 = 미지정)
             interval  : 저장 주기 (FFT 갱신 횟수) — 나중에 interval별 필터 학습용 (0 = 미지정)
+            cam_meta  : 카메라 감지 결과 dict (None = 카메라 라벨링 미사용)
+                        keys: cam_label(int), cam_hm_conf(float), cam_bg_conf(float), timestamp(float)
         """
         if ft is None:
             return
@@ -157,8 +163,19 @@ class TrainingDataCollector:
             # 이전 샘플들은 meta가 있었으므로 이번도 0으로 넣음
             _has_meta = True
 
+        # cam_meta 존재 여부 트래킹 (세션 내 한 번이라도 cam_meta 가 전달되면 이후 모두 포함)
+        if cam_meta is not None and not self._b_has_cam:
+            self._b_has_cam = True
+        if cam_meta is None and self._b_has_cam:
+            # 이전 샘플들은 cam 컬럼이 있었으므로 sentinel 값으로 채움
+            cam_meta = {'cam_label': -1, 'cam_hm_conf': 0.0, 'cam_bg_conf': 0.0, 'timestamp': 0.0}
+
         meta_cols = [stride, interval] if self._b_has_meta else []
-        A_row = list(svm.feature_vector_from_uart(ft)) + A_adc_list + A_fft_list + meta_cols + [float(i_label)]
+        cam_cols  = (
+            [cam_meta['cam_label'], cam_meta['cam_hm_conf'], cam_meta['cam_bg_conf'], cam_meta['timestamp']]
+            if self._b_has_cam else []
+        )
+        A_row = list(svm.feature_vector_from_uart(ft)) + A_adc_list + A_fft_list + meta_cols + cam_cols + [float(i_label)]
 
         if i_label == svm.enum_label.LABEL_BACKGROUND:
             self.i_bg_count += 1
@@ -180,7 +197,7 @@ class TrainingDataCollector:
             writer = csv.writer(f)
             if b_write_header:
                 writer.writerow(_build_header(self._i_adc_len, self._i_fft_len,
-                                              has_meta=self._b_has_meta))
+                                              has_meta=self._b_has_meta, has_cam=self._b_has_cam))
                 self._b_need_header = False
             writer.writerows(self._write_buffer)
 
