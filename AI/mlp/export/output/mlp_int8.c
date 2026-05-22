@@ -27,39 +27,46 @@ static void _fc_q8(
 
 int mlp_int8_infer(const float *raw_input, float *human_prob) {
     /* Step 1: StandardScaler 정규화 */
-    float x[25];
-    for (int i = 0; i < 25; i++)
-        x[i] = (raw_input[i] - MLP_SCALER_MEAN[i]) / MLP_SCALER_STD[i];
+    float x[21];
+    for (int i = 0; i < 21; i++)
+        x[i] = (raw_input[i] - MLP_INT8_SCALER_MEAN[i]) / MLP_INT8_SCALER_STD[i];
 
     /* Step 2: 입력 → int8 양자화 */
-    int8_t x_q[25];
-    for (int i = 0; i < 25; i++) x_q[i] = _to_q8(x[i], MLP_L1_IN_SCALE);
+    int8_t x_q[21];
+    for (int i = 0; i < 21; i++) x_q[i] = _to_q8(x[i], MLP_L1_IN_SCALE);
 
     /* Step 3: Layer 1 */
-    float h1[128];
-    _fc_q8(x_q, 25, MLP_W1_Q, MLP_L1_IN_SCALE,
-           MLP_B1_Q, MLP_L1_ACC_SCALE, h1, 128, 1);
-    int8_t h1_q[128];
-    for (int i = 0; i < 128; i++) h1_q[i] = _to_q8(h1[i], MLP_L2_IN_SCALE);
+    float h1[256];
+    _fc_q8(x_q, 21, MLP_W1_Q, MLP_L1_IN_SCALE,
+           MLP_B1_Q, MLP_L1_ACC_SCALE, h1, 256, 1);
+    int8_t h1_q[256];
+    for (int i = 0; i < 256; i++) h1_q[i] = _to_q8(h1[i], MLP_L2_IN_SCALE);
 
     /* Step 4: Layer 2 */
-    float h2[64];
-    _fc_q8(h1_q, 128, MLP_W2_Q, MLP_L2_IN_SCALE,
-           MLP_B2_Q, MLP_L2_ACC_SCALE, h2, 64, 1);
-    int8_t h2_q[64];
-    for (int i = 0; i < 64; i++) h2_q[i] = _to_q8(h2[i], MLP_L3_IN_SCALE);
+    float h2[128];
+    _fc_q8(h1_q, 256, MLP_W2_Q, MLP_L2_IN_SCALE,
+           MLP_B2_Q, MLP_L2_ACC_SCALE, h2, 128, 1);
+    int8_t h2_q[128];
+    for (int i = 0; i < 128; i++) h2_q[i] = _to_q8(h2[i], MLP_L3_IN_SCALE);
 
     /* Step 5: Layer 3 */
-    float h3[32];
-    _fc_q8(h2_q, 64, MLP_W3_Q, MLP_L3_IN_SCALE,
-           MLP_B3_Q, MLP_L3_ACC_SCALE, h3, 32, 1);
-    int8_t h3_q[32];
-    for (int i = 0; i < 32; i++) h3_q[i] = _to_q8(h3[i], MLP_L4_IN_SCALE);
+    float h3[64];
+    _fc_q8(h2_q, 128, MLP_W3_Q, MLP_L3_IN_SCALE,
+           MLP_B3_Q, MLP_L3_ACC_SCALE, h3, 64, 1);
+    int8_t h3_q[64];
+    for (int i = 0; i < 64; i++) h3_q[i] = _to_q8(h3[i], MLP_L4_IN_SCALE);
 
     /* Step 6: Layer 4 */
+    float h4[32];
+    _fc_q8(h3_q, 64, MLP_W4_Q, MLP_L4_IN_SCALE,
+           MLP_B4_Q, MLP_L4_ACC_SCALE, h4, 32, 1);
+    int8_t h4_q[32];
+    for (int i = 0; i < 32; i++) h4_q[i] = _to_q8(h4[i], MLP_L5_IN_SCALE);
+
+    /* Step 7: Layer 5 */
     float out[2];
-    _fc_q8(h3_q, 32, MLP_W4_Q, MLP_L4_IN_SCALE,
-           MLP_B4_Q, MLP_L4_ACC_SCALE, out, 2, 0);
+    _fc_q8(h4_q, 32, MLP_W5_Q, MLP_L5_IN_SCALE,
+           MLP_B5_Q, MLP_L5_ACC_SCALE, out, 2, 0);
 
     /* Step Final: Softmax → 확률 */
     float mx = out[0] > out[1] ? out[0] : out[1];

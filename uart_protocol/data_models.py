@@ -98,6 +98,10 @@ class SensorData:
     fft_result:Optional['FftData'] = None
     # FFT 특징값 데이터 (타입 13)
     fft_features:Optional['FftFeaturesData'] = None
+    # MLP 추론 결과 (타입 14)
+    mlp_result:Optional['MlpResultData'] = None
+    # MLP 추론 결과 (타입 14)
+    mlp_result:Optional['MlpResultData'] = None
     
     # # 통합 데이터 (타입 7)
     # all_buffers: Optional[dict] = None
@@ -209,6 +213,8 @@ class ProfilingData:
     fft_loop_a_time_us:int               = 0
     fft_loop_b_time_us:int               = 0
     fft_loop_c_time_us:int               = 0
+    float32_mlp_infer_time_us:int        = 0
+    int8_mlp_infer_time_us:int           = 0
 
     def __repr__(self) -> str:
         return (
@@ -222,6 +228,37 @@ class ProfilingData:
             f"  fft_loop_a               = {self.fft_loop_a_time_us} µs\n"
             f"  fft_loop_b               = {self.fft_loop_b_time_us} µs\n"
             f"  fft_loop_c               = {self.fft_loop_c_time_us} µs\n"
+            f"  float32_mlp_infer        = {self.float32_mlp_infer_time_us} µs\n"
+            f"  int8_mlp_infer           = {self.int8_mlp_infer_time_us} µs\n"
+            f")"
+        )
+
+
+@dataclass
+class MlpResultData:
+    """
+    ESP32 MLP 추론 결과 (타입 14)
+
+    페이로드 레이아웃 (Big Endian, 16 bytes):
+    | 필드         | 크기 | 설명                              |
+    |-------------|------|----------------------------------|
+    | float_label | 4   | int32 BE  float MLP 클래스 (0=배경, 1=사람) |
+    | float_prob  | 4   | float32 BE  float MLP 확률 (0.0~1.0) |
+    | int_label   | 4   | int32 BE  int8 MLP 클래스 (0=배경, 1=사람) |
+    | int_prob    | 4   | float32 BE  int8 MLP 확률 (0.0~1.0) |
+    """
+    i_float_label: int   = 0    # float MLP: 0=배경, 1=사람
+    f_float_prob:  float = 0.0  # float MLP: 추론 확률 (0.0~1.0)
+    i_int_label:   int   = 0    # int8 MLP: 0=배경, 1=사람
+    f_int_prob:    float = 0.0  # int8 MLP: 추론 확률 (0.0~1.0)
+
+    def __repr__(self) -> str:
+        float_lbl = "사람" if self.i_float_label == 1 else "배경"
+        int_lbl   = "사람" if self.i_int_label   == 1 else "배경"
+        return (
+            f"\nMlpResultData(\n"
+            f"  float: {self.i_float_label} ({float_lbl})  prob={self.f_float_prob:.4f}\n"
+            f"  int8 : {self.i_int_label}   ({int_lbl})  prob={self.f_int_prob:.4f}\n"
             f")"
         )
 

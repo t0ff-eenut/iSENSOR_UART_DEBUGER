@@ -459,6 +459,26 @@ class _CamSettingsDialog(QDialog):
         self._cam_idx.setValue(settings.get("camera_index", 0))
         form.addRow("카메라 인덱스:", self._cam_idx)
 
+        self._backend = QComboBox()
+        for _b_label, _b_val in (
+            ("AUTO (YOLO → MediaPipe → HOG)", "auto"),
+            ("YOLO",       "yolo"),
+            ("MediaPipe",  "mediapipe"),
+            ("HOG",        "hog"),
+        ):
+            self._backend.addItem(_b_label, _b_val)
+        self._backend.setToolTip(
+            "AUTO: YOLO 설치 여부에 따라 자동 선택\n"
+            "YOLO: 바운딩 박스 기반, 상반신 포함 (권장)\n"
+            "MediaPipe: 33개 관절 스켈레톤 기반\n"
+            "HOG: 전통적 HOG+SVM, 전신 기준 (폴백)"
+        )
+        cur_backend = settings.get("backend", "auto")
+        _bi = self._backend.findData(cur_backend)
+        if _bi >= 0:
+            self._backend.setCurrentIndex(_bi)
+        form.addRow("감지 백엔드:", self._backend)
+
         self._yolo_model = QComboBox()
         self._yolo_model.setEditable(True)
         for m in (
@@ -483,6 +503,7 @@ class _CamSettingsDialog(QDialog):
             self._yolo_model.setCurrentIndex(idx)
         else:
             self._yolo_model.setCurrentText(cur)
+        self._yolo_model_label = form.labelForField(None)  # placeholder
         form.addRow("YOLO 모델:", self._yolo_model)
 
         self._yolo_conf = QDoubleSpinBox()
@@ -491,6 +512,41 @@ class _CamSettingsDialog(QDialog):
         self._yolo_conf.setDecimals(2)
         self._yolo_conf.setValue(settings.get("yolo_conf", 0.3))
         form.addRow("YOLO 임계값 (conf):", self._yolo_conf)
+
+        # 백엔드 변경 시 YOLO 전용 행 show/hide
+        def _on_backend_changed(index):
+            _val = self._backend.itemData(index)
+            _yolo_only = (_val in ("auto", "yolo"))
+            _mp_only   = (_val == "mediapipe")
+            self._yolo_model.setVisible(_yolo_only)
+            self._yolo_conf.setVisible(_yolo_only)
+            self._mp_delegate.setVisible(_mp_only)
+            # QFormLayout 라벨도 함께 토글
+            for _row in range(form.rowCount()):
+                _lbl = form.itemAt(_row, QFormLayout.ItemRole.LabelRole)
+                _fld = form.itemAt(_row, QFormLayout.ItemRole.FieldRole)
+                if _fld and _fld.widget() in (self._yolo_model, self._yolo_conf):
+                    if _lbl and _lbl.widget():
+                        _lbl.widget().setVisible(_yolo_only)
+                if _fld and _fld.widget() is self._mp_delegate:
+                    if _lbl and _lbl.widget():
+                        _lbl.widget().setVisible(_mp_only)
+        self._backend.currentIndexChanged.connect(_on_backend_changed)
+
+        self._mp_delegate = QComboBox()
+        self._mp_delegate.addItem("CPU", "cpu")
+        self._mp_delegate.addItem("GPU", "gpu")
+        self._mp_delegate.setToolTip(
+            "MediaPipe 추론 장치\n"
+            "GPU: 속도 향상, 미지원 시 자동 CPU 폴백\n"
+            "CPU: 모든 환경에서 안정적 (기본값)"
+        )
+        _di = self._mp_delegate.findData(settings.get("mp_delegate", "cpu"))
+        if _di >= 0:
+            self._mp_delegate.setCurrentIndex(_di)
+        form.addRow("MediaPipe Delegate:", self._mp_delegate)
+
+        _on_backend_changed(self._backend.currentIndex())  # 초기 상태 적용
 
         self._smooth_win = QSpinBox()
         self._smooth_win.setRange(1, 60)
@@ -513,8 +569,10 @@ class _CamSettingsDialog(QDialog):
     def get_settings(self) -> dict:
         return {
             "camera_index":  self._cam_idx.value(),
+            "backend":       self._backend.currentData(),
             "yolo_model":    self._yolo_model.currentText().strip(),
             "yolo_conf":     self._yolo_conf.value(),
+            "mp_delegate":   self._mp_delegate.currentData(),
             "smooth_window": self._smooth_win.value(),
             "smooth_thresh": self._smooth_thr.value(),
         }
@@ -666,7 +724,12 @@ class MainWindow(QMainWindow):
         self.A_mlp_probability  = [1.0, 0.0]
         self.i_mlp_label        = 0
         self.f_mlp_confidence   = 0.0
-        self._mlp_history: deque = deque(maxlen=100)  # 최근 100프레임 판정 이력
+        self._mlp_history_window: int = 100  # 히스토리 윈도우 크기 (프레임 수)
+        self._mlp_history: deque = deque(maxlen=self._mlp_history_window)
+        # 확률 히스토리 — 꺾은선 그래프용 (PC / ESP32 float32 / ESP32 int8)
+        self._mlp_pc_prob_history: deque      = deque(maxlen=self._mlp_history_window)
+        self._esp32_float_prob_history: deque = deque(maxlen=self._mlp_history_window)
+        self._esp32_int8_prob_history: deque  = deque(maxlen=self._mlp_history_window)
         # ############################# COPILOT EDIT END
 
         self.svm_x_col:svm.enum_csv_col = svm.enum_csv_col.SPECTRAL_FLATNESS
@@ -708,6 +771,30 @@ class MainWindow(QMainWindow):
         self.adc_tp1_setting(10)
         self.adc_tp1_rck_setting(1000)
         self.adc_smapling_rate_setting(100)
+
+        # ADC 그래프 업데이트 스로틀 타이머 (100Hz 수신 → 최대 30fps 렌더)
+        self._last_adc_graph_update: float = 0.0
+        _ADC_GRAPH_INTERVAL = 1.0 / 30  # 33ms — 이 상수는 event_update_ui 안에서도 사용
+        self._ADC_GRAPH_INTERVAL: float = _ADC_GRAPH_INTERVAL
+
+        # 스냅샷 상주 워커 (매번 Thread 생성 시 Windows OS 스레드 생성 수십ms 방지)
+        import threading as _threading, queue as _queue
+        import datetime as _dt_sess
+        _sess_dt = _dt_sess.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._snap_dir: str = os.path.join("data_csv", "snapshots", _sess_dt)
+        os.makedirs(self._snap_dir, exist_ok=True)   # 앱 시작 시 한 번만 생성
+        self._snap_queue: _queue.Queue = _queue.Queue()
+        def _snap_worker_loop():
+            import cv2 as _cv2
+            while True:
+                _job = self._snap_queue.get()
+                try:
+                    _cv2.imwrite(_job[0], _job[1])
+                except Exception:
+                    pass
+                finally:
+                    self._snap_queue.task_done()
+        _threading.Thread(target=_snap_worker_loop, daemon=True).start()
 
 
         
@@ -839,12 +926,14 @@ class MainWindow(QMainWindow):
         self.main_HBoxLayout.addWidget(self.left_Widget, stretch=1)     # 1-1. 상위 레이아웃에 위젯 적용
 
 # --- 좌측 패널 구성 ---
-        self.left_GridLayout = QGridLayout()            # 2. 5열 그리드 레이아웃 생성
+        self.left_GridLayout = QGridLayout()            # 2. 7열 그리드 레이아웃 생성
         self.left_GridLayout.setColumnStretch(0, 2)     # Col0 Connection   - 2배
         self.left_GridLayout.setColumnStretch(1, 2)     # Col1 ESP Control  - 2배
         self.left_GridLayout.setColumnStretch(2, 1)     # Col2 ADC 주석     - 1배
         self.left_GridLayout.setColumnStretch(3, 2)     # Col3 SVM Setting  - 2배
-        self.left_GridLayout.setColumnStretch(4, 2)     # Col4 MLP Training - 2배
+        self.left_GridLayout.setColumnStretch(4, 2)     # Col4 SVM Setting  - 2배 (확장)
+        self.left_GridLayout.setColumnStretch(5, 2)     # Col5 MLP Training - 2배
+        self.left_GridLayout.setColumnStretch(6, 2)     # Col6 MLP Training - 2배 (확장)
         self.left_Widget.setLayout(self.left_GridLayout)     # 3. 레이아웃을 대상 위젯에 적용
 # --- 제어창 표시 설정 ---
         self.left_control_Label = QLabel("제어창")             # 1. 대상 위젯 생성
@@ -853,7 +942,7 @@ class MainWindow(QMainWindow):
                                               + MACRO_FONT_SIZE.format(14)
                                               )  # * 위젯 폰트 설정
         self.left_control_Label.setFixedHeight(30)             # * 위젯 가로 사이즈 설정
-        self.left_GridLayout.addWidget(self.left_control_Label, 0, 0, 1, 5)    # Row0 - 전체 5열 차지
+        self.left_GridLayout.addWidget(self.left_control_Label, 0, 0, 1, 7)    # Row0 - 전체 7열 차지
 # --- Connection 그룹 설정 ---
         self.connection_GroupBox = QGroupBox("Connection")             # 1. 대상 위젯 생성
         self.connection_GridLayout = QGridLayout()                     # 2. Grid 레이아웃 생성 
@@ -994,6 +1083,50 @@ class MainWindow(QMainWindow):
                                            )
         self.profiling_Label.setWordWrap(True)
         self.status_GridLayout.addWidget(self.profiling_Label)
+
+        self.esp32_mlp_float_result_Label = QLabel("🤖 [Float MLP] 수신 대기 중")
+        self.esp32_mlp_float_result_Label.setStyleSheet(""
+                                                        + MACRO_FONT_BOLD
+                                                        + MACRO_FONT_SIZE.format(9)
+                                                        + MACRO_BORDER_STYLE.format('none')
+                                                        )
+        self.status_GridLayout.addWidget(self.esp32_mlp_float_result_Label)
+
+        self.esp32_mlp_result_Label = QLabel("🤖 [Int8 MLP]  수신 대기 중")
+        self.esp32_mlp_result_Label.setStyleSheet(""
+                                                  + MACRO_FONT_BOLD
+                                                  + MACRO_FONT_SIZE.format(9)
+                                                  + MACRO_BORDER_STYLE.format('none')
+                                                  )
+        self.status_GridLayout.addWidget(self.esp32_mlp_result_Label)
+
+        # --- ESP32 MLP Enable 토글 버튼 ---
+        self._mlp_enable_widget = QWidget()
+        _mlp_enable_hbox = QHBoxLayout(self._mlp_enable_widget)
+        _mlp_enable_hbox.setContentsMargins(0, 0, 0, 0)
+        _mlp_enable_hbox.setSpacing(4)
+
+        self._btn_mlp_float_enable = QPushButton("Float32 MLP: ON")
+        self._btn_mlp_float_enable.setCheckable(True)
+        self._btn_mlp_float_enable.setChecked(True)
+        self._btn_mlp_float_enable.setStyleSheet(
+            "QPushButton{background:#2a6e2a;color:white;border-radius:4px;padding:2px 6px;font-size:9pt;}"
+            "QPushButton:!checked{background:#6e2a2a;}"
+        )
+        self._btn_mlp_float_enable.toggled.connect(self._on_mlp_float_enable_toggled)
+        _mlp_enable_hbox.addWidget(self._btn_mlp_float_enable)
+
+        self._btn_mlp_int8_enable = QPushButton("Int8 MLP: ON")
+        self._btn_mlp_int8_enable.setCheckable(True)
+        self._btn_mlp_int8_enable.setChecked(True)
+        self._btn_mlp_int8_enable.setStyleSheet(
+            "QPushButton{background:#2a6e2a;color:white;border-radius:4px;padding:2px 6px;font-size:9pt;}"
+            "QPushButton:!checked{background:#6e2a2a;}"
+        )
+        self._btn_mlp_int8_enable.toggled.connect(self._on_mlp_int8_enable_toggled)
+        _mlp_enable_hbox.addWidget(self._btn_mlp_int8_enable)
+
+        self.status_GridLayout.addWidget(self._mlp_enable_widget)
 
 # --- TP 제어 그룹 설정 ---
         self.tp_setting_GroupBox = QGroupBox("TP Setting")             # 1. 대상 위젯 생성
@@ -1226,7 +1359,7 @@ class MainWindow(QMainWindow):
         self.svm_collect_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
         self.svm_collect_GridLayout = QGridLayout()
         self.svm_collect_GroupBox.setLayout(self.svm_collect_GridLayout)
-        self.left_GridLayout.addWidget(self.svm_collect_GroupBox, 1, 3, 3, 1)          # Row1-3 Col3 - SVM Setting
+        self.left_GridLayout.addWidget(self.svm_collect_GroupBox, 1, 3, 3, 2)          # Row1-3 Col3-4 - SVM Setting (2열)
 
         # --- FFT Features 패널 (SVM Setting 오른쪽, Row5 Col1) ---
         self.fft_features_GroupBox = QGroupBox("FFT Features")
@@ -1284,13 +1417,26 @@ class MainWindow(QMainWindow):
         _interval_label = QLabel("저장 주기(FFT 횟수):")
         _interval_label.setStyleSheet("" + MACRO_FONT_BOLD)
         self.svm_collect_GridLayout.addWidget(_interval_label, 3, 0)
+
+        _interval_row_widget = QWidget()
+        _interval_row_hbox   = QHBoxLayout(_interval_row_widget)
+        _interval_row_hbox.setContentsMargins(0, 0, 0, 0)
+        _interval_row_hbox.setSpacing(4)
         self.svm_auto_save_interval_SpinBox = QSpinBox()
         self.svm_auto_save_interval_SpinBox.setRange(1, 500)
         self.svm_auto_save_interval_SpinBox.setSingleStep(1)
         self.svm_auto_save_interval_SpinBox.setValue(1)
         self.svm_auto_save_interval_SpinBox.setSuffix(" 회")
         self.svm_auto_save_interval_SpinBox.valueChanged.connect(self.event_svm_auto_save_interval_changed)
-        self.svm_collect_GridLayout.addWidget(self.svm_auto_save_interval_SpinBox, 3, 1)
+        self._save_interval_hint_Label = QLabel("≈ 0.32초마다")
+        self._save_interval_hint_Label.setStyleSheet("color: gray; font-size: 9px; " + MACRO_BORDER_STYLE.format('none'))
+        self._save_interval_hint_Label.setToolTip(
+            "저장 주기(s) = FFT횟수 x fft_stride / ADC 샘플링레이트\n"
+            "iSENSOR 기본값 32스트라이드 / 100Hz = 0.32초"
+        )
+        _interval_row_hbox.addWidget(self.svm_auto_save_interval_SpinBox)
+        _interval_row_hbox.addWidget(self._save_interval_hint_Label)
+        self.svm_collect_GridLayout.addWidget(_interval_row_widget, 3, 1)
 
         # ── 라벨링 소스 선택 ─────────────────────────────────────────────────
         _lbl_src_label = QLabel("라벨링 소스:")
@@ -1304,14 +1450,39 @@ class MainWindow(QMainWindow):
         _lbl_src_hbox.setContentsMargins(0, 0, 0, 0)
         self._cam_label_radio_manual = QRadioButton("수동")
         self._cam_label_radio_camera = QRadioButton("카메라")
+        self._cam_label_radio_fixed  = QRadioButton("📸 고정 라벨")
         self._cam_label_radio_manual.setChecked(True)
         self._cam_label_radio_group  = QButtonGroup(self)
         self._cam_label_radio_group.addButton(self._cam_label_radio_manual)
         self._cam_label_radio_group.addButton(self._cam_label_radio_camera)
+        self._cam_label_radio_group.addButton(self._cam_label_radio_fixed)
         _lbl_src_hbox.addWidget(self._cam_label_radio_manual)
         _lbl_src_hbox.addWidget(self._cam_label_radio_camera)
+        _lbl_src_hbox.addWidget(self._cam_label_radio_fixed)
         self._cam_label_radio_manual.toggled.connect(self._on_label_mode_changed)
+        self._cam_label_radio_camera.toggled.connect(self._on_label_mode_changed)
+        self._cam_label_radio_fixed.toggled.connect(self._on_label_mode_changed)
         self.svm_collect_GridLayout.addWidget(_lbl_src_widget, 4, 1)
+
+        # ── 고정 라벨 값 선택 위젯 (📸 고정 라벨 모드 전용, 평소에는 숨김) ──
+        self._cam_fixed_label_widget = QWidget()
+        self._cam_fixed_label_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        _fixed_hbox = QHBoxLayout(self._cam_fixed_label_widget)
+        _fixed_hbox.setContentsMargins(0, 0, 0, 0)
+        _fixed_hbox.setSpacing(4)
+        _fixed_lbl = QLabel("고정 라벨:")
+        _fixed_lbl.setStyleSheet("color: gray; font-size: 10px;")
+        self._cam_fixed_bg_radio    = QRadioButton("0 배경")
+        self._cam_fixed_human_radio = QRadioButton("1 사람")
+        self._cam_fixed_bg_radio.setChecked(True)
+        self._cam_fixed_label_group = QButtonGroup(self)
+        self._cam_fixed_label_group.addButton(self._cam_fixed_bg_radio,    0)
+        self._cam_fixed_label_group.addButton(self._cam_fixed_human_radio, 1)
+        _fixed_hbox.addWidget(_fixed_lbl)
+        _fixed_hbox.addWidget(self._cam_fixed_bg_radio)
+        _fixed_hbox.addWidget(self._cam_fixed_human_radio)
+        self._cam_fixed_label_widget.hide()   # 기본 숨김
+        self.svm_collect_GridLayout.addWidget(self._cam_fixed_label_widget, 4, 0)
 
         # 카메라 ON/OFF 토글 버튼
         _CAM_TOGGLE_STYLE = (
@@ -1378,6 +1549,14 @@ class MainWindow(QMainWindow):
         self._cam_snapshot_CheckBox.toggled.connect(
             lambda checked: self.collector.flush_write_buffer() if not checked else None
         )
+
+        # 저장 파이프라인 타이밍 표시 라벨
+        self._save_perf_Label = QLabel("─ 저장 파이프라인 ─\n대기 중")
+        self._save_perf_Label.setStyleSheet(
+            "font-family: Consolas, monospace; font-size: 8pt; color: #aaaaaa;"
+            + MACRO_BORDER_STYLE.format('none')
+        )
+        self._save_perf_Label.setWordWrap(False)
         self._cam_popup_CheckBox = QCheckBox("🖥️ 팝업 창으로 보기")
         self._cam_popup_CheckBox.setEnabled(False)
         self._cam_popup_CheckBox.setToolTip("카메라 영상을 별도 팝업 창에서 확대해서 확인")
@@ -1386,6 +1565,7 @@ class MainWindow(QMainWindow):
         _cam_info_vbox.addWidget(self._cam_preview_Label)
         _cam_info_vbox.addWidget(self._cam_snapshot_CheckBox)
         _cam_info_vbox.addWidget(self._cam_popup_CheckBox)
+        _cam_info_vbox.addWidget(self._save_perf_Label)
         self.svm_collect_GridLayout.addWidget(_cam_info_widget, 6, 0, 1, 2)
 
         # 단축키: 1=배경 자동 토글, 2=사람 자동 토글, 3=학습 데이터 삭제
@@ -1486,7 +1666,7 @@ class MainWindow(QMainWindow):
         self.mlp_train_GroupBox.setStyleSheet("" + MACRO_BORDER_RADIUS.format(6))
         self.mlp_train_GridLayout = QGridLayout()
         self.mlp_train_GroupBox.setLayout(self.mlp_train_GridLayout)
-        self.left_GridLayout.addWidget(self.mlp_train_GroupBox, 1, 4, 3, 1)     # Row1-3 Col4 - MLP Training
+        self.left_GridLayout.addWidget(self.mlp_train_GroupBox, 1, 5, 3, 2)     # Row1-3 Col5-6 - MLP Training (2열)
 
         # CSV 파일 선택 레이블 + 버튼
         self.mlp_csv_Label = QLabel("CSV: data_csv/ 전체 병합 학습")
@@ -1498,6 +1678,7 @@ class MainWindow(QMainWindow):
         self.mlp_data_count_Label.setStyleSheet(
             MACRO_BORDER_STYLE.format('none') + MACRO_FONT_BOLD
         )
+        self.mlp_data_count_Label.setWordWrap(True)
         self.mlp_train_GridLayout.addWidget(self.mlp_data_count_Label, 1, 0, 1, 2)
 
         # 필터링된 데이터 수 표시 레이블
@@ -1857,31 +2038,22 @@ class MainWindow(QMainWindow):
         self.mlp_progress_ProgressBar.setFormat("대기 중")
         self.mlp_train_GridLayout.addWidget(self.mlp_progress_ProgressBar, 19, 0, 1, 2)
 
-        # 학습 상태 레이블
+        # 학습 상태 레이블  [row 20]
         self.mlp_status_Label = QLabel("미학습" if not self.mlp_handle.b_is_trained else "모델 로드 완료")
         self.mlp_status_Label.setStyleSheet("" + MACRO_FONT_BOLD + MACRO_BORDER_STYLE.format('none'))
         self.mlp_train_GridLayout.addWidget(self.mlp_status_Label, 20, 0, 1, 2)
 
         # ── 저장 모델 선택 ──────────────────────────────────────
+        # [row 21] 라벨 | ComboBox
         self.mlp_model_Label = QLabel("💾 모델 선택")
         self.mlp_model_Label.setStyleSheet(MACRO_BORDER_STYLE.format('none'))
-        self.mlp_train_GridLayout.addWidget(self.mlp_model_Label, 20, 0)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_Label, 21, 0)
 
         self.mlp_model_ComboBox = QComboBox()
         self.mlp_model_ComboBox.setToolTip("models/ 폴더의 버전 .pt 파일 목록")
         self.mlp_train_GridLayout.addWidget(self.mlp_model_ComboBox, 21, 1)
 
-        self.mlp_model_refresh_PushButton = QPushButton("🔄 목록 갱신")
-        self.mlp_model_refresh_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
-        self.mlp_model_refresh_PushButton.clicked.connect(self._refresh_mlp_model_list)
-        self.mlp_train_GridLayout.addWidget(self.mlp_model_refresh_PushButton, 22, 0)
-
-        self.mlp_model_load_PushButton = QPushButton("📂 모델 로드")
-        self.mlp_model_load_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
-        self.mlp_model_load_PushButton.clicked.connect(self.event_mlp_load_model)
-        self.mlp_train_GridLayout.addWidget(self.mlp_model_load_PushButton, 22, 1)
-
-        # GPU 상태 레이블
+        # GPU 상태 레이블  [row 22]
         import torch as _torch_check
         _cuda_ok   = _torch_check.cuda.is_available()
         _gpu_name  = _torch_check.cuda.get_device_name(0) if _cuda_ok else None
@@ -1895,14 +2067,25 @@ class MainWindow(QMainWindow):
             "torch.cuda.is_available() 결과\n"
             "🔴 이면 pip install torch --index-url https://download.pytorch.org/whl/cu124 로 재설치 필요"
         )
-        self.mlp_train_GridLayout.addWidget(self.mlp_gpu_status_Label, 21, 0, 1, 2)
+        self.mlp_train_GridLayout.addWidget(self.mlp_gpu_status_Label, 22, 0, 1, 2)
 
-        # 모델 탐색기 실행 버튼
+        # [row 23] 목록 갱신 | 모델 로드
+        self.mlp_model_refresh_PushButton = QPushButton("🔄 목록 갱신")
+        self.mlp_model_refresh_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.mlp_model_refresh_PushButton.clicked.connect(self._refresh_mlp_model_list)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_refresh_PushButton, 23, 0)
+
+        self.mlp_model_load_PushButton = QPushButton("📂 모델 로드")
+        self.mlp_model_load_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
+        self.mlp_model_load_PushButton.clicked.connect(self.event_mlp_load_model)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_load_PushButton, 23, 1)
+
+        # 모델 탐색기 실행 버튼  [row 24]
         self.mlp_model_explorer_PushButton = QPushButton("🔍 모델 탐색기 열기")
         self.mlp_model_explorer_PushButton.setStyleSheet("" + BUTTON_HOVER_BG % cfg.LINE_COLOR)
         self.mlp_model_explorer_PushButton.setToolTip("AI/mlp/models/model_explorer.py 를 별도 창으로 실행")
         self.mlp_model_explorer_PushButton.clicked.connect(self._open_model_explorer)
-        self.mlp_train_GridLayout.addWidget(self.mlp_model_explorer_PushButton, 22, 0, 1, 2)
+        self.mlp_train_GridLayout.addWidget(self.mlp_model_explorer_PushButton, 24, 0, 1, 2)
 
         # 초기 목록 채우기
         self._refresh_mlp_model_list()
@@ -2514,10 +2697,17 @@ class MainWindow(QMainWindow):
     # ── 카메라 라벨링 이벤트 핸들러 ──────────────────────────────────────────
 
     def _on_label_mode_changed(self, checked: bool):
-        """수동 / 카메라 라디오버튼 전환"""
+        """수동 / 카메라 / 고정 라벨 라디오버튼 전환"""
         is_manual = self._cam_label_radio_manual.isChecked()
+        is_fixed  = self._cam_label_radio_fixed.isChecked()
+
+        # 카메라 토글 버튼: 카메라 또는 고정 라벨 모드에서만 활성
         self._cam_toggle_Button.setEnabled(not is_manual)
-        self._cam_max_age_SpinBox.setEnabled(not is_manual)
+        self._cam_max_age_SpinBox.setEnabled(not is_manual and not is_fixed)
+
+        # 고정 라벨 값 선택 위젯 표시/숨김
+        self._cam_fixed_label_widget.setVisible(is_fixed)
+
         if is_manual and self.webcam_worker and self.webcam_worker.isRunning():
             # 카메라 모드 → 수동으로 전환 시 자동으로 카메라 끄기
             self._cam_toggle_Button.setChecked(False)
@@ -2549,6 +2739,8 @@ class MainWindow(QMainWindow):
         if self.webcam_worker and self.webcam_worker.isRunning():
             return
         _s = self._cam_settings
+        # 고정 라벨 모드: 모델 없이 프레임만 캡처
+        _backend = "none" if self._cam_label_radio_fixed.isChecked() else _s.get("backend", "auto")
         self.webcam_worker = WebcamWorker(
             camera_index=_s["camera_index"],
             yolo_model=_s["yolo_model"],
@@ -2556,14 +2748,22 @@ class MainWindow(QMainWindow):
             smooth_window=_s["smooth_window"],
             smooth_thresh=_s["smooth_thresh"],
             cam_max_age=self._cam_max_age_SpinBox.value(),
+            backend=_backend,
+            mp_delegate=_s.get("mp_delegate", "cpu"),
         )
         self.webcam_worker.result_ready.connect(self._on_cam_result)
         self.webcam_worker.frame_ready.connect(self._on_cam_frame)
         self.webcam_worker.error_occurred.connect(self._on_cam_error)
         self.webcam_worker.start()
+        _fixed_lbl_str = (
+            f" fixedLabel={'사람(1)' if self._cam_fixed_label_group.checkedId() == 1 else '배경(0)'}"
+            if self._cam_label_radio_fixed.isChecked() else ""
+        )
         self.log_TextEdit.append(
             f"[CAM] 카메라 라벨링 시작 "
-            f"(cam={_s['camera_index']} model={_s['yolo_model']} "
+            f"(cam={_s['camera_index']} backend={_backend}"
+            f"{_fixed_lbl_str} "
+            f"model={_s['yolo_model']} "
             f"conf={_s['yolo_conf']:.2f} sw={_s['smooth_window']}/{_s['smooth_thresh']})"
         )
 
@@ -2616,7 +2816,7 @@ class MainWindow(QMainWindow):
                     pix.scaled(
                         lw if lw > 0 else 240, lh,
                         PyQt6.QtCore.Qt.AspectRatioMode.KeepAspectRatio,
-                        PyQt6.QtCore.Qt.TransformationMode.SmoothTransformation,
+                        PyQt6.QtCore.Qt.TransformationMode.FastTransformation,
                     )
                 )
             # 팝업 창
@@ -2626,15 +2826,17 @@ class MainWindow(QMainWindow):
             pass   # 프레임 변환 실패 시 조용히 무시
 
     def _save_cam_snapshot(self, frame_bgr, timestamp: float) -> None:
-        """카메라 프레임을 data_csv/snapshots/frame_{timestamp:.3f}.jpg 에 저장."""
-        try:
-            import cv2
-            snap_dir = os.path.join("data_csv", "snapshots")
-            os.makedirs(snap_dir, exist_ok=True)
-            fname = os.path.join(snap_dir, f"frame_{timestamp:.3f}.jpg")
-            cv2.imwrite(fname, frame_bgr)
-        except Exception as exc:
-            self.log_TextEdit.append(f"[CAM] 스냅샷 저장 실패: {exc}")
+        """카메라 프레임을 data_csv/snapshots/frame_{YYYYMMDD_HHMMSS}_{timestamp:.3f}.jpg 에 저장.
+        frame.copy() 만 메인 스레드에서 수행, imwrite 는 상주 워커가 처리 (Thread 생성 오버헤드 없음).
+        파일명 형식: frame_20260522_153045_1748000123.456.jpg
+          - 날짜시간 부분: 사람이 읽기 쉬운 로컬 시간
+          - 마지막 숫자 (underscore 이후): Unix float — csv_label_editor 매칭에 사용
+        """
+        import datetime as _dt
+        frame_copy = frame_bgr.copy()   # 레퍼런스 교체 전 복사 (GIL 원자성 안전)
+        _dt_str = _dt.datetime.fromtimestamp(timestamp).strftime("%Y%m%d_%H%M%S")
+        fname = os.path.join(self._snap_dir, f"frame_{_dt_str}_{timestamp:.3f}.jpg")
+        self._snap_queue.put((fname, frame_copy))
 
     def _on_cam_popup_toggled(self, checked: bool) -> None:
         """\U0001f5a5\ufe0f 팝업 창 열기 / 닫기."""
@@ -2670,6 +2872,12 @@ class MainWindow(QMainWindow):
     def event_svm_auto_save_interval_changed(self, i_value: int):
         """자동 저장 주기 변경 (FFT 갱신 횟수)"""
         self.i_auto_save_stride = int(i_value)
+        # 힌트 라벨 갱신: 저장 주기(s) = FFT횟수 × fft_stride / sampling_rate
+        _fft_stride  = self.fft_stride_SpinBox.value() if hasattr(self, 'fft_stride_SpinBox') else 32
+        _samp_rate   = self.f_sampling_rate if hasattr(self, 'f_sampling_rate') and self.f_sampling_rate > 0 else 100.0
+        _interval_s  = i_value * _fft_stride / _samp_rate
+        if hasattr(self, '_save_interval_hint_Label'):
+            self._save_interval_hint_Label.setText(f"≈ {_interval_s:.2f}초마다")
 
     def event_svm_save_background(self):
         """현재 FFT 결과를 배경(0) 레이블로 저장"""
@@ -3049,7 +3257,7 @@ class MainWindow(QMainWindow):
             self.mlp_data_count_Label.setText("총 데이터: 0개  (CSV 없음)")
         else:
             self.mlp_data_count_Label.setText(
-                f"총 데이터: {total}개  (배경 {n_bg} / 사람 {n_human})"
+                f"총 데이터: {total}개 전체\n(배경 {n_bg} / 사람 {n_human})"
             )
         self._update_mlp_filtered_count()
 
@@ -3121,7 +3329,7 @@ class MainWindow(QMainWindow):
         # 학습 곡선 표시
         if history and history.get('epochs'):
             epochs     = history['epochs']
-            loss_data  = history.get('loss', [])
+            loss_data  = history.get('train_loss', [])
             val_loss_data = history.get('val_loss', [])
             train_data = history.get('train_acc', [])
             val_data   = history.get('val_acc', [])
@@ -3606,21 +3814,91 @@ class MainWindow(QMainWindow):
         self.mlp_plot_TabWidget.addTab(pw, "MLP 확률")
 
     def create_mlp_history_tab(self):
-        """MLP 판정 히스토리 탭 — 최근 100 프레임 판정을 색상 스트립으로 표시"""
+        """MLP 사람 확률 히스토리 탭 — 최근 N 프레임의 사람 확률을 꺾은선으로 표시
+        (PC MLP / ESP32 Float32 / ESP32 Int8 세 계열)
+        """
+        _tab_widget = QWidget()
+        _tab_vbox   = QVBoxLayout(_tab_widget)
+        _tab_vbox.setContentsMargins(0, 0, 0, 0)
+        _tab_vbox.setSpacing(2)
+
+        # ── 상단 컨트롤 바 ──────────────────────────────────────────
+        _ctrl_bar = QWidget()
+        _ctrl_hbox = QHBoxLayout(_ctrl_bar)
+        _ctrl_hbox.setContentsMargins(4, 2, 4, 2)
+        _ctrl_hbox.setSpacing(6)
+
+        _ctrl_hbox.addWidget(QLabel("윈도우 크기 (프레임):"))
+        self._mlp_hist_window_SpinBox = QSpinBox()
+        self._mlp_hist_window_SpinBox.setRange(10, 1000)
+        self._mlp_hist_window_SpinBox.setSingleStep(10)
+        self._mlp_hist_window_SpinBox.setValue(self._mlp_history_window)
+        self._mlp_hist_window_SpinBox.setFixedWidth(70)
+        self._mlp_hist_window_SpinBox.setToolTip("히스토리 그래프에 표시할 최대 프레임 수 (10 ~ 1000)")
+        self._mlp_hist_window_SpinBox.valueChanged.connect(self._on_mlp_hist_window_changed)
+        _ctrl_hbox.addWidget(self._mlp_hist_window_SpinBox)
+        _ctrl_hbox.addStretch()
+        _tab_vbox.addWidget(_ctrl_bar)
+
+        # ── 그래프 ────────────────────────────────────────────────
         pw = pyqtgraph.PlotWidget()
-        pw.setTitle("MLP 판정 히스토리  (🔴 사람 / 🔵 배경)", color='w', size='12pt')
+        pw.setTitle("MLP 사람 확률 히스토리", color='w', size='12pt')
+        pw.setLabel('left',   '사람 확률', **{'font-size': '11pt'})
         pw.setLabel('bottom', '← 오래된  |  최근 →', **{'font-size': '11pt'})
-        pw.hideAxis('left')
-        pw.setMouseEnabled(x=False, y=False)
+        pw.setYRange(0.0, 1.05, padding=0)
+        pw.showGrid(x=True, y=True, alpha=0.3)
         pw.setMenuEnabled(False)
+        pw.addLegend(offset=(10, 10))
+        self._mlp_hist_pw = pw  # x축 범위 갱신용 참조
 
-        self._mlp_history_img = pyqtgraph.ImageItem()
-        self._mlp_history_img.role = 'mlp_history_img'
-        pw.addItem(self._mlp_history_img)
-        pw.getViewBox().disableAutoRange()
-        pw.getViewBox().setRange(xRange=(0, 100), yRange=(0, 20), padding=0)
+        # 0.5 임계선
+        threshold_line = pyqtgraph.InfiniteLine(
+            pos=0.5, angle=0,
+            pen=pyqtgraph.mkPen('y', width=1, style=PyQt6.QtCore.Qt.PenStyle.DashLine)
+        )
+        pw.addItem(threshold_line)
 
-        self.mlp_plot_TabWidget.addTab(pw, "MLP 히스토리")
+        self._mlp_hist_curve_pc = pw.plot(
+            [], [],
+            pen=pyqtgraph.mkPen('#44aaff', width=2),
+            name='PC MLP'
+        )
+        self._mlp_hist_curve_esp_f32 = pw.plot(
+            [], [],
+            pen=pyqtgraph.mkPen('#ff9900', width=2),
+            name='ESP32 Float32'
+        )
+        self._mlp_hist_curve_esp_int8 = pw.plot(
+            [], [],
+            pen=pyqtgraph.mkPen('#ee4444', width=2),
+            name='ESP32 Int8'
+        )
+        _tab_vbox.addWidget(pw, stretch=1)
+
+        self.mlp_plot_TabWidget.addTab(_tab_widget, "MLP 히스토리")
+
+    def _on_mlp_hist_window_changed(self, value: int):
+        """히스토리 윈도우 크기 변경 — deque maxlen 재생성 후 그래프 초기화"""
+        self._mlp_history_window = value
+        # 기존 데이터를 새 크기로 잘라 유지
+        self._mlp_history           = deque(self._mlp_history,           maxlen=value)
+        self._mlp_pc_prob_history   = deque(self._mlp_pc_prob_history,   maxlen=value)
+        self._esp32_float_prob_history = deque(self._esp32_float_prob_history, maxlen=value)
+        self._esp32_int8_prob_history  = deque(self._esp32_int8_prob_history,  maxlen=value)
+        # x축 범위 갱신
+        self._mlp_hist_pw.setXRange(0, value, padding=0.02)
+
+    def _on_mlp_float_enable_toggled(self, checked: bool):
+        """Float32 MLP ON/OFF 토글 → ESP32 UART 명령 전송"""
+        self._btn_mlp_float_enable.setText(f"Float32 MLP: {'ON' if checked else 'OFF'}")
+        if self.command_sender is not None:
+            self.command_sender.send_set_mlp_float_enable(checked)
+
+    def _on_mlp_int8_enable_toggled(self, checked: bool):
+        """Int8 MLP ON/OFF 토글 → ESP32 UART 명령 전송"""
+        self._btn_mlp_int8_enable.setText(f"Int8 MLP: {'ON' if checked else 'OFF'}")
+        if self.command_sender is not None:
+            self.command_sender.send_set_mlp_int8_enable(checked)
 
     def create_mlp_train_curve_tab(self):
         """MLP 학습 곡선 탭 — 에폭별 Loss / Train Acc / Val Acc 실시간 표시"""
@@ -3772,20 +4050,24 @@ class MainWindow(QMainWindow):
     def update_exceed_points(self, inter_Widget:QWidget, A_inter_data:List) -> list:
         """TP1 초과 지점을 빨간색 점, TP1_RECHECK 초과 지점을 주황색 점으로 표시"""
 
-        A_i_tp1_over_x     = []  # 빨간 점 (TP1 ~ TP1_RECHECK)
-        A_i_tp1_over_y     = []
-        A_i_tp1_rck_over_x = []  # 주황 점 (TP1_RECHECK 초과)
-        A_i_tp1_rck_over_y = []  # BUG FIX: x로 오타나 있었음
-        
-        for i_count, value in enumerate(A_inter_data):
-            if self.i_tp1_rck > 0 and value > self.i_tp1_rck:
-                # TP1_RECHECK 초과 → 주황 점
-                A_i_tp1_rck_over_x.append(i_count)
-                A_i_tp1_rck_over_y.append(value)    
-            elif self.i_tp1 > 0 and value > self.i_tp1:
-                # TP1 초과 but TP1_RECHECK 이하 → 빨간 점
-                A_i_tp1_over_x.append(i_count)
-                A_i_tp1_over_y.append(value)
+        # numpy 벡터화 (Python for loop 대비 10~50× 속도, 버퍼 길이만큼의 O(n) Python 반복 제거)
+        _arr = numpy.asarray(A_inter_data, dtype=numpy.float64)
+        _idx = numpy.arange(len(_arr))
+
+        if self.i_tp1_rck > 0:
+            _rck_mask = _arr > self.i_tp1_rck
+        else:
+            _rck_mask = numpy.zeros(len(_arr), dtype=bool)
+
+        if self.i_tp1 > 0:
+            _tp1_mask = (_arr > self.i_tp1) & ~_rck_mask
+        else:
+            _tp1_mask = numpy.zeros(len(_arr), dtype=bool)
+
+        A_i_tp1_over_x     = _idx[_tp1_mask].tolist()
+        A_i_tp1_over_y     = _arr[_tp1_mask].tolist()
+        A_i_tp1_rck_over_x = _idx[_rck_mask].tolist()
+        A_i_tp1_rck_over_y = _arr[_rck_mask].tolist()
             
         target_scatter = None
         PlotItem = inter_Widget.getPlotItem()
@@ -3815,7 +4097,10 @@ class MainWindow(QMainWindow):
             y_max: 고정 Y축 최대값 (옵션)
             positive_only: True면 양수 값만 필터링해서 통계 계산
         """
-        
+        # 탭이 화면에 보이지 않으면 렌더링 스킵 (다른 탭 선택 시 ADC 100Hz 렌더 방지)
+        if inter_Widget is None or not inter_Widget.isVisible():
+            return
+
         PlotItem = inter_Widget.getPlotItem()
         lines = PlotItem.listDataItems()
         if lines:
@@ -4021,8 +4306,16 @@ class MainWindow(QMainWindow):
         self._svm_2d_model = None   # 이전 모델 즉시 무효화 (학습 완료 전까지 경계 숨김)
         self._rebuild_svm_2d()      # 백그라운드에서 재학습 시작 (뇌택 X)
     def update_svm_graph(self, inter_Widget:QWidget):
+        # 탭이 현재 화면에 보이지 않으면 스킵 (2D SVM predict 메인 스레드 실행 방지)
+        if inter_Widget is None or not inter_Widget.isVisible():
+            return
 
         self.set_svm_axis_labels(inter_Widget, self.svm_x_col, self.svm_y_col)
+
+        A_svm_bg_x   = []
+        A_svm_bg_y   = []
+        A_svm_occu_x = []
+        A_svm_occu_y = []
 
         for features, label in zip(self.svm_handle.A_train_features, self.svm_handle.A_train_labels):
             x = features[self.svm_x_col]
@@ -4181,6 +4474,10 @@ class MainWindow(QMainWindow):
         """PCA 2D 투영 탭 실시간 업데이트"""
         if inter_Widget is None:
             return
+        # 탭이 현재 화면에 보이지 않으면 무거운 연산 전체 스킵
+        # (160D RBF SVM.predict × 400~1600점이 메인 스레드에서 실행되어 'UI 응답없음' 유발)
+        if not inter_Widget.isVisible():
+            return
 
         A_pca_bg_x,   A_pca_bg_y   = [], []
         A_pca_occu_x, A_pca_occu_y = [], []
@@ -4228,7 +4525,7 @@ class MainWindow(QMainWindow):
                 _cache_key = (round(x_min, 4), round(x_max, 4), round(y_min, 4), round(y_max, 4))
                 if self._svm_pca_boundary_cache != _cache_key:
                     self._svm_pca_boundary_cache = _cache_key
-                    N = 40
+                    N = 20   # 40→20: 연산량 1/4 (160D RBF SVM × 400점)
                     pc1_grid = numpy.linspace(x_min, x_max, N)
                     pc2_grid = numpy.linspace(y_min, y_max, N)
                     xx, yy = numpy.meshgrid(pc1_grid, pc2_grid, indexing='ij')
@@ -4310,21 +4607,25 @@ class MainWindow(QMainWindow):
         else:
             self._mlp_conf_text.setText(f"○ 배경  {prob[0]*100:.1f}%", color='#55cc55')
 
-        # ── 히스토리 업데이트 ─────────────────────────────────────
+        # ── PC MLP 확률 히스토리 업데이트 ─────────────────────────
         self._mlp_history.append(self.i_mlp_label)
-        n = len(self._mlp_history)
+        self._mlp_pc_prob_history.append(float(prob[1]))
+        n = len(self._mlp_pc_prob_history)
         if n > 0:
-            # shape: (n, 20, 4) RGBA 이미지
-            img_arr = numpy.zeros((n, 20, 4), dtype=numpy.uint8)
-            for i, label in enumerate(self._mlp_history):
-                if label == svm.enum_label.LABEL_HUMAN:
-                    img_arr[i, :] = [232, 80, 76, 230]   # 빨강 = 사람
-                else:
-                    img_arr[i, :] = [76, 155, 232, 230]  # 파랑 = 배경
-            self._mlp_history_img.setImage(img_arr, autoLevels=False)
-            # 뷰 범위 고정 (가장 최근 100프레임이 오른쪽에 표시되도록)
-            self._mlp_history_img.getViewBox().setRange(
-                xRange=(0, 100), yRange=(0, 20), padding=0
+            x_pc = list(range(n))
+            self._mlp_hist_curve_pc.setData(x_pc, list(self._mlp_pc_prob_history))
+
+    def _update_esp32_mlp_history(self):
+        """ESP32 float32 / int8 확률 히스토리 꺾은선 업데이트"""
+        n_f = len(self._esp32_float_prob_history)
+        n_i = len(self._esp32_int8_prob_history)
+        if n_f > 0:
+            self._mlp_hist_curve_esp_f32.setData(
+                list(range(n_f)), list(self._esp32_float_prob_history)
+            )
+        if n_i > 0:
+            self._mlp_hist_curve_esp_int8.setData(
+                list(range(n_i)), list(self._esp32_int8_prob_history)
             )
 
     def closeEvent(self, event):
@@ -4367,6 +4668,7 @@ class MainWindow(QMainWindow):
                 'scaler':         self.mlp_scaler_ComboBox.currentIndex(),
                 'lr_patience':    self.mlp_lr_patience_SpinBox.value(),
                 'lr_factor':      str(self.mlp_lr_factor_DoubleSpinBox.value()),
+                'hist_window':    self._mlp_hist_window_SpinBox.value(),
             },
         }
         _path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ui_settings.json')
@@ -4401,6 +4703,14 @@ class MainWindow(QMainWindow):
 
         # MLP 파라미터 복원
         mlp = _cfg.get('mlp', {})
+
+        # MLP 히스토리 윈도우 복원
+        _hw = mlp.get('hist_window')
+        if _hw is not None:
+            try:
+                self._mlp_hist_window_SpinBox.setValue(int(_hw))
+            except Exception:
+                pass
 
         def _set_spin(widget, key):
             v = mlp.get(key)
@@ -4470,33 +4780,19 @@ class MainWindow(QMainWindow):
             self.buffer_setting(input_sensor_parser_data.A_adc_buffer)
             
 
-            get_Widget = self.get_TabWidget(ADC_RAW_FULL_SCALE_NAME)
-            self.update_adc_graph(get_Widget)
-            get_Widget = self.get_TabWidget(ADC_RAW_ZOOM_SCALE_NAME)
-            self.update_adc_graph(get_Widget)
+            # ADC 그래프 — 최대 30fps 스로틀 (100Hz × 2그래프 pyqtgraph 렌더 포화 방지)
+            _now_adc = time.perf_counter()
+            if _now_adc - self._last_adc_graph_update >= self._ADC_GRAPH_INTERVAL:
+                self._last_adc_graph_update = _now_adc
+                get_Widget = self.get_TabWidget(ADC_RAW_FULL_SCALE_NAME)
+                self.update_adc_graph(get_Widget)
+                get_Widget = self.get_TabWidget(ADC_RAW_ZOOM_SCALE_NAME)
+                self.update_adc_graph(get_Widget)
             
-            # ★ FFT 그래프는 FFT 패킷 수신 시(아래 블록)에서만 갱신 — ADC 수신마다 재호출 불필요
-            # (FFT는 FFT_STRIDE 샘플마다 1회 계산되므로 ADC보다 갱신 빈도가 낮음)
-
-            # ★ SVM 분석 및 그래프 업데이트 (학습된 경우에만)
-            if self.svm_handle.b_is_trained:
-                get_Widget = self.get_TabWidget(SVM_NAME)
-                self.update_svm_graph(get_Widget)
-                get_Widget = self.get_TabWidget(cfg.SVM_PCA_NAME)
-                self.update_svm_pca_graph(get_Widget)
-
-            # ★ MLP 추론 결과 라벨 업데이트
-            if self.mlp_handle.b_is_trained:
-                if self.i_mlp_label == svm.enum_label.LABEL_HUMAN:
-                    self.mlp_result_Label.setText(f"🔴 MLP: 사람 감지  ({self.f_mlp_confidence*100:.1f}%)")
-                    self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(9) + MACRO_TEXT_COLOR.format('#ff5555'))
-                else:
-                    self.mlp_result_Label.setText(f"🟢 MLP: 배경  ({self.f_mlp_confidence*100:.1f}%)")
-                    self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(9) + MACRO_TEXT_COLOR.format('#55cc55'))
-                self.update_mlp_visual()
-            else:
-                self.mlp_result_Label.setText("🤖 MLP: 미로드 (모델 없음)")
-                self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(9))
+            # ★ FFT/SVM/MLP 그래프는 FFT 패킷 수신 시(아래 블록)에서만 갱신
+            # ADC는 100Hz로 수신되지만 SVM/MLP 특징은 FFT 패킷 기반이므로
+            # ADC마다 update_svm_graph/update_mlp_visual 을 호출하면
+            # 메인 스레드에서 sklearn predict 가 100Hz로 실행되어 UI가 멈춤.
 
             # ★ 자동 저장 토글 ON 상태일 때 FFT 데이터 준비된 경우만, 구독 유니트에서 저장 (시간 기반 → FFT 갱신 횟수 기반로 변경)
             # 자동 저장은 아래 '# 5. ESP32 FFT 수신 데이터 업데이트' 블록에서 처리됨
@@ -4557,9 +4853,33 @@ class MainWindow(QMainWindow):
                 f"🔬 특징 추출:       {p.fft_features_process_time_us} µs\n"
                 f"🔁 FFT Loop A:     {p.fft_loop_a_time_us} µs\n"
                 f"🔁 FFT Loop B:     {p.fft_loop_b_time_us} µs\n"
-                f"🔁 FFT Loop C:     {p.fft_loop_c_time_us} µs"
+                f"🔁 FFT Loop C:     {p.fft_loop_c_time_us} µs\n"
+                f"🧠 F32 MLP 추론:   {p.float32_mlp_infer_time_us} µs\n"
+                f"🧠 Int8 MLP 추론:  {p.int8_mlp_infer_time_us} µs"
             )
             self.profiling_Label.setText(profiling_str)
+
+        # ESP32 MLP 추론 결과 업데이트 (타입 14)
+        if input_sensor_parser_data.mlp_result is not None:
+            r = input_sensor_parser_data.mlp_result
+            # float MLP 결과
+            float_lbl_str = "사람" if r.i_float_label == 1 else "배경"
+            float_color   = "#ff5555" if r.i_float_label == 1 else "#55cc55"
+            self.esp32_mlp_float_result_Label.setText(f"🤖 [Float MLP] {float_lbl_str} ({r.f_float_prob:.1%})")
+            self.esp32_mlp_float_result_Label.setStyleSheet(
+                MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(9) + f"color: {float_color};" + MACRO_BORDER_STYLE.format('none')
+            )
+            # int8 MLP 결과
+            int_lbl_str = "사람" if r.i_int_label == 1 else "배경"
+            int_color   = "#ff5555" if r.i_int_label == 1 else "#55cc55"
+            self.esp32_mlp_result_Label.setText(f"🤖 [Int8 MLP]  {int_lbl_str} ({r.f_int_prob:.1%})")
+            self.esp32_mlp_result_Label.setStyleSheet(
+                MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(9) + f"color: {int_color};" + MACRO_BORDER_STYLE.format('none')
+            )
+            # ESP32 확률 히스토리에 추가 후 그래프 갱신
+            self._esp32_float_prob_history.append(float(r.f_float_prob))
+            self._esp32_int8_prob_history.append(float(r.f_int_prob))
+            self._update_esp32_mlp_history()
 
         # 5. ESP32 FFT 수신 데이터 업데이트
         if input_sensor_parser_data.fft_features:
@@ -4569,12 +4889,11 @@ class MainWindow(QMainWindow):
             fft_data = input_sensor_parser_data.fft_result
             fft_output_size = len(fft_data.magnitudes)
             # 주파수 배열 계산: freq[k] = k × SAMPLING_FREQ / WINDOW_SIZE
-            import numpy as np
             self.A_fft_frequencies = numpy.array([k * self.f_sampling_rate / (2 * (fft_output_size - 1)) for k in range(fft_output_size)])
             self.A_fft_energies    = numpy.array(fft_data.energies,    dtype=numpy.uint32)   # re²+im² 정수 에너지
             self.A_fft_magnitudes  = numpy.array(fft_data.magnitudes,  dtype=numpy.float64)  # sqrt 복원 ADC 단위
             if fft_output_size > 0:
-                self.i_fft_peak_idx   = int(np.argmax(self.A_fft_magnitudes[1:]) + 1)  # DC 제외
+                self.i_fft_peak_idx   = int(numpy.argmax(self.A_fft_magnitudes[1:]) + 1)  # DC 제외
                 self.f_fft_peak_freq  = self.A_fft_frequencies[self.i_fft_peak_idx]
                 self.f_fft_peak_mag   = self.A_fft_magnitudes[self.i_fft_peak_idx]
             # FFT 그래프 갱신
@@ -4583,11 +4902,28 @@ class MainWindow(QMainWindow):
             get_Widget = self.get_TabWidget(ADC_FFT_ZOOM_SCALE_NAME)
             self.update_fft_graph(get_Widget)
 
+            # ★ SVM 그래프 — FFT 수신 시에만 갱신 (ADC 100Hz마다 하면 sklearn predict 100Hz → UI 멈춤)
+            if self.svm_handle.b_is_trained:
+                get_Widget = self.get_TabWidget(SVM_NAME)
+                self.update_svm_graph(get_Widget)
+                get_Widget = self.get_TabWidget(cfg.SVM_PCA_NAME)
+                self.update_svm_pca_graph(get_Widget)
+
+            # ★ MLP 결과 라벨 — FFT 수신 시에만 갱신
+            if self.mlp_handle.b_is_trained:
+                if self.i_mlp_label == svm.enum_label.LABEL_HUMAN:
+                    self.mlp_result_Label.setText(f"🔴 MLP: 사람 감지  ({self.f_mlp_confidence*100:.1f}%)")
+                    self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(9) + MACRO_TEXT_COLOR.format('#ff5555'))
+                else:
+                    self.mlp_result_Label.setText(f"🟢 MLP: 배경  ({self.f_mlp_confidence*100:.1f}%)")
+                    self.mlp_result_Label.setStyleSheet(MACRO_FONT_BOLD + MACRO_FONT_SIZE.format(9) + MACRO_TEXT_COLOR.format('#55cc55'))
+                self.update_mlp_visual()
+
             # ★ FFT 갱신 횟수 기반 자동 저장
             # ESP32에서 새 FFT 결과가 도착할 때마다 카운터 증가,
             # i_auto_save_stride회마다 SVM 특징을 1회 캐포마 함으로 동일 프레임 중복 저장 방지.
             _cam_active = (
-                self._cam_label_radio_camera.isChecked()
+                (self._cam_label_radio_camera.isChecked() or self._cam_label_radio_fixed.isChecked())
                 and self._cam_toggle_Button.isChecked()
                 and self.webcam_worker is not None
                 and self.webcam_worker.isRunning()
@@ -4609,8 +4945,17 @@ class MainWindow(QMainWindow):
                                 # 스냅샷 체크박스가 꺼져 있으면 CSV도 저장하지 않음
                                 if (self._cam_snapshot_CheckBox.isChecked()
                                         and self.webcam_worker.is_fresh()):
+                                    _tp0 = time.perf_counter()
+
+                                    # ① cam fetch
                                     _latest  = self.webcam_worker.latest()
-                                    _cam_lbl = _latest['label']
+                                    _tp1 = time.perf_counter()
+
+                                    # 고정 라벨 모드: 모델 판정 무시, 사용자 지정 값 사용
+                                    if self._cam_label_radio_fixed.isChecked():
+                                        _cam_lbl = self._cam_fixed_label_group.checkedId()  # 0 or 1
+                                    else:
+                                        _cam_lbl = _latest['label']
                                     _cam_meta = {
                                         'cam_label':   _cam_lbl,
                                         'cam_hm_conf': _latest['human_conf'],
@@ -4622,6 +4967,8 @@ class MainWindow(QMainWindow):
                                         if _cam_lbl == 1
                                         else svm.enum_label.LABEL_BACKGROUND
                                     )
+
+                                    # ② save_sample (row 빌드 + queue.put)
                                     self.collector.save_sample(
                                         self.fft_features_data, _i_label,
                                         A_adc=self.A_adc_buffer or None,
@@ -4629,13 +4976,35 @@ class MainWindow(QMainWindow):
                                         stride=self.i_auto_save_stride,
                                         interval=self.svm_auto_save_interval_SpinBox.value(),
                                         cam_meta=_cam_meta)
+                                    _tp2 = time.perf_counter()
+
                                     self.update_svm_label_count()
-                                    # ── 스냅샷 이미지 저장 ────────────────
+
+                                    # ③ 스냅샷 이미지 저장 (frame copy → 백그라운드 write)
                                     _frame = self.webcam_worker.latest_raw_frame()
                                     if _frame is not None:
                                         self._save_cam_snapshot(
                                             _frame, _cam_meta['timestamp']
                                         )
+                                    _tp3 = time.perf_counter()
+
+                                    # 타이밍 라벨 업데이트
+                                    _ms_cam  = (_tp1 - _tp0) * 1000
+                                    _ms_save = (_tp2 - _tp1) * 1000
+                                    _ms_snap = (_tp3 - _tp2) * 1000
+                                    _ms_tot  = (_tp3 - _tp0) * 1000
+                                    _q_size  = self.collector._write_queue.qsize()
+                                    _csv_ms  = self.collector.last_write_ms
+                                    _n_saved = self.collector.total_saved
+                                    self._save_perf_Label.setText(
+                                        f"─ 저장 파이프라인 ─\n"
+                                        f"① cam.fetch  {_ms_cam:6.2f}ms\n"
+                                        f"② save_sample{_ms_save:6.2f}ms\n"
+                                        f"③ snap.copy  {_ms_snap:6.2f}ms\n"
+                                        f"합계(UI블로킹){_ms_tot:6.2f}ms\n"
+                                        f"④ CSV write  {_csv_ms:6.2f}ms [async]\n"
+                                        f"Queue잔량:{_q_size:3d}  저장:{_n_saved:5d}행"
+                                    )
                                 # else: 체크박스 OFF 또는 stale — 저장 스킵
                             elif self.b_auto_save_bg:
                                 self.collector.save_sample(self.fft_features_data, svm.enum_label.LABEL_BACKGROUND,

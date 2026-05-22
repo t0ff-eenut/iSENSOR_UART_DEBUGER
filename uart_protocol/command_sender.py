@@ -247,6 +247,14 @@ class CommandSender:
     def send_set_led_onoff(self, b_on: bool) -> bool:
         return self.uart_send_data(self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_LED_ONOFF, bytes([0x01 if b_on else 0x00])))
 
+    def send_set_mlp_float_enable(self, b_on: bool) -> bool:
+        """Float32 MLP 추론 ON/OFF (payload: uint8_t)"""
+        return self.uart_send_data(self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_MLP_FLOAT_ENABLE, bytes([0x01 if b_on else 0x00])))
+
+    def send_set_mlp_int8_enable(self, b_on: bool) -> bool:
+        """Int8 MLP 추론 ON/OFF (payload: uint8_t)"""
+        return self.uart_send_data(self.make_uart_send_data(upcfg.UartCommandType.CMD_SET_MLP_INT8_ENABLE, bytes([0x01 if b_on else 0x00])))
+
     # def send_get_settings(self) -> bool:
     #     """설정값 요청 명령 전송
         

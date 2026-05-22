@@ -22,5 +22,7 @@ pandas>=1.5.0
 
 # Vision (웹캠 사람 감지)
 opencv-python>=4.8.0
-mediapipe>=0.10.0
+# mediapipe 0.10+ 는 solutions API 가 제거됨 → MediaPipe 백엔드 비활성화 (자동 HOG 폴백)
+# 0.9.x 는 PyPI에서 Python 3.10+ 전용 빌드로만 제공 — 현 환경에서 설치 불가
+mediapipe>=0.10.0   # 설치된 경우 YOLO/HOG 백엔드 사용 권장
 ultralytics>=8.0.0  # YOLOv8 (yolov8n.pt 첫 실행 시 자동 다운로드)

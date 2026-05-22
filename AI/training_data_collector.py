@@ -10,7 +10,9 @@ import csv
 import datetime
 import glob
 import os
+import queue
 import sys
+import threading
 
 # svm.py 는 AI/svm/ 에 위치
 _AI_DIR  = os.path.dirname(os.path.abspath(__file__))
@@ -96,6 +98,14 @@ class TrainingDataCollector:
         # ADC / FFT 배열 크기 (첫 샘플 수신 시 확정)
         self._i_adc_len: int = 0
         self._i_fft_len: int = 0
+
+        # CSV 비동기 쓰기: 상주 워커 스레드 + Queue
+        # 메인 스레드는 queue.put() 만 하고 즉시 리턴 — 파일 I/O 블로킹 없음
+        self._write_queue: queue.Queue = queue.Queue()
+        self.last_write_ms: float = 0.0   # 마지막 CSV write 소요 시간 (백그라운드, 외부 표시용)
+        self.total_saved:   int   = 0     # 누적 저장 행 수 (외부 표시용)
+        _t = threading.Thread(target=self._csv_writer_loop, daemon=True)
+        _t.start()
 
         # 앱 시작 시 기존 CSV 에서 카운터 초기화
         self._load_counts_from_csv()
@@ -188,17 +198,44 @@ class TrainingDataCollector:
             self.flush_write_buffer()
 
     def flush_write_buffer(self):
-        """버퍼에 쌓인 행들을 CSV 에 한 번에 기록."""
+        """버퍼에 쌓인 행들을 Queue 에 넣고 즉시 리턴. 실제 I/O 는 워커 스레드가 처리."""
         if not self._write_buffer:
             return
 
-        b_write_header = self._b_need_header
-        with open(self.str_csv_path, 'a', newline='') as f:
-            writer = csv.writer(f)
-            if b_write_header:
-                writer.writerow(_build_header(self._i_adc_len, self._i_fft_len,
-                                              has_meta=self._b_has_meta, has_cam=self._b_has_cam))
-                self._b_need_header = False
-            writer.writerows(self._write_buffer)
-
+        rows           = list(self._write_buffer)
         self._write_buffer.clear()
+        b_write_header = self._b_need_header
+        if b_write_header:
+            self._b_need_header = False
+
+        self._write_queue.put({
+            'rows':           rows,
+            'n_rows':         len(rows),
+            'csv_path':       self.str_csv_path,
+            'b_write_header': b_write_header,
+            'adc_len':        self._i_adc_len,
+            'fft_len':        self._i_fft_len,
+            'has_meta':       self._b_has_meta,
+            'has_cam':        self._b_has_cam,
+        })
+
+    def _csv_writer_loop(self):
+        """상주 백그라운드 스레드 — Queue 에서 작업을 꺼내 순서대로 CSV 에 기록."""
+        import time as _time
+        while True:
+            job = self._write_queue.get()   # 블로킹 대기 (CPU 소비 없음)
+            _t0 = _time.perf_counter()
+            try:
+                with open(job['csv_path'], 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    if job['b_write_header']:
+                        writer.writerow(_build_header(
+                            job['adc_len'], job['fft_len'],
+                            has_meta=job['has_meta'], has_cam=job['has_cam']))
+                    writer.writerows(job['rows'])
+                self.last_write_ms = ((_time.perf_counter() - _t0) * 1000)
+                self.total_saved  += job.get('n_rows', len(job['rows']))
+            except Exception:
+                pass
+            finally:
+                self._write_queue.task_done()

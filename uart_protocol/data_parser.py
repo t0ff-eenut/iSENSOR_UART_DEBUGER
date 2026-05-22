@@ -107,6 +107,9 @@ class DataParser:
 
             elif sensor_data.i_data_type == upcfg.UartDataType.FFT_FEATURES:
                 sensor_data.fft_features = self.fft_features_parser(complete_receive_data.bytes_data)
+
+            elif sensor_data.i_data_type == upcfg.UartDataType.MLP_RESULT:
+                sensor_data.mlp_result = self.mlp_result_parser(complete_receive_data.bytes_data)
                 
             # elif sensor_data.i_data_typ == upcfg.UartDataType.ALL_DATA:
             #     # ALL_DATA는 현재 미지원
@@ -364,7 +367,7 @@ class DataParser:
 
     def profiling_parser(self, bytes_data: bytes) -> updm.ProfilingData:
         """
-        프로파일링 데이터 파싱 (36 bytes: 9 x uint32_t Big Endian)
+        프로파일링 데이터 파싱 (40 bytes: 10 x uint32_t Big Endian)
 
         필드 순서 (펌웨어 UART_TX_PROFILING case 와 동일):
           0: adc_reading_time_us              (uint32 BE)
@@ -375,6 +378,8 @@ class DataParser:
           5: fft_features_process_time_us     (uint32 BE)
           6: fft_loop_a_time_us               (uint32 BE)
           7: fft_loop_b_time_us               (uint32 BE)
+          8: fft_loop_c_time_us               (uint32 BE)
+          9: mlp_infer_time_us                (uint32 BE)
           8: fft_loop_c_time_us               (uint32 BE)
 
         Args:
@@ -389,7 +394,7 @@ class DataParser:
             )
 
         fields = []
-        for i in range(9):
+        for i in range(11):
             offset = i * 4
             value = (
                 (bytes_data[offset]     << 24) |
@@ -409,6 +414,37 @@ class DataParser:
             fft_loop_a_time_us              = fields[6],
             fft_loop_b_time_us              = fields[7],
             fft_loop_c_time_us              = fields[8],
+            float32_mlp_infer_time_us       = fields[9],
+            int8_mlp_infer_time_us          = fields[10],
+        )
+
+    def mlp_result_parser(self, bytes_data: bytes) -> updm.MlpResultData:
+        """
+        MLP 추론 결과 파싱 (16 bytes: float MLP + int8 MLP 각 label(int32)+prob(float32))
+
+        페이로드 레이아웃 (Big Endian):
+          0- 3: i_float_label  (int32 BE  float MLP 클래스)
+          4- 7: f_float_prob   (float32 BE  float MLP 확률)
+          8-11: i_int_label    (int32 BE  int8 MLP 클래스)
+         12-15: f_int_prob     (float32 BE  int8 MLP 확률)
+        """
+        import struct
+
+        if len(bytes_data) != upcfg.RECEIVE_MLP_RESULT_TOTAL_SIZE:
+            raise ValueError(
+                f"MlpResultData: expected {upcfg.RECEIVE_MLP_RESULT_TOTAL_SIZE} bytes, got {len(bytes_data)}"
+            )
+
+        i_float_label = struct.unpack('>i', bytes_data[0:4])[0]
+        f_float_prob  = struct.unpack('>f', bytes_data[4:8])[0]
+        i_int_label   = struct.unpack('>i', bytes_data[8:12])[0]
+        f_int_prob    = struct.unpack('>f', bytes_data[12:16])[0]
+
+        return updm.MlpResultData(
+            i_float_label = i_float_label,
+            f_float_prob  = f_float_prob,
+            i_int_label   = i_int_label,
+            f_int_prob    = f_int_prob,
         )
 
     def fft_parser(self, bytes_data: bytes) -> updm.FftData:

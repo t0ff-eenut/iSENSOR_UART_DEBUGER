@@ -116,12 +116,13 @@ class UartDataType(enum.IntEnum):
     # BPF_VOLTAGE_BUFFER = 8       # UART_TX_BPF_VOLTAGE_BUFFER
     SETTINGS = 9                 # UART_TX_SETTINGS
     # ALL_DATA = 10                # UART_TX_ALL_DATA
-    PROFILING = 11               # UART_TX_PROFILING (36 bytes: 9 x uint32_t Big Endian)
+    PROFILING = 11               # UART_TX_PROFILING (40 bytes: 10 x uint32_t Big Endian)
     FFT = 12                     # UART_TX_FFT (FFT_OUTPUT_SIZE x 4 bytes Big Endian uint32)
     FFT_FEATURES = 13            # UART_TX_FFT_FEATURES (84 bytes: 21 필드 Big Endian)
+    MLP_RESULT = 14              # UART_TX_MLP_RESULT (8 bytes: int32 label + float32 prob)
 
-# PROFILING 페이로드 크기: 9개 필드 x 4 bytes = 36 bytes
-# 필드 순서 (펌웨어 uart_thread.c UART_TX_PROFILING case와 동일):
+# PROFILING 페이로드 크기: 11개 필드 x 4 bytes = 44 bytes
+# 필드 순서 (펜웨어 uart_thread.c UART_TX_PROFILING case와 동일):
 #   0: adc_reading_time_us
 #   1: adc_read_buffer_latency_time_us
 #   2: adc_processing_time_us
@@ -131,7 +132,13 @@ class UartDataType(enum.IntEnum):
 #   6: fft_loop_a_time_us
 #   7: fft_loop_b_time_us
 #   8: fft_loop_c_time_us
-RECEIVE_PROFILING_TOTAL_SIZE:int = 36   # 9 x uint32_t
+#   9: float32_mlp_infer_time_us
+#  10: int8_mlp_infer_time_us
+RECEIVE_PROFILING_TOTAL_SIZE:int = 44   # 11 x uint32_t
+
+# MLP_RESULT 페이로드 크기:
+#   float_label(int32 BE) + float_prob(float32 BE) + int_label(int32 BE) + int_prob(float32 BE) = 16 bytes
+RECEIVE_MLP_RESULT_TOTAL_SIZE:int = 16
 
 # FFT 페이로드 크기: (WINDOW_SIZE/2 + 1) 진폭값 x 4 bytes = 516 bytes
 RECEIVE_FFT_TOTAL_SIZE:int = (cfg.WINDOW_SIZE // 2 + 1) * 4  # 516 bytes
@@ -158,7 +165,9 @@ class UartCommandType(enum.IntEnum):
     CMD_SET_LED_DELAY_MS= cfg.CMD_SET_LED_DELAY_MS   # LED 디밍 딜레이 시간 (payload: uint32_t LE, ms)
     CMD_SET_OCCU_TIMEOUT= cfg.CMD_SET_OCCU_TIMEOUT   # 재실 확인 타임아웃 (payload: uint32_t LE, 초)
     CMD_SET_SLEEP_TIME  = cfg.CMD_SET_SLEEP_TIME     # 슬립 시간 (payload: uint32_t LE, 초)
-    CMD_SET_LED_ONOFF   = cfg.CMD_SET_LED_ONOFF      # LED ON/OFF (payload: uint8_t, 0=OFF 1=ON)
+    CMD_SET_LED_ONOFF          = cfg.CMD_SET_LED_ONOFF          # LED ON/OFF (payload: uint8_t, 0=OFF 1=ON)
+    CMD_SET_MLP_FLOAT_ENABLE   = cfg.CMD_SET_MLP_FLOAT_ENABLE   # Float32 MLP ON/OFF (payload: uint8_t)
+    CMD_SET_MLP_INT8_ENABLE    = cfg.CMD_SET_MLP_INT8_ENABLE    # Int8 MLP ON/OFF (payload: uint8_t)
     CMD_GET_SETTINGS    = cfg.CMD_GET_SETTINGS       # 현재 설정값 요청 (payload: 없음)
     CMD_SAVE_NVS        = cfg.CMD_SAVE_NVS           # 현재 설정을 NVS에 저장 (payload: 없음)
     CMD_RESET           = cfg.CMD_RESET              # ESP32 소프트 리셋 (payload: 없음)

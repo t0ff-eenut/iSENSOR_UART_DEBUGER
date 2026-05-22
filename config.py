@@ -4,7 +4,7 @@ WINDOW_POSITION_X:int   = 100
 WINDOW_POSITION_Y:int   = 100
 WINDOW_WIDTH:int        = 2500
 WINDOW_HEIGHT:int       = 550
-LEFT_BOX_WIDTH:int      = 1500
+LEFT_BOX_WIDTH:int      = 1800
 
 
 BACKGROUND_COLOR:str    = "#003D83"
@@ -136,6 +136,8 @@ CMD_SET_LED_DELAY_MS:int      = 0x19  # LED 디밍 딜레이 시간 (payload: ui
 CMD_SET_OCCU_TIMEOUT:int      = 0x1A  # 재실 확인 타임아웃 (payload: uint32_t LE, 초)
 CMD_SET_SLEEP_TIME:int        = 0x1B  # 슬립 시간 (payload: uint32_t LE, 초)
 CMD_SET_LED_ONOFF:int         = 0x1C  # LED ON/OFF (payload: uint8_t, 0=OFF 1=ON)
+CMD_SET_MLP_FLOAT_ENABLE:int  = 0x1D  # Float32 MLP 추론 ON/OFF (payload: uint8_t, 0=OFF 1=ON)
+CMD_SET_MLP_INT8_ENABLE:int   = 0x1E  # Int8 MLP 추론 ON/OFF (payload: uint8_t, 0=OFF 1=ON)
 CMD_GET_SETTINGS:int          = 0x20  # 현재 설정값 요청 (payload: 없음)
 CMD_SAVE_NVS:int              = 0x30  # 현재 설정을 NVS에 저장 (payload: 없음)
 CMD_RESET:int                 = 0xF0  # ESP32 소프트 리셋 (payload: 없음)

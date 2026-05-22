@@ -52,9 +52,17 @@ except ImportError:
 # ── MediaPipe 임포트 (선택적) ─────────────────────────────────────────────────
 try:
     import mediapipe as mp                             # type: ignore
-    _MP_AVAILABLE = True
+    # 0.10+: Tasks API (mp.tasks.vision.PoseLandmarker)
+    # 0.9.x: Solutions API (mp.solutions.pose) — PyPI에 현재 빌드 없음
+    _MP_TASKS_API = (
+        hasattr(mp, "tasks") and
+        hasattr(mp.tasks, "vision") and
+        hasattr(mp.tasks.vision, "PoseLandmarker")
+    )
+    _MP_LEGACY_API = hasattr(mp, "solutions") and hasattr(mp.solutions, "pose")
+    _MP_AVAILABLE  = _MP_TASKS_API or _MP_LEGACY_API
 except ImportError:
-    _MP_AVAILABLE = False
+    _MP_AVAILABLE = _MP_TASKS_API = _MP_LEGACY_API = False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -104,6 +112,9 @@ class WebcamPersonDetector:
         MediaPipe 랜드마크 가시성 기준 (기본 0.6)
     mp_lmk_ratio : float
         MediaPipe 가시 랜드마크 비율 임계값 (기본 0.3)
+    mp_delegate : str
+        MediaPipe 추론 장치 ``"cpu"`` 또는 ``"gpu"`` (기본 ``"cpu"``)
+        GPU 는 Tasks API (mediapipe 0.10+) 에서만 유효, 미지원 시 CPU 폴백
     ui_scale : float
         우상단 상태 박스 텍스트 크기 배율 (기본 1.0)
     """
@@ -122,6 +133,7 @@ class WebcamPersonDetector:
         mp_trk_conf: float = 0.5,
         mp_vis_thr: float = 0.6,
         mp_lmk_ratio: float = 0.3,
+        mp_delegate: str = "cpu",
         ui_scale: float = 1.0,
     ) -> None:
         self._cam_idx      = camera_index
@@ -133,6 +145,7 @@ class WebcamPersonDetector:
         self._mp_trk_conf  = mp_trk_conf
         self._mp_vis_thr   = mp_vis_thr
         self._mp_lmk_ratio = mp_lmk_ratio
+        self._mp_delegate  = mp_delegate.lower()
         self._ui_scale     = ui_scale
 
         self._cap:  Optional[cv2.VideoCapture] = None
@@ -175,7 +188,14 @@ class WebcamPersonDetector:
             self._active_backend = "yolo"
         elif req == DetectionBackend.MEDIAPIPE:
             if not _MP_AVAILABLE:
-                raise ImportError("mediapipe 미설치. pip install mediapipe")
+                try:
+                    import mediapipe as _mp_check  # type: ignore
+                    _ver = getattr(_mp_check, "__version__", "?")
+                    raise ImportError(
+                        f"mediapipe {_ver} 은 지원 가능한 Pose API가 없습니다."
+                    )
+                except ModuleNotFoundError:
+                    raise ImportError("mediapipe 미설치. pip install mediapipe")
             self._init_mediapipe()
             self._active_backend = "mediapipe"
         else:
@@ -288,8 +308,77 @@ class WebcamPersonDetector:
     def backend_name(self) -> str:
         return self._active_backend
 
+    # MediaPipe Pose 표준 연결선 (Tasks API 에서 직접 제공하지 않으므로 하드코딩)
+    _MP_POSE_CONNECTIONS = [
+        (0,1),(1,2),(2,3),(3,7),(0,4),(4,5),(5,6),(6,8),   # 얼굴
+        (9,10),                                              # 입
+        (11,12),                                             # 어깨
+        (11,13),(13,15),(15,17),(15,19),(15,21),(17,19),     # 오른팔
+        (12,14),(14,16),(16,18),(16,20),(16,22),(18,20),     # 왼팔
+        (11,23),(12,24),(23,24),                             # 몸통
+        (23,25),(25,27),(27,29),(27,31),(29,31),             # 오른다리
+        (24,26),(26,28),(28,30),(28,32),(30,32),             # 왼다리
+    ]
+
     # ── MediaPipe 초기화 & 감지 ───────────────────────────────────────────────
     def _init_mediapipe(self) -> None:
+        """Tasks API (0.10+) 우선, Legacy API (0.9.x) 폴백"""
+        if _MP_TASKS_API:
+            self._init_mediapipe_tasks()
+        elif _MP_LEGACY_API:
+            self._init_mediapipe_legacy()
+        else:
+            _ver = getattr(mp, "__version__", "?")
+            raise ImportError(
+                f"mediapipe {_ver} 에서 Pose API를 찾을 수 없습니다."
+            )
+
+    def _init_mediapipe_tasks(self) -> None:
+        """mediapipe 0.10+ Tasks API 초기화 (모델 파일 없으면 자동 다운로드)"""
+        import os, urllib.request
+        _vision_dir = os.path.dirname(os.path.abspath(__file__))
+        _model_path = os.path.join(_vision_dir, "pose_landmarker_lite.task")
+        if not os.path.exists(_model_path):
+            _url = (
+                "https://storage.googleapis.com/mediapipe-models/"
+                "pose_landmarker/pose_landmarker_lite/float16/latest/"
+                "pose_landmarker_lite.task"
+            )
+            print(f"[MediaPipe] 모델 다운로드 중 (약 6 MB): {_url}")
+            urllib.request.urlretrieve(_url, _model_path)
+            print(f"[MediaPipe] 저장 완료: {_model_path}")
+
+        _delegate_enum = (
+            mp.tasks.BaseOptions.Delegate.GPU
+            if self._mp_delegate == "gpu"
+            else mp.tasks.BaseOptions.Delegate.CPU
+        )
+        try:
+            options = mp.tasks.vision.PoseLandmarkerOptions(
+                base_options=mp.tasks.BaseOptions(
+                    model_asset_path=_model_path,
+                    delegate=_delegate_enum,
+                ),
+                running_mode=mp.tasks.vision.RunningMode.IMAGE,
+                num_poses=1,
+                min_pose_detection_confidence=self._mp_det_conf,
+                min_tracking_confidence=self._mp_trk_conf,
+                min_pose_presence_confidence=self._mp_det_conf,
+            )
+            self._pose = mp.tasks.vision.PoseLandmarker.create_from_options(options)
+            _used = "GPU" if self._mp_delegate == "gpu" else "CPU"
+            print(f"[MediaPipe] PoseLandmarker 초기화 완료 (delegate={_used})")
+        except Exception as e:
+            if self._mp_delegate == "gpu":
+                print(f"[MediaPipe] GPU delegate 실패 ({e}), CPU 폴백")
+                self._mp_delegate = "cpu"
+                self._init_mediapipe_tasks()   # CPU 로 재시도
+                return
+            raise
+        self._mp_use_tasks = True
+
+    def _init_mediapipe_legacy(self) -> None:
+        """mediapipe 0.9.x Legacy solutions API 초기화"""
         self._mp_pose  = mp.solutions.pose
         self._mp_draw  = mp.solutions.drawing_utils
         self._mp_style = mp.solutions.drawing_styles
@@ -300,8 +389,52 @@ class WebcamPersonDetector:
             min_detection_confidence=self._mp_det_conf,
             min_tracking_confidence=self._mp_trk_conf,
         )
+        self._mp_use_tasks = False
 
     def _detect_mediapipe(self, frame: np.ndarray) -> DetectionResult:
+        if getattr(self, "_mp_use_tasks", False):
+            return self._detect_mediapipe_tasks(frame)
+        return self._detect_mediapipe_legacy(frame)
+
+    def _detect_mediapipe_tasks(self, frame: np.ndarray) -> DetectionResult:
+        """Tasks API (0.10+) 감지"""
+        rgb     = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_img  = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result  = self._pose.detect(mp_img)
+        overlay = frame.copy()
+
+        if not result.pose_landmarks:
+            self._draw_status(overlay, 0, 0.0, 1.0, "MediaPipe", 0)
+            return DetectionResult(label=0, confidence=0.0,
+                                   frame=overlay, backend="mediapipe", n_persons=0)
+
+        lmks      = result.pose_landmarks[0]   # 첫 번째 사람
+        key_vis   = [lmks[i].visibility for i in self._MP_KEY_LMK if i < len(lmks)]
+        conf      = float(np.mean(key_vis)) if key_vis else 0.0
+        all_vis   = [lm.visibility for lm in lmks]
+        vis_ratio = sum(v >= self._mp_vis_thr for v in all_vis) / max(len(all_vis), 1)
+        label     = 1 if vis_ratio >= self._mp_lmk_ratio else 0
+
+        # 랜드마크 그리기
+        h, w = frame.shape[:2]
+        for start_i, end_i in self._MP_POSE_CONNECTIONS:
+            if start_i < len(lmks) and end_i < len(lmks):
+                sx = int(lmks[start_i].x * w); sy = int(lmks[start_i].y * h)
+                ex = int(lmks[end_i].x * w);   ey = int(lmks[end_i].y * h)
+                cv2.line(overlay, (sx, sy), (ex, ey), (0, 200, 100), 2)
+        for lm in lmks:
+            cx, cy = int(lm.x * w), int(lm.y * h)
+            cv2.circle(overlay, (cx, cy), 4, (0, 255, 0), -1)
+
+        bg_conf = 1.0 - conf
+        self._draw_status(overlay, label, conf, bg_conf, "MediaPipe", int(label))
+        return DetectionResult(label=label, confidence=conf,
+                               frame=overlay, backend="mediapipe",
+                               n_persons=int(label),
+                               human_conf=conf, bg_conf=bg_conf)
+
+    def _detect_mediapipe_legacy(self, frame: np.ndarray) -> DetectionResult:
+        """Legacy solutions API (0.9.x) 감지"""
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         rgb.flags.writeable = False
         res = self._pose.process(rgb)
@@ -309,26 +442,28 @@ class WebcamPersonDetector:
         overlay = frame.copy()
 
         if res.pose_landmarks is None:
-            self._draw_status(overlay, 0, 0.0, "MediaPipe", 0)
+            self._draw_status(overlay, 0, 0.0, 1.0, "MediaPipe", 0)
             return DetectionResult(label=0, confidence=0.0,
                                    frame=overlay, backend="mediapipe", n_persons=0)
 
-        lmks    = res.pose_landmarks.landmark
-        key_vis = [lmks[i].visibility for i in self._MP_KEY_LMK]
-        conf    = float(np.mean(key_vis))
-        all_vis = [lm.visibility for lm in lmks]
+        lmks      = res.pose_landmarks.landmark
+        key_vis   = [lmks[i].visibility for i in self._MP_KEY_LMK]
+        conf      = float(np.mean(key_vis))
+        all_vis   = [lm.visibility for lm in lmks]
         vis_ratio = sum(v >= self._mp_vis_thr for v in all_vis) / len(all_vis)
-        label   = 1 if vis_ratio >= self._mp_lmk_ratio else 0
+        label     = 1 if vis_ratio >= self._mp_lmk_ratio else 0
 
         self._mp_draw.draw_landmarks(
             overlay, res.pose_landmarks,
             self._mp_pose.POSE_CONNECTIONS,
             landmark_drawing_spec=self._mp_style.get_default_pose_landmarks_style(),
         )
-        self._draw_status(overlay, label, conf, "MediaPipe", int(label))
+        bg_conf = 1.0 - conf
+        self._draw_status(overlay, label, conf, bg_conf, "MediaPipe", int(label))
         return DetectionResult(label=label, confidence=conf,
                                frame=overlay, backend="mediapipe",
-                               n_persons=int(label))
+                               n_persons=int(label),
+                               human_conf=conf, bg_conf=bg_conf)
 
     # ── HOG 초기화 & 감지 ────────────────────────────────────────────────────
     def _init_hog(self) -> None:
@@ -342,7 +477,7 @@ class WebcamPersonDetector:
         overlay = frame.copy()
 
         if len(boxes) == 0:
-            self._draw_status(overlay, 0, 0.0, "HOG", 0)
+            self._draw_status(overlay, 0, 0.0, 1.0, "HOG", 0)
             return DetectionResult(label=0, confidence=0.0,
                                    frame=overlay, backend="hog", n_persons=0)
 
@@ -361,7 +496,7 @@ class WebcamPersonDetector:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55,
                         (0, 200, 0), 2, cv2.LINE_AA)
 
-        self._draw_status(overlay, 1, best_conf, "HOG", len(boxes))
+        self._draw_status(overlay, 1, best_conf, 1.0 - best_conf, "HOG", len(boxes))
         return DetectionResult(label=1, confidence=best_conf,
                                frame=overlay, backend="hog",
                                n_persons=len(boxes))

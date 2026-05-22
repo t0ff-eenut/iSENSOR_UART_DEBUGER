@@ -21,6 +21,7 @@ from __future__ import annotations
 import csv
 import glob
 import os
+import re
 import sys
 from typing import Dict, List, Optional, Tuple
 
@@ -34,13 +35,24 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+# matplotlib (선택적) — 없으면 그래프 패널만 숨김
+try:
+    import matplotlib
+    matplotlib.use("QtAgg")
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as _FigCanvas
+    from matplotlib.figure import Figure as _Figure
+    _MPL_OK = True
+except Exception:
+    _MPL_OK = False
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 상수
 # ─────────────────────────────────────────────────────────────────────────────
 # 스크립트가 data_csv/ 안에 있으므로 __file__ 기준 절대 경로 사용
 _SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
 _CSV_DIR       = _SCRIPT_DIR                                      # CSV 파일들이 같은 폴더에 위치
-_SNAP_DIR_DEF  = os.path.join(_SCRIPT_DIR, "snapshots")
+_SNAP_BASE_DIR = os.path.join(_SCRIPT_DIR, "snapshots")   # 세션 서브폴더들의 부모 디렉터리
+_SNAP_DIR_DEF  = _SNAP_BASE_DIR                            # 기본값(서브폴더 미감지 시 fallback)
 _NEARBY_WIN    = 2.0
 _MAX_NEARBY    = 7      # 홀수 권장 (과거 3 + 현재 + 미래 3)
 _THUMB_SIZE    = 220
@@ -65,7 +77,8 @@ _COL_CAM = 2   # cam_label (참조용)
 _COL_LBL = 3   # label (편집 대상, 색상 기준)
 _COL_HM  = 4   # hm_conf
 _COL_BG  = 5   # bg_conf
-_COL_TS  = 6   # timestamp
+_COL_TS      = 6   # timestamp
+_COL_ADC_MAX = 7   # ADC 최댓값
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -94,7 +107,11 @@ def _find_nearby_snapshots(ts: float, snap_dir: str, window: float) -> List[Tupl
     for fpath in glob.glob(os.path.join(snap_dir, "frame_*.jpg")):
         stem = os.path.basename(fpath)[len("frame_"):-len(".jpg")]
         try:
-            fts   = float(stem)
+            # 파일명 형식:
+            #   구형: frame_1748000123.456.jpg  → stem = "1748000123.456"
+            #   신형: frame_20260522_153045_1748000123.456.jpg  → stem = "20260522_153045_1748000123.456"
+            # rsplit('_', 1)[-1] 으로 마지막 underscore 이후 float 추출 → 하위 호환
+            fts   = float(stem.rsplit('_', 1)[-1])
             delta = fts - ts          # 부호 있는 시간 차이
             if abs(delta) <= window:
                 results.append((delta, fpath))
@@ -110,7 +127,7 @@ def _calc_fps(snap_dir: str) -> Optional[float]:
     for fpath in glob.glob(os.path.join(snap_dir, "frame_*.jpg")):
         stem = os.path.basename(fpath)[len("frame_"):-len(".jpg")]
         try:
-            timestamps.append(float(stem))
+            timestamps.append(float(stem.rsplit('_', 1)[-1]))
         except ValueError:
             continue
     if len(timestamps) < 2:
@@ -209,6 +226,10 @@ class CsvLabelEditor(QMainWindow):
         self._ci_cam_bg_conf = -1
         self._ci_timestamp   = -1
         self._ci_label       = -1
+        self._ci_adc_start   = -1   # adc_0 컬럼 인덱스
+        self._ci_adc_end     = -1   # adc_N 다음 인덱스 (exclusive)
+        self._ci_fft_start   = -1   # fft_0 컬럼 인덱스
+        self._ci_fft_end     = -1   # fft_N 다음 인덱스 (exclusive)
 
         self._build_ui()
         self._refresh_csv_list()
@@ -323,9 +344,9 @@ class CsvLabelEditor(QMainWindow):
         lv.addLayout(flt_row)
 
         self._table = QTableWidget()
-        self._table.setColumnCount(7)
+        self._table.setColumnCount(8)
         self._table.setHorizontalHeaderLabels(
-            ["☑", "#", "cam_label", "label", "hm_conf", "bg_conf", "timestamp"]
+            ["☑", "#", "cam_label", "label", "hm_conf", "bg_conf", "timestamp", "ADC Max"]
         )
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -399,9 +420,10 @@ class CsvLabelEditor(QMainWindow):
         self._i_row = _info_pair("행:")
         self._i_cam = _info_pair("cam_label:")
         self._i_lbl = _info_pair("label:")
-        self._i_hm  = _info_pair("hm_conf:")
-        self._i_bg  = _info_pair("bg_conf:")
-        self._i_ts  = _info_pair("timestamp:")
+        self._i_hm      = _info_pair("hm_conf:")
+        self._i_bg      = _info_pair("bg_conf:")
+        self._i_adc_max = _info_pair("ADC Max:")
+        self._i_ts      = _info_pair("timestamp:")
         ig2.addStretch()
         rv.addWidget(info_group)
 
@@ -464,6 +486,24 @@ class CsvLabelEditor(QMainWindow):
         eg.addWidget(hint)
 
         rv.addWidget(edit_group)
+
+        # ── ADC / FFT 그래프 패널 (matplotlib) ─────────────────────────────
+        if _MPL_OK:
+            graph_group = QGroupBox("📈 ADC / FFT 그래프")
+            gg = QVBoxLayout(graph_group)
+            gg.setContentsMargins(4, 4, 4, 4)
+
+            self._mpl_fig = _Figure(figsize=(6, 2.4), facecolor="#1e1e1e")
+            self._mpl_fig.subplots_adjust(left=0.07, right=0.97, top=0.88, bottom=0.18, wspace=0.35)
+            self._ax_adc = self._mpl_fig.add_subplot(1, 2, 1)
+            self._ax_fft = self._mpl_fig.add_subplot(1, 2, 2)
+            self._mpl_canvas = _FigCanvas(self._mpl_fig)
+            self._mpl_canvas.setFixedHeight(210)
+            gg.addWidget(self._mpl_canvas)
+            rv.addWidget(graph_group)
+        else:
+            self._mpl_canvas = None
+
         splitter.addWidget(right)
         splitter.setSizes([430, 1170])
 
@@ -514,12 +554,39 @@ class CsvLabelEditor(QMainWindow):
         self._csv_path = path
         self._modified = False
 
+        # CSV 파일명( svm_data_YYYYMMDD_HHMMSS.csv )에서 날짜시간 추출 →
+        # snapshots/YYYYMMDD_HHMMSS/ 세션 폴더가 있으면 자동 전환
+        _m = re.search(r'(\d{8}_\d{6})', os.path.basename(path))
+        if _m:
+            _candidate = os.path.join(_SNAP_BASE_DIR, _m.group(1))
+            if os.path.isdir(_candidate):
+                self._snap_dir = _candidate
+                self._snap_lbl.setText(_candidate)
+                self._fps_cache.clear()
+
         h = self._headers
         self._ci_cam_label   = h.index("cam_label")   if "cam_label"   in h else -1
         self._ci_cam_hm_conf = h.index("cam_hm_conf") if "cam_hm_conf" in h else -1
         self._ci_cam_bg_conf = h.index("cam_bg_conf") if "cam_bg_conf" in h else -1
         self._ci_timestamp   = h.index("timestamp")   if "timestamp"   in h else -1
         self._ci_label       = h.index("label")       if "label"       in h else -1
+
+        # ADC / FFT 컬럼 범위 탐색
+        self._ci_adc_start = next((i for i, c in enumerate(h) if c == "adc_0"), -1)
+        self._ci_adc_end   = -1
+        if self._ci_adc_start >= 0:
+            i = self._ci_adc_start + 1
+            while i < len(h) and h[i].startswith("adc_"):
+                i += 1
+            self._ci_adc_end = i
+
+        self._ci_fft_start = next((i for i, c in enumerate(h) if c == "fft_0"), -1)
+        self._ci_fft_end   = -1
+        if self._ci_fft_start >= 0:
+            i = self._ci_fft_start + 1
+            while i < len(h) and h[i].startswith("fft_"):
+                i += 1
+            self._ci_fft_end = i
 
         if self._ci_label == -1:
             QMessageBox.warning(self, "경고", "CSV에 'label' 컬럼이 없습니다.")
@@ -584,6 +651,18 @@ class CsvLabelEditor(QMainWindow):
         except (ValueError, TypeError):
             ts_disp = ts_str
 
+        # ADC Max
+        adc_max_disp = "—"
+        if self._ci_adc_start >= 0 and self._ci_adc_end > self._ci_adc_start:
+            try:
+                adc_max_disp = str(int(max(
+                    float(row[i])
+                    for i in range(self._ci_adc_start, self._ci_adc_end)
+                    if i < len(row)
+                )))
+            except (ValueError, TypeError):
+                pass
+
         brush    = QBrush(bg_color)
         black_fg = QBrush(Qt.GlobalColor.black)
 
@@ -599,8 +678,8 @@ class CsvLabelEditor(QMainWindow):
         chk_item.setBackground(brush)
         self._table.setItem(tr, _COL_CHK, chk_item)
 
-        # Col 1~6: 데이터 셀 (검은 폰트)
-        cells = [str(orig_idx + 1), cam_disp, lbl_disp, hm_disp, bg_disp, ts_disp]
+        # Col 1~7: 데이터 셀 (검은 폰트)
+        cells = [str(orig_idx + 1), cam_disp, lbl_disp, hm_disp, bg_disp, ts_disp, adc_max_disp]
         for c_off, text in enumerate(cells):
             item = QTableWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, orig_idx)
@@ -628,7 +707,7 @@ class CsvLabelEditor(QMainWindow):
                 it = self._table.item(tr, _COL_LBL)
                 if it:
                     it.setText(lbl_disp)
-                for c in range(7):
+                for c in range(8):
                     it2 = self._table.item(tr, c)
                     if it2:
                         it2.setBackground(brush)
@@ -768,6 +847,20 @@ class CsvLabelEditor(QMainWindow):
         except (ValueError, TypeError):
             self._i_bg.setText(bg_str)
 
+        # ADC Max
+        if self._ci_adc_start >= 0 and self._ci_adc_end > self._ci_adc_start:
+            try:
+                adc_max = max(
+                    float(row[i])
+                    for i in range(self._ci_adc_start, self._ci_adc_end)
+                    if i < len(row)
+                )
+                self._i_adc_max.setText(str(int(adc_max)))
+            except (ValueError, TypeError):
+                self._i_adc_max.setText("—")
+        else:
+            self._i_adc_max.setText("—")
+
         ts_float: Optional[float] = None
         try:
             ts_float = float(ts_str)
@@ -776,6 +869,8 @@ class CsvLabelEditor(QMainWindow):
             self._i_ts.setText(ts_str)
 
         self._update_images(ts_float)
+        if _MPL_OK and self._mpl_canvas is not None:
+            self._update_graphs(row)
 
     # ─────────────────────────────────────────────────────────────────────────
     # 이미지 갱신 + FPS
@@ -805,6 +900,64 @@ class CsvLabelEditor(QMainWindow):
         if self._snap_dir not in self._fps_cache:
             self._fps_cache[self._snap_dir] = _calc_fps(self._snap_dir)
         return self._fps_cache[self._snap_dir]
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ADC / FFT 그래프 갱신
+    # ─────────────────────────────────────────────────────────────────────────
+    def _update_graphs(self, row: List[str]) -> None:
+        _BG   = "#1e1e1e"
+        _FG   = "#aaaaaa"
+        _TICK = {"colors": _FG, "labelsize": 7}
+
+        for ax in (self._ax_adc, self._ax_fft):
+            ax.clear()
+            ax.set_facecolor(_BG)
+            ax.tick_params(**_TICK)
+            for spine in ax.spines.values():
+                spine.set_color("#444444")
+
+        # ADC 시계열
+        n_adc = 0
+        if self._ci_adc_start >= 0 and self._ci_adc_end > self._ci_adc_start:
+            try:
+                adc_vals = [
+                    float(row[i])
+                    for i in range(self._ci_adc_start, self._ci_adc_end)
+                    if i < len(row)
+                ]
+                n_adc = len(adc_vals)
+                if n_adc:
+                    self._ax_adc.plot(adc_vals, color="#4fc3f7", linewidth=0.8)
+                    self._ax_adc.set_xlim(0, n_adc - 1)
+            except (ValueError, IndexError):
+                pass
+        self._ax_adc.set_title("ADC (time domain)", color=_FG, fontsize=8, pad=3)
+        self._ax_adc.set_xlabel(f"sample (n={n_adc})", color=_FG, fontsize=7)
+        self._ax_adc.set_ylabel("value", color=_FG, fontsize=7)
+
+        # FFT 스펙트럼
+        n_fft = 0
+        if self._ci_fft_start >= 0 and self._ci_fft_end > self._ci_fft_start:
+            try:
+                fft_vals = [
+                    float(row[i])
+                    for i in range(self._ci_fft_start, self._ci_fft_end)
+                    if i < len(row)
+                ]
+                n_fft = len(fft_vals)
+                if n_fft:
+                    self._ax_fft.bar(
+                        range(n_fft), fft_vals,
+                        color="#81c784", width=1.0, linewidth=0,
+                    )
+                    self._ax_fft.set_xlim(0, n_fft)
+            except (ValueError, IndexError):
+                pass
+        self._ax_fft.set_title("FFT (magnitude)", color=_FG, fontsize=8, pad=3)
+        self._ax_fft.set_xlabel(f"bin (n={n_fft})", color=_FG, fontsize=7)
+        self._ax_fft.set_ylabel("magnitude", color=_FG, fontsize=7)
+
+        self._mpl_canvas.draw_idle()
 
     def _on_window_changed(self) -> None:
         if self._current_orig >= 0:

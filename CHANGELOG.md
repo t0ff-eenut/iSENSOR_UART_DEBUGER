@@ -2,6 +2,101 @@
 
 ---
 
+## v1.5.29 — UI 멈춤 원인 제거 (SVM/MLP 연산 주기 최적화 + 스냅샷 상주 워커)
+
+**날짜:** 2026-05-22
+
+### 성능 개선 (`debugger_start.py`)
+
+#### SVM / MLP 그래프 갱신 주기 변경
+- **ADC 블록 → FFT 블록으로 이동**: `event_update_ui()` ADC 수신 블록(~100 Hz)에서 `update_svm_graph()` / `update_svm_pca_graph()` / `update_mlp_visual()` 및 MLP 결과 라벨 갱신 코드 제거
+  - 기존: ADC 100 Hz 마다 sklearn `predict()` 실행 → GIL 점유 → UI 띡띡 멈춤
+  - 변경: FFT 패킷 수신 시에만 갱신 (stride 주기, 보통 수 Hz 이하)
+
+#### `isVisible()` 조기 종료 추가
+- **`update_svm_graph()`** 시작부: `inter_Widget is None or not inter_Widget.isVisible()` 시 즉시 반환
+- **`update_svm_pca_graph()`** 시작부: `inter_Widget is None` 또는 `not inter_Widget.isVisible()` 시 즉시 반환 → 탭이 화면에 없을 때 1600점 역변환 + predict 전체 스킵
+
+#### PCA 경계 격자 크기 축소
+- `update_svm_pca_graph()` 내 `N = 40` → `N = 20` (격자 1600점 → 400점, ~4× 연산량 감소)
+
+#### 스냅샷 저장 파이프라인 개선
+- **기존**: `_save_cam_snapshot()` 호출마다 `threading.Thread(...).start()` → Windows OS 스레드 생성 비용 10 ~ 50 ms 메인 스레드 블로킹
+- **변경**: `value_init()` 시 `_snap_queue: queue.Queue` + `_snap_worker_loop` 상주 데몬 스레드 1개 생성
+  - `_save_cam_snapshot()` → `frame.copy()` + `_snap_queue.put()` 만 수행 (메인 스레드 < 1 ms)
+  - `cv2.imwrite()` 는 상주 워커 스레드가 처리 (메인 스레드 블로킹 없음)
+
+### 코드 정리 (`debugger_start.py`)
+- **인라인 `import time as _t` 제거**: `_t.perf_counter()` → `time.perf_counter()` (최상위 `import time` 재사용)
+- **인라인 `import numpy as np` 제거**: FFT 블록 내 `np.argmax` → `numpy.argmax` (최상위 `import numpy` 재사용)
+
+---
+
+## v1.5.28 — MLP export 모델 선택 UI 추가
+
+**날짜:** 2026-05-15
+
+### 기능 추가 (`AI/mlp/export/export_int8.py`, `export_float32.py`)
+- **모델 선택 UI**: `_find_model()` (현재 `nn_mlp.HIDDEN_LAYERS` 설정과 일치하는 .pt 하나만 탐색) → `_list_models()` + `_select_model()` 로 교체
+  - `models/` 폴더의 모든 `.pt` 파일을 내림차순으로 나열, 번호 입력으로 선택
+  - 각 항목에 paired scaler 존재 여부(`scaler:OK` / `scaler:(fallback)`) 표시
+  - Enter 입력 시 가장 최신 파일 자동 선택; `EOFError`/`KeyboardInterrupt` 안전 처리
+  - 선택 후 `[tag] 선택된 모델: <파일명>` 출력
+  - `.h`/`.c` 헤더의 모델 파일명 주석도 선택된 `mp` 기준으로 동적 기재
+
+---
+
+## v1.5.27 — MLP export 파이프라인 버그 수정 및 안정화
+
+**날짜:** 2026-05-15
+
+### 버그 수정 (`AI/mlp/export/export_int8.py`)
+- **체크포인트 아키텍처 자동 추론**: `OccupancyMLP` 생성 시 `nn_mlp.HIDDEN_LAYERS` 하드코딩 대신 `state_dict`의 2D weight 키에서 `hidden_layers` 역추론
+  - 기존: `mlp_weights.pt` 로드 후 현재 `HIDDEN_LAYERS=[128,64,32]`로 모델 생성 → `load_state_dict` 아키텍처 불일치 RuntimeError
+  - 수정: `net.X.weight` 중 2D 텐서만 정렬 후 출력층 제외 → 실제 구조 자동 복원
+- **캘리브레이션 데이터 선택 UI**: `data_val.csv` 없을 때 `data_csv/` CSV 목록 번호로 제시, Enter 시 최신 파일 자동 선택, `EOFError`/`KeyboardInterrupt` 안전 처리
+- **캘리브레이션 `in_scale` 이상치 대응**: `np.abs(x).max()` → `np.percentile(np.abs(x), 99)` 로 변경
+  - 기존: 이상치 1개가 scale을 36× 확대 → 일반값이 int8 ±10 수준으로만 표현 → 정확도 -18.9%p
+  - 수정: 상위 1% 이상치 제거 후 scale 결정 → int8 정밀도 정상화
+- **`data_csv/` 경로 버그 수정**: fallback 탐색 경로 `ROOT_DIR`(`AI/`) → `os.path.dirname(ROOT_DIR)`(프로젝트 루트)로 수정
+- **UnicodeEncodeError 수정**: 출력 파일 저장 시 `open(path, 'w', encoding='utf-8')` 추가 (cp949 환경에서 em-dash 인코딩 실패 해결)
+
+### 버그 수정 (`AI/mlp/export/export_float32.py`)
+- **체크포인트 아키텍처 자동 추론**: `export_int8.py`와 동일한 방식 적용
+- **UnicodeEncodeError 수정**: 출력 파일 저장 시 `encoding='utf-8'` 추가
+
+---
+
+## v1.5.26 — 카메라 백엔드 선택 UI + mediapipe 호환성 수정
+
+**날짜:** 2026-05-15
+
+### 추가 (`debugger_start.py`)
+- **`_CamSettingsDialog` 백엔드 선택 콤보박스 추가**
+  - `AUTO (YOLO → MediaPipe → HOG)` / `YOLO` / `MediaPipe` / `HOG` 선택 가능
+  - 백엔드가 YOLO 계열이 아닌 경우 YOLO 모델·임계값 행 자동 숨김
+  - `get_settings()` 반환값에 `"backend"` 키 추가
+
+### 변경 (`debugger_start.py`)
+- **`_start_webcam_worker()`**: `backend` 값을 `WebcamWorker`에 전달, 로그에 백엔드 표시
+
+### 변경 (`vision/webcam_worker.py`)
+- **`WebcamWorker.__init__`**: `backend: str = "auto"` 파라미터 추가
+- **`run()`**: 문자열 백엔드 → `DetectionBackend` 열거형 매핑 후 `WebcamPersonDetector`에 전달
+- **`detector.open()` 예외 처리**: `AttributeError` 추가 (mediapipe API 불일치 시 GUI 오류 메시지 표시)
+
+### 버그 수정 (`vision/webcam_person_detector.py`)
+- **`_MP_AVAILABLE` 체크 강화**: mediapipe 설치 여부뿐 아니라 `mp.solutions.pose` 존재 여부까지 검사
+  - mediapipe 0.10+ 일부 빌드에서 `solutions` API 제거 → 해당 버전에서 `_MP_AVAILABLE = False` 처리
+- **`_init_mediapipe()`**: `mp.solutions` 미지원 시 명확한 `ImportError` 메시지 발생
+
+### 의존성 (`requirements.txt`)
+- mediapipe 0.9.x 다운그레이드 시도 → PyPI에 Python 3.11+ 전용 빌드 불존재로 실패
+- mediapipe 0.10+ 유지 (solutions API 제거됨) → MediaPipe 백엔드는 실질적 비활성화, YOLO/HOG 백엔드 사용 권장
+- 코드에서 MediaPipe 선택 시 명확한 오류 메시지 표시로 대체
+
+---
+
 ## v1.5.25 — CSV cam_label 편집기 신규 모듈
 
 **날짜:** 2026-05-14

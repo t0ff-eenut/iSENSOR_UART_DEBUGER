@@ -27,7 +27,7 @@
   "cam": {
     "camera_index": 0,
     "yolo_model": "yolov9e.pt",
-    "yolo_conf": 0.3,
+    "yolo_conf": 0.2,
     "smooth_window": 10,
     "smooth_thresh": 2,
     "cam_max_age": 0.2
@@ -47,6 +47,7 @@
     "feature_mode": 0,
     "scaler": 0,
     "lr_patience": 150,
-    "lr_factor": "0.8"
+    "lr_factor": "0.8",
+    "hist_window": 50
   }
 }
